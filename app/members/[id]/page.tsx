@@ -37,6 +37,19 @@ const WATER_SKILLS = [
   { key: "endurance", label: "지구력" },
 ];
 
+const STATUS_OPTIONS = [
+  { key: "waiting", label: "⏳ 대기중", bgColor: "bg-yellow-100", textColor: "text-yellow-700" },
+  { key: "trial_scheduled", label: "📅 체험예정", bgColor: "bg-blue-100", textColor: "text-blue-700" },
+  { key: "trial_done", label: "✅ 체험완료", bgColor: "bg-purple-100", textColor: "text-purple-700" },
+  { key: "regular", label: "🎯 정규등록", bgColor: "bg-green-100", textColor: "text-green-700" },
+  { key: "paused", label: "⏸️ 보류", bgColor: "bg-gray-100", textColor: "text-gray-700" },
+  { key: "ended", label: "🛑 대기종료", bgColor: "bg-red-100", textColor: "text-red-700" },
+];
+
+function getStatusLabel(status: string | null) {
+  return STATUS_OPTIONS.find((s) => s.key === status)?.label || status || "regular";
+}
+
 const ACTIVITY_LABELS = [
   "부력적응", "호흡법", "균형운동", "스트레칭", "수중보행",
   "근력강화", "관절가동", "이완운동", "감각통합", "협응훈련",
@@ -56,6 +69,7 @@ export default function MemberDetail() {
   const [newMemo, setNewMemo] = useState("");
   const [saveStatus, setSaveStatus] = useState<string>("");
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [memberMemo, setMemberMemo] = useState<string>("");
 
   // AI 카톡 모달
   const [showAIModal, setShowAIModal] = useState(false);
@@ -72,9 +86,26 @@ export default function MemberDetail() {
       if (m?.extra?.water_skills) setSkills(m.extra.water_skills);
       if (m?.extra?.pain_map) setPainMap(m.extra.pain_map);
       setSessions(m?.extra?.sessions || []);
+      setMemberMemo(m?.memo || "");
       setLoading(false);
     })();
   }, [params]);
+
+  async function saveMemberMemo() {
+    const { error } = await supabase.from("members").update({ memo: memberMemo }).eq("id", member.id);
+    setSaveStatus(error ? "❌ 메모 저장 실패" : "✅ 메모 저장됨");
+    setTimeout(() => setSaveStatus(""), 2500);
+    if (!error) setMember({ ...member, memo: memberMemo });
+  }
+
+  async function updateMemberStatus(newStatus: string) {
+    const { error } = await supabase.from("members").update({ status: newStatus }).eq("id", member.id);
+    if (!error) {
+      setMember({ ...member, status: newStatus });
+      setSaveStatus("✅ 상태 변경됨");
+      setTimeout(() => setSaveStatus(""), 2500);
+    }
+  }
 
   async function deleteMember() {
     if (!confirm(`정말 '${member.name}'님을 삭제하시겠습니까?\n(복구 가능한 soft delete입니다)`)) return;
@@ -260,21 +291,67 @@ export default function MemberDetail() {
 
       <div className="bg-white rounded-2xl shadow-md border border-aqu-100 p-6">
         {tab === "info" && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <InfoRow label="진단명" value={member.extra?.diagnosis || "-"} />
-            <InfoRow label="생년월일" value={member.birth || "-"} />
-            <InfoRow label="유입경로" value={member.source || "-"} />
-            <InfoRow label="상태" value={member.status || "regular"} highlight />
-            {member.member_type === "adult" && (
-              <>
-                <InfoRow label="통증부위" value={member.extra?.pain_area || "-"} />
-                <InfoRow label="통증척도" value={String(member.extra?.pain_scale || "-")} />
-                <InfoRow label="기저질환" value={member.extra?.medical_history || "-"} />
-              </>
-            )}
-            {member.member_type === "child" && (
-              <InfoRow label="특이사항" value={member.extra?.special_notes || member.memo || "-"} />
-            )}
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <InfoRow label="진단명" value={member.extra?.diagnosis || "-"} />
+              <InfoRow label="생년월일" value={member.birth || "-"} />
+              <InfoRow label="유입경로" value={member.source || "-"} />
+              <InfoRow label="상태" value={getStatusLabel(member.status)} highlight />
+              {member.member_type === "adult" && (
+                <>
+                  <InfoRow label="통증부위" value={member.extra?.pain_area || "-"} />
+                  <InfoRow label="통증척도" value={String(member.extra?.pain_scale || "-")} />
+                  <InfoRow label="기저질환" value={member.extra?.medical_history || "-"} />
+                </>
+              )}
+              {member.member_type === "child" && (
+                <InfoRow label="특이사항" value={member.extra?.special_notes || "-"} />
+              )}
+            </div>
+
+            {/* 회원 메모 섹션 */}
+            <div className="border-t border-aqu-100 pt-4">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-aqu-900 flex items-center gap-1">
+                  📝 회원 메모
+                </label>
+                <span className="text-xs text-gray-400">{(memberMemo || "").length}자</span>
+              </div>
+              <textarea
+                value={memberMemo}
+                onChange={(e) => setMemberMemo(e.target.value)}
+                rows={5}
+                placeholder="이 회원에 대한 자유 메모를 남기세요.
+
+예시:
+- 매주 화요일 15시 정기 방문
+- 물을 무서워하니 천천히 진행
+- 조부모님이 데려오심 (대기실 있음)
+- 특정 코치 선호"
+                className="w-full p-3 rounded-lg border border-aqu-200 text-sm bg-yellow-50/30"
+              />
+              <button onClick={saveMemberMemo}
+                className="mt-2 px-4 py-2 bg-aqu-600 text-white rounded-lg text-sm hover:bg-aqu-700 flex items-center gap-1">
+                <Save className="w-4 h-4" /> 메모 저장
+              </button>
+            </div>
+
+            {/* 상태 변경 */}
+            <div className="border-t border-aqu-100 pt-4">
+              <label className="text-sm font-medium text-aqu-900 mb-2 block">🎯 회원 상태 변경</label>
+              <div className="flex flex-wrap gap-2">
+                {STATUS_OPTIONS.map((s) => (
+                  <button key={s.key} onClick={() => updateMemberStatus(s.key)}
+                    className={`px-3 py-1.5 rounded-lg text-xs ${
+                      (member.status || "regular") === s.key
+                        ? `${s.bgColor} ${s.textColor} border-2 border-current font-medium`
+                        : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"
+                    }`}>
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 

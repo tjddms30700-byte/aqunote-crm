@@ -3,7 +3,9 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Search, Waves, ChevronRight, Plus, X, Save, UserPlus } from "lucide-react";
+import {
+  Search, Waves, ChevronRight, Plus, X, Save, UserPlus, MessageSquare
+} from "lucide-react";
 
 type Member = {
   id: string;
@@ -18,40 +20,85 @@ type Member = {
   memo: string | null;
 };
 
+const STATUS_OPTIONS = [
+  { key: "waiting", label: "⏳ 대기중", bgColor: "bg-yellow-100", textColor: "text-yellow-700" },
+  { key: "trial_scheduled", label: "📅 체험예정", bgColor: "bg-blue-100", textColor: "text-blue-700" },
+  { key: "trial_done", label: "✅ 체험완료", bgColor: "bg-purple-100", textColor: "text-purple-700" },
+  { key: "regular", label: "🎯 정규등록", bgColor: "bg-green-100", textColor: "text-green-700" },
+  { key: "paused", label: "⏸️ 보류", bgColor: "bg-gray-100", textColor: "text-gray-700" },
+  { key: "ended", label: "🛑 대기종료", bgColor: "bg-red-100", textColor: "text-red-700" },
+];
+
+function getStatusInfo(status: string | null) {
+  return STATUS_OPTIONS.find((s) => s.key === status) || STATUS_OPTIONS.find((s) => s.key === "regular")!;
+}
+
 export default function MembersPage() {
   const router = useRouter();
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "child" | "adult">("all");
   const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [showAddModal, setShowAddModal] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // 메모 편집 모달
+  const [memoMember, setMemoMember] = useState<Member | null>(null);
+  const [memoText, setMemoText] = useState("");
+  const [memoSaving, setMemoSaving] = useState(false);
+
+  // 상태 드롭다운 열림 여부
+  const [openStatusId, setOpenStatusId] = useState<string | null>(null);
+
   const [newMember, setNewMember] = useState<any>({
-    member_type: "child",
-    name: "",
-    birth: "",
-    gender: "",
-    phone: "",
-    guardian_name: "",
-    guardian_relation: "모",
-    address: "",
-    diagnosis: "",
-    special_notes: "",
-    pain_area: "",
-    pain_scale: 0,
-    medical_history: "",
-    source: "검색",
-    status: "waiting",
+    member_type: "child", name: "", birth: "", gender: "", phone: "",
+    guardian_name: "", guardian_relation: "모", address: "",
+    diagnosis: "", special_notes: "", pain_area: "", pain_scale: 0,
+    medical_history: "", source: "검색", status: "waiting",
   });
 
   useEffect(() => { loadMembers(); }, []);
 
   async function loadMembers() {
     setLoading(true);
-    const { data, error } = await supabase.from("members").select("*").is("deleted_at", null).order("name", { ascending: true });
+    const { data, error } = await supabase
+      .from("members")
+      .select("*")
+      .is("deleted_at", null)
+      .order("name", { ascending: true });
     if (!error && data) setMembers(data as Member[]);
     setLoading(false);
+  }
+
+  async function updateStatus(memberId: string, newStatus: string) {
+    setOpenStatusId(null);
+    // Optimistic update
+    setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, status: newStatus } : m)));
+    const { error } = await supabase.from("members").update({ status: newStatus }).eq("id", memberId);
+    if (error) {
+      alert("상태 변경 실패: " + error.message);
+      loadMembers(); // rollback
+    }
+  }
+
+  function openMemoModal(m: Member) {
+    setMemoMember(m);
+    setMemoText(m.memo || "");
+  }
+
+  async function saveMemo() {
+    if (!memoMember) return;
+    setMemoSaving(true);
+    const { error } = await supabase.from("members").update({ memo: memoText }).eq("id", memoMember.id);
+    if (!error) {
+      setMembers((prev) => prev.map((m) => (m.id === memoMember.id ? { ...m, memo: memoText } : m)));
+      setMemoMember(null);
+      setMemoText("");
+    } else {
+      alert("메모 저장 실패: " + error.message);
+    }
+    setMemoSaving(false);
   }
 
   async function addMember() {
@@ -88,14 +135,12 @@ export default function MembersPage() {
       const { data, error } = await supabase.from("members").insert(payload).select().single();
       if (!error && data) {
         setShowAddModal(false);
-        // Reset form
         setNewMember({
           member_type: "child", name: "", birth: "", gender: "", phone: "",
           guardian_name: "", guardian_relation: "모", address: "",
           diagnosis: "", special_notes: "", pain_area: "", pain_scale: 0,
           medical_history: "", source: "검색", status: "waiting",
         });
-        // 새 회원 상세로 이동
         router.push(`/members/${data.id}`);
       } else {
         alert("저장 실패: " + (error?.message || "알 수 없는 오류"));
@@ -107,6 +152,7 @@ export default function MembersPage() {
 
   const filtered = members
     .filter((m) => (filter === "all" ? true : m.member_type === filter))
+    .filter((m) => (statusFilter === "all" ? true : (m.status || "regular") === statusFilter))
     .filter((m) =>
       query
         ? (m.name || "").toLowerCase().includes(query.toLowerCase()) ||
@@ -123,17 +169,16 @@ export default function MembersPage() {
           <h1 className="text-2xl md:text-3xl font-bold text-aqu-900">👥 회원 관리</h1>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="px-3 py-1.5 bg-aqu-600 text-white rounded-lg text-sm flex items-center gap-1 hover:bg-aqu-700"
-          >
+          <button onClick={() => setShowAddModal(true)}
+            className="px-3 py-1.5 bg-aqu-600 text-white rounded-lg text-sm flex items-center gap-1 hover:bg-aqu-700">
             <UserPlus className="w-4 h-4" /> 신규 회원
           </button>
           <Link href="/" className="text-sm text-aqu-600 hover:underline">← 홈</Link>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 items-center mb-4">
+      {/* Filter row 1: 아동/성인 + 검색 */}
+      <div className="flex flex-wrap gap-2 items-center mb-3">
         <button onClick={() => setFilter("all")}
           className={`px-4 py-2 rounded-lg text-sm ${filter === "all" ? "bg-aqu-600 text-white" : "bg-white border border-aqu-200 text-aqu-700"}`}>
           전체 ({members.length})
@@ -157,6 +202,26 @@ export default function MembersPage() {
         </div>
       </div>
 
+      {/* Filter row 2: 상태별 필터 */}
+      <div className="flex flex-wrap gap-1 items-center mb-4 text-xs">
+        <span className="text-gray-500 mr-1">상태:</span>
+        <button onClick={() => setStatusFilter("all")}
+          className={`px-2 py-1 rounded ${statusFilter === "all" ? "bg-aqu-600 text-white" : "bg-white border border-aqu-200"}`}>
+          전체
+        </button>
+        {STATUS_OPTIONS.map((s) => {
+          const count = members.filter((m) => (m.status || "regular") === s.key).length;
+          if (count === 0) return null;
+          return (
+            <button key={s.key} onClick={() => setStatusFilter(s.key)}
+              className={`px-2 py-1 rounded ${statusFilter === s.key ? `${s.bgColor} ${s.textColor} border border-current` : "bg-white border border-aqu-200"}`}>
+              {s.label} ({count})
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Table */}
       <div className="bg-white rounded-2xl shadow-md border border-aqu-100 overflow-hidden">
         {loading ? (
           <div className="p-10 text-center text-gray-400">불러오는 중…</div>
@@ -172,30 +237,88 @@ export default function MembersPage() {
                   <th className="text-left px-4 py-3 hidden md:table-cell">보호자</th>
                   <th className="text-left px-4 py-3 hidden md:table-cell">연락처</th>
                   <th className="text-left px-4 py-3 hidden lg:table-cell">진단명</th>
-                  <th className="text-left px-4 py-3">상태</th>
+                  <th className="text-left px-4 py-3">상태 (클릭변경)</th>
+                  <th className="text-center px-2 py-3">메모</th>
                   <th className="w-8"></th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((m) => (
-                  <tr key={m.id}
-                    className="border-t border-aqu-100 hover:bg-aqu-50/50 cursor-pointer"
-                    onClick={() => router.push(`/members/${m.id}`)}>
-                    <td className="px-4 py-3 font-medium text-aqu-900">{m.name}</td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-0.5 rounded text-xs ${m.member_type === "child" ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"}`}>
-                        {m.member_type === "child" ? "아동" : "성인"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600 hidden md:table-cell">{m.guardian_name || "-"}</td>
-                    <td className="px-4 py-3 text-gray-600 hidden md:table-cell">{m.phone || "-"}</td>
-                    <td className="px-4 py-3 text-gray-500 text-xs hidden lg:table-cell">{m.extra?.diagnosis || "-"}</td>
-                    <td className="px-4 py-3">
-                      <span className="px-2 py-0.5 rounded text-xs bg-green-100 text-green-700">{m.status || "regular"}</span>
-                    </td>
-                    <td className="px-2 py-3 text-gray-400"><ChevronRight className="w-4 h-4" /></td>
-                  </tr>
-                ))}
+                {filtered.map((m) => {
+                  const statusInfo = getStatusInfo(m.status);
+                  return (
+                    <tr key={m.id} className="border-t border-aqu-100 hover:bg-aqu-50/50">
+                      <td className="px-4 py-3 font-medium text-aqu-900 cursor-pointer"
+                        onClick={() => router.push(`/members/${m.id}`)}>
+                        {m.name}
+                      </td>
+                      <td className="px-4 py-3 cursor-pointer"
+                        onClick={() => router.push(`/members/${m.id}`)}>
+                        <span className={`px-2 py-0.5 rounded text-xs ${m.member_type === "child" ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"}`}>
+                          {m.member_type === "child" ? "아동" : "성인"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-600 hidden md:table-cell cursor-pointer"
+                        onClick={() => router.push(`/members/${m.id}`)}>
+                        {m.guardian_name || "-"}
+                      </td>
+                      <td className="px-4 py-3 text-gray-600 hidden md:table-cell cursor-pointer"
+                        onClick={() => router.push(`/members/${m.id}`)}>
+                        {m.phone || "-"}
+                      </td>
+                      <td className="px-4 py-3 text-gray-500 text-xs hidden lg:table-cell cursor-pointer"
+                        onClick={() => router.push(`/members/${m.id}`)}>
+                        {m.extra?.diagnosis || "-"}
+                      </td>
+                      {/* 상태 드롭다운 */}
+                      <td className="px-4 py-3 relative">
+                        <button
+                          onClick={() => setOpenStatusId(openStatusId === m.id ? null : m.id)}
+                          className={`px-2 py-1 rounded text-xs ${statusInfo.bgColor} ${statusInfo.textColor} hover:opacity-80 flex items-center gap-1`}
+                        >
+                          {statusInfo.label}
+                          <span className="text-[10px] opacity-60">▼</span>
+                        </button>
+                        {openStatusId === m.id && (
+                          <>
+                            <div
+                              className="fixed inset-0 z-40"
+                              onClick={() => setOpenStatusId(null)}
+                            />
+                            <div className="absolute z-50 mt-1 left-4 bg-white border border-aqu-200 rounded-lg shadow-lg overflow-hidden min-w-[130px]">
+                              {STATUS_OPTIONS.map((s) => (
+                                <button
+                                  key={s.key}
+                                  onClick={() => updateStatus(m.id, s.key)}
+                                  className={`w-full text-left px-3 py-2 text-xs hover:bg-aqu-50 ${
+                                    (m.status || "regular") === s.key ? "bg-aqu-50 font-medium" : ""
+                                  }`}
+                                >
+                                  {s.label}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </td>
+                      {/* 메모 아이콘 */}
+                      <td className="px-2 py-3 text-center">
+                        <button
+                          onClick={() => openMemoModal(m)}
+                          title={m.memo || "메모 추가"}
+                          className={`p-1.5 rounded-lg transition ${
+                            m.memo ? "bg-yellow-50 text-yellow-600 hover:bg-yellow-100" : "text-gray-300 hover:text-aqu-600 hover:bg-aqu-50"
+                          }`}
+                        >
+                          <MessageSquare className="w-4 h-4" />
+                        </button>
+                      </td>
+                      <td className="px-2 py-3 text-gray-400 cursor-pointer"
+                        onClick={() => router.push(`/members/${m.id}`)}>
+                        <ChevronRight className="w-4 h-4" />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -203,10 +326,58 @@ export default function MembersPage() {
       </div>
 
       <div className="mt-4 text-xs text-gray-400 text-right">
-        총 {filtered.length}명 · 이름 클릭하여 상세보기 · <b>🆕 신규 회원</b> 버튼으로 추가
+        총 {filtered.length}명 · 상태 배지 클릭으로 즉시 변경 · 💬 아이콘으로 메모 편집
       </div>
 
-      {/* Add Member Modal */}
+      {/* Memo Modal */}
+      {memoMember && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setMemoMember(null)}>
+          <div className="bg-white rounded-2xl p-5 md:p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-aqu-900 flex items-center gap-1">
+                <MessageSquare className="w-5 h-5" /> {memoMember.name}님 메모
+              </h3>
+              <button onClick={() => setMemoMember(null)}><X className="w-5 h-5 text-gray-500" /></button>
+            </div>
+            <div className="mb-3 flex items-center gap-2 text-xs text-gray-500">
+              <span className={`px-2 py-0.5 rounded ${memoMember.member_type === "child" ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"}`}>
+                {memoMember.member_type === "child" ? "아동" : "성인"}
+              </span>
+              {memoMember.guardian_name && <span>보호자: {memoMember.guardian_name}</span>}
+              {memoMember.phone && <span>{memoMember.phone}</span>}
+            </div>
+            <textarea
+              value={memoText}
+              onChange={(e) => setMemoText(e.target.value)}
+              placeholder="회원에 대한 메모를 자유롭게 남기세요.
+
+예시:
+- 매주 화요일 15시 정기 방문
+- 물을 무서워하니 천천히 진행
+- 조부모님이 데려오시고 대기실에서 기다림
+- 특정 코치 선호 (김코치)
+- 결제 방식: 매월 자동이체
+- 컨디션 관찰 필요"
+              rows={12}
+              className="w-full p-3 rounded-lg border border-aqu-200 text-sm resize-none"
+              autoFocus
+            />
+            <div className="text-xs text-gray-400 mt-1 mb-3">{memoText.length}자</div>
+            <div className="flex gap-2">
+              <button onClick={() => setMemoMember(null)}
+                className="flex-1 py-2.5 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200">
+                취소
+              </button>
+              <button onClick={saveMemo} disabled={memoSaving}
+                className="flex-1 py-2.5 bg-aqu-600 text-white rounded-lg text-sm font-medium hover:bg-aqu-700 disabled:bg-gray-300 flex items-center justify-center gap-1">
+                <Save className="w-4 h-4" /> {memoSaving ? "저장중..." : "저장"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Member Modal (기존과 동일) */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowAddModal(false)}>
           <div className="bg-white rounded-2xl p-5 md:p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -217,7 +388,6 @@ export default function MembersPage() {
               <button onClick={() => setShowAddModal(false)}><X className="w-5 h-5 text-gray-500" /></button>
             </div>
 
-            {/* 아동/성인 선택 */}
             <div className="mb-4">
               <label className="text-xs text-gray-600">구분</label>
               <div className="flex gap-2 mt-1">
@@ -233,10 +403,9 @@ export default function MembersPage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Field label="이름 *" value={newMember.name} onChange={(v) => setNewMember({ ...newMember, name: v })} placeholder="김철수" />
-              <Field label="연락처" value={newMember.phone} onChange={(v) => setNewMember({ ...newMember, phone: v })} placeholder="010-1234-5678" />
-              <Field label="생년월일" type="date" value={newMember.birth} onChange={(v) => setNewMember({ ...newMember, birth: v })} />
-
+              <Field label="이름 *" value={newMember.name} onChange={(v: string) => setNewMember({ ...newMember, name: v })} placeholder="김철수" />
+              <Field label="연락처" value={newMember.phone} onChange={(v: string) => setNewMember({ ...newMember, phone: v })} placeholder="010-1234-5678" />
+              <Field label="생년월일" type="date" value={newMember.birth} onChange={(v: string) => setNewMember({ ...newMember, birth: v })} />
               <div>
                 <label className="text-xs text-gray-600">성별</label>
                 <select value={newMember.gender} onChange={(e) => setNewMember({ ...newMember, gender: e.target.value })}
@@ -248,10 +417,9 @@ export default function MembersPage() {
               </div>
             </div>
 
-            {/* 아동 전용 */}
             {newMember.member_type === "child" && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-                <Field label="보호자 성함" value={newMember.guardian_name} onChange={(v) => setNewMember({ ...newMember, guardian_name: v })} placeholder="김보호" />
+                <Field label="보호자 성함" value={newMember.guardian_name} onChange={(v: string) => setNewMember({ ...newMember, guardian_name: v })} placeholder="김보호" />
                 <div>
                   <label className="text-xs text-gray-600">보호자 관계</label>
                   <select value={newMember.guardian_relation} onChange={(e) => setNewMember({ ...newMember, guardian_relation: e.target.value })}
@@ -263,14 +431,13 @@ export default function MembersPage() {
             )}
 
             <div className="mt-3">
-              <Field label="주소" value={newMember.address} onChange={(v) => setNewMember({ ...newMember, address: v })} placeholder="서울시 송파구..." />
+              <Field label="주소" value={newMember.address} onChange={(v: string) => setNewMember({ ...newMember, address: v })} placeholder="서울시 송파구..." />
             </div>
 
             <div className="mt-3">
-              <Field label="진단명" value={newMember.diagnosis} onChange={(v) => setNewMember({ ...newMember, diagnosis: v })} placeholder="자폐성장애 / 뇌병변 / 없음 등" />
+              <Field label="진단명" value={newMember.diagnosis} onChange={(v: string) => setNewMember({ ...newMember, diagnosis: v })} placeholder="자폐성장애 / 뇌병변 / 없음 등" />
             </div>
 
-            {/* 아동: 특이사항 / 성인: 통증정보 */}
             {newMember.member_type === "child" ? (
               <div className="mt-3">
                 <label className="text-xs text-gray-600">특이사항</label>
@@ -280,7 +447,7 @@ export default function MembersPage() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-                <Field label="통증 부위" value={newMember.pain_area} onChange={(v) => setNewMember({ ...newMember, pain_area: v })} placeholder="목·허리·무릎" />
+                <Field label="통증 부위" value={newMember.pain_area} onChange={(v: string) => setNewMember({ ...newMember, pain_area: v })} placeholder="목·허리·무릎" />
                 <div>
                   <label className="text-xs text-gray-600">통증 척도 (0-10)</label>
                   <input type="number" min={0} max={10} value={newMember.pain_scale}
@@ -308,11 +475,9 @@ export default function MembersPage() {
                 <label className="text-xs text-gray-600">상태</label>
                 <select value={newMember.status} onChange={(e) => setNewMember({ ...newMember, status: e.target.value })}
                   className="w-full mt-1 px-3 py-2 rounded-lg border border-aqu-200 text-sm">
-                  <option value="waiting">⏳ 대기중</option>
-                  <option value="trial_scheduled">📅 체험예정</option>
-                  <option value="trial_done">✅ 체험완료</option>
-                  <option value="regular">🎯 정규등록</option>
-                  <option value="paused">⏸️ 보류</option>
+                  {STATUS_OPTIONS.map((s) => (
+                    <option key={s.key} value={s.key}>{s.label}</option>
+                  ))}
                 </select>
               </div>
             </div>
