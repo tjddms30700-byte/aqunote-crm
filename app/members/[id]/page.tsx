@@ -6,8 +6,17 @@ import Link from "next/link";
 import {
   Waves, ArrowLeft, User, Phone, MapPin, Calendar, AlertCircle,
   Activity, Award, MessageCircle, Save, Plus, Star, Trash2, Edit,
-  Sparkles, Send, X, Copy, Check, Trash
+  Sparkles, Send, X, Copy, Check, Trash, FileText, Upload, Download
 } from "lucide-react";
+
+const DOC_CATEGORIES = [
+  { value: "receipt",   label: "🧾 영수증" },
+  { value: "contract",  label: "📝 계약서" },
+  { value: "diagnosis", label: "🏥 진단서" },
+  { value: "photo",     label: "📷 사진" },
+  { value: "other",     label: "📎 기타" },
+];
+function docLabel(c: string) { return DOC_CATEGORIES.find(x => x.value === c)?.label || c; }
 
 type Member = any;
 
@@ -60,7 +69,61 @@ export default function MemberDetail() {
   const router = useRouter();
   const [member, setMember] = useState<Member | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"info" | "assessment" | "bodymap" | "sessions">("info");
+  const [tab, setTab] = useState<"info" | "assessment" | "bodymap" | "sessions" | "documents">("info");
+
+  // Documents state
+  const [docs, setDocs] = useState<any[]>([]);
+  const [docCat, setDocCat] = useState("receipt");
+  const [docDesc, setDocDesc] = useState("");
+  const [docUploading, setDocUploading] = useState(false);
+
+  async function loadDocs() {
+    if (!id) return;
+    const { data } = await supabase.from("documents").select("*")
+      .eq("member_id", id).order("created_at", { ascending: false });
+    setDocs(data || []);
+  }
+  useEffect(() => { if (tab === "documents") loadDocs(); }, [tab, id]);
+
+  async function uploadDoc(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !id) return;
+    setDocUploading(true);
+    try {
+      const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
+      const safeName = file.name.replace(/[^a-zA-Z0-9.\-_가-힣]/g, "_");
+      const filePath = `${id}/${Date.now()}_${safeName}`;
+      const { error: upErr } = await supabase.storage.from("documents").upload(filePath, file);
+      if (upErr) throw upErr;
+      const { error: dbErr } = await supabase.from("documents").insert({
+        org_id: orgId, member_id: id, category: docCat,
+        filename: file.name, file_path: filePath, file_size: file.size,
+        mime_type: file.type, description: docDesc || null,
+      });
+      if (dbErr) throw dbErr;
+      setDocDesc("");
+      (e.target as HTMLInputElement).value = "";
+      await loadDocs();
+      alert("✅ 업로드 완료");
+    } catch (err: any) {
+      alert("업로드 실패: " + err.message);
+    } finally {
+      setDocUploading(false);
+    }
+  }
+
+  async function downloadDoc(d: any) {
+    const { data, error } = await supabase.storage.from("documents").createSignedUrl(d.file_path, 60);
+    if (error) return alert("실패: " + error.message);
+    window.open(data.signedUrl, "_blank");
+  }
+
+  async function deleteDoc(d: any) {
+    if (!confirm(`"${d.filename}" 삭제?`)) return;
+    await supabase.storage.from("documents").remove([d.file_path]);
+    await supabase.from("documents").delete().eq("id", d.id);
+    await loadDocs();
+  }
 
   const [skills, setSkills] = useState<Record<string, number>>({});
   const [painMap, setPainMap] = useState<Record<string, number>>({});
@@ -281,6 +344,7 @@ export default function MemberDetail() {
           { k: "assessment", label: "🩺 수중기능평가" },
           { k: "bodymap", label: "🗺️ Body Map" },
           { k: "sessions", label: "📝 세션기록" },
+          { k: "documents", label: "📄 문서" },
         ].map((t) => (
           <button key={t.k} onClick={() => setTab(t.k as any)}
             className={`px-4 py-2 rounded-lg text-sm ${tab === t.k ? "bg-aqu-600 text-white" : "bg-white border border-aqu-200 text-aqu-700 hover:bg-aqu-50"}`}>
@@ -517,6 +581,64 @@ export default function MemberDetail() {
                 ))
               )}
             </div>
+          </div>
+        )}
+
+        {tab === "documents" && (
+          <div className="space-y-4">
+            <h3 className="text-lg font-bold text-aqu-900 flex items-center gap-2">
+              <FileText className="w-5 h-5" /> {member?.name} 님의 문서
+            </h3>
+
+            {/* Upload */}
+            <div className="bg-aqu-50/50 border border-aqu-100 rounded-xl p-4">
+              <div className="flex flex-wrap gap-2 mb-3">
+                <select value={docCat} onChange={e => setDocCat(e.target.value)}
+                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none">
+                  {DOC_CATEGORIES.map(c => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
+                  ))}
+                </select>
+                <input type="text" value={docDesc} onChange={e => setDocDesc(e.target.value)}
+                  placeholder="설명 (선택)"
+                  className="flex-1 min-w-[150px] px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none" />
+              </div>
+              <input type="file" onChange={uploadDoc} disabled={docUploading}
+                className="w-full text-sm file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:bg-aqu-600 file:text-white file:hover:bg-aqu-700 file:cursor-pointer disabled:opacity-50" />
+              {docUploading && <div className="mt-2 text-xs text-aqu-600">📤 업로드 진행 중...</div>}
+              <p className="text-[11px] text-gray-500 mt-2">영수증, 계약서, 진단서 등 파일을 이 회원에 자동연결됩니다.</p>
+            </div>
+
+            {/* Doc list */}
+            {docs.length === 0 ? (
+              <div className="text-center py-10 text-gray-400 border-2 border-dashed border-gray-200 rounded-xl">
+                <FileText className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                업로드된 문서가 없습니다
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {docs.map(d => (
+                  <div key={d.id} className="flex items-center gap-3 p-3 bg-white border border-aqu-100 rounded-lg hover:shadow-sm transition">
+                    <span className="px-2 py-1 rounded-md bg-aqu-100 text-aqu-800 text-xs whitespace-nowrap">
+                      {docLabel(d.category)}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-gray-800 text-sm truncate">{d.filename}</div>
+                      {d.description && <div className="text-xs text-gray-500 truncate">{d.description}</div>}
+                      <div className="text-[10px] text-gray-400 mt-0.5">
+                        {new Date(d.created_at).toLocaleDateString()} · {d.file_size ? (d.file_size < 1024*1024 ? (d.file_size/1024).toFixed(1)+"KB" : (d.file_size/1024/1024).toFixed(1)+"MB") : "-"}
+                      </div>
+                    </div>
+                    <button onClick={() => downloadDoc(d)} className="p-2 text-aqu-600 hover:bg-aqu-50 rounded" title="다운로드">
+                      <Download className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => deleteDoc(d)} className="p-2 text-red-500 hover:bg-red-50 rounded" title="삭제">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
