@@ -49,7 +49,7 @@ export default function MembersPage() {
 
   async function loadMembers() {
     setLoading(true);
-    const { data, error } = await supabase.from("members").select("*").order("name", { ascending: true });
+    const { data, error } = await supabase.from("members").select("*").is("deleted_at", null).order("name", { ascending: true });
     if (!error && data) setMembers(data as Member[]);
     setLoading(false);
   }

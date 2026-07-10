@@ -6,7 +6,7 @@ import Link from "next/link";
 import {
   Waves, ArrowLeft, User, Phone, MapPin, Calendar, AlertCircle,
   Activity, Award, MessageCircle, Save, Plus, Star, Trash2, Edit,
-  Sparkles, Send, X, Copy, Check
+  Sparkles, Send, X, Copy, Check, Trash
 } from "lucide-react";
 
 type Member = any;
@@ -75,6 +75,17 @@ export default function MemberDetail() {
       setLoading(false);
     })();
   }, [params]);
+
+  async function deleteMember() {
+    if (!confirm(`정말 '${member.name}'님을 삭제하시겠습니까?\n(복구 가능한 soft delete입니다)`)) return;
+    const { error } = await supabase.from('members').update({ deleted_at: new Date().toISOString() }).eq('id', member.id);
+    if (!error) {
+      alert('회원이 삭제되었습니다.');
+      router.push('/members');
+    } else {
+      alert('삭제 실패: ' + error.message);
+    }
+  }
 
   async function saveAssessment() {
     if (!member) return;
@@ -220,9 +231,15 @@ export default function MemberDetail() {
               </div>
             </div>
           </div>
-          {saveStatus && (
-            <div className="text-sm px-3 py-1.5 rounded-lg bg-aqu-50 text-aqu-700">{saveStatus}</div>
-          )}
+          <div className="flex items-center gap-2">
+            {saveStatus && (
+              <div className="text-sm px-3 py-1.5 rounded-lg bg-aqu-50 text-aqu-700">{saveStatus}</div>
+            )}
+            <button onClick={deleteMember} title="회원 삭제"
+              className="p-2 rounded-lg text-red-500 hover:bg-red-50 border border-red-200">
+              <Trash className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
 
