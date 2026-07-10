@@ -6,7 +6,7 @@ import Link from "next/link";
 import {
   Waves, ArrowLeft, User, Phone, MapPin, Calendar, AlertCircle,
   Activity, Award, MessageCircle, Save, Plus, Star, Trash2, Edit,
-  Sparkles, Send, X, Copy, Check, Trash, FileText, Upload, Download
+  Sparkles, Send, X, Copy, Check, Trash, FileText, Upload, Download, Eye, ExternalLink
 } from "lucide-react";
 
 const DOC_CATEGORIES = [
@@ -117,6 +117,18 @@ export default function MemberDetail() {
     if (error) return alert("실패: " + error.message);
     window.open(data.signedUrl, "_blank");
   }
+
+  // Preview state
+  const [preview, setPreview] = useState<{url: string, doc: any} | null>(null);
+
+  async function previewDoc(d: any) {
+    const { data, error } = await supabase.storage.from("documents").createSignedUrl(d.file_path, 300);
+    if (error) return alert("미리보기 실패: " + error.message);
+    setPreview({ url: data.signedUrl, doc: d });
+  }
+
+  function isImage(mime?: string) { return mime?.startsWith("image/"); }
+  function isPDF(mime?: string)   { return mime === "application/pdf"; }
 
   async function deleteDoc(d: any) {
     if (!confirm(`"${d.filename}" 삭제?`)) return;
@@ -629,6 +641,9 @@ export default function MemberDetail() {
                         {new Date(d.created_at).toLocaleDateString()} · {d.file_size ? (d.file_size < 1024*1024 ? (d.file_size/1024).toFixed(1)+"KB" : (d.file_size/1024/1024).toFixed(1)+"MB") : "-"}
                       </div>
                     </div>
+                    <button onClick={() => previewDoc(d)} className="p-2 text-purple-600 hover:bg-purple-50 rounded" title="미리보기">
+                      <Eye className="w-4 h-4" />
+                    </button>
                     <button onClick={() => downloadDoc(d)} className="p-2 text-aqu-600 hover:bg-aqu-50 rounded" title="다운로드">
                       <Download className="w-4 h-4" />
                     </button>
@@ -697,6 +712,55 @@ export default function MemberDetail() {
                   </button>
                 </div>
               </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Document Preview Modal */}
+      {preview && (
+        <div className="fixed inset-0 bg-black/75 flex items-center justify-center z-50 p-2 md:p-6" onClick={() => setPreview(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[95vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-3 md:p-4 border-b border-gray-100">
+              <div className="flex items-center gap-2 min-w-0">
+                <FileText className="w-5 h-5 text-aqu-600 shrink-0" />
+                <span className="font-medium text-gray-800 truncate text-sm md:text-base">{preview.doc.filename}</span>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <a href={preview.url} target="_blank" rel="noreferrer"
+                   className="p-2 text-aqu-600 hover:bg-aqu-50 rounded" title="새 탭에서 열기">
+                  <ExternalLink className="w-4 h-4" />
+                </a>
+                <a href={preview.url} download={preview.doc.filename}
+                   className="p-2 text-aqu-600 hover:bg-aqu-50 rounded" title="다운로드">
+                  <Download className="w-4 h-4" />
+                </a>
+                <button onClick={() => setPreview(null)} className="p-2 text-gray-400 hover:bg-gray-100 rounded">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto bg-gray-50 flex items-center justify-center p-4">
+              {isImage(preview.doc.mime_type) ? (
+                <img src={preview.url} alt={preview.doc.filename} className="max-w-full max-h-[75vh] object-contain rounded" />
+              ) : isPDF(preview.doc.mime_type) ? (
+                <iframe src={preview.url} className="w-full h-[75vh] rounded border" title={preview.doc.filename} />
+              ) : (
+                <div className="text-center py-10">
+                  <FileText className="w-16 h-16 mx-auto mb-3 text-gray-300" />
+                  <p className="text-gray-600 mb-1">이 파일 형식은 미리보기를 지원하지 않습니다</p>
+                  <p className="text-xs text-gray-400 mb-4">{preview.doc.mime_type || "unknown"}</p>
+                  <a href={preview.url} download={preview.doc.filename}
+                     className="inline-flex items-center gap-2 px-4 py-2 bg-aqu-600 text-white rounded-lg hover:bg-aqu-700">
+                    <Download className="w-4 h-4" /> 다운로드
+                  </a>
+                </div>
+              )}
+            </div>
+            {preview.doc.description && (
+              <div className="px-4 py-2 border-t border-gray-100 text-xs text-gray-600">
+                📝 {preview.doc.description}
+              </div>
             )}
           </div>
         </div>

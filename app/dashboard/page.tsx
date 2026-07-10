@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 import {
   Waves, Users, Calendar, ClipboardList, TrendingUp, Activity,
-  MessageCircle, Send, X, Phone
+  MessageCircle, Send, X, Phone, BarChart3, ClipboardCheck, ArrowRight
 } from "lucide-react";
 
 export default function Dashboard() {
@@ -115,6 +115,32 @@ ${lead.member_type === "child" ? "아동" : "성인"} 상담/체험 안내드립
         <Card icon={Calendar} label="시간표" value={stats.timeslots} color="text-orange-500" />
         <Card icon={Activity} label="활동 라벨" value={stats.activities} color="text-green-500" />
         <Card icon={ClipboardList} label="평가" value={stats.templates} color="text-pink-500" />
+      </div>
+
+      {/* Quick Nav to sub-dashboards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6 md:mb-8">
+        <Link href="/dashboard/revenue"
+          className="bg-gradient-to-r from-rose-500 to-pink-600 text-white p-4 rounded-2xl shadow-md hover:shadow-lg transition flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <BarChart3 className="w-6 h-6 md:w-8 md:h-8" />
+            <div>
+              <div className="font-bold text-sm md:text-base">매출 통계</div>
+              <div className="text-[10px] md:text-xs opacity-90">월별·주별 추이 + 회원별 결제 현황</div>
+            </div>
+          </div>
+          <ArrowRight className="w-5 h-5" />
+        </Link>
+        <Link href="/attendance"
+          className="bg-gradient-to-r from-teal-500 to-emerald-600 text-white p-4 rounded-2xl shadow-md hover:shadow-lg transition flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <ClipboardCheck className="w-6 h-6 md:w-8 md:h-8" />
+            <div>
+              <div className="font-bold text-sm md:text-base">출결 관리</div>
+              <div className="text-[10px] md:text-xs opacity-90">오늘 출석 체크 + 30일 출석률</div>
+            </div>
+          </div>
+          <ArrowRight className="w-5 h-5" />
+        </Link>
       </div>
 
       {/* Status pipeline */}

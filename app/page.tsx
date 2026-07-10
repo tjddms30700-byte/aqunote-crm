@@ -5,7 +5,8 @@ import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import {
   Waves, Users, Calendar, ClipboardList, BarChart3,
-  LogIn, LogOut, User as UserIcon, CreditCard, DollarSign, Briefcase, FileText
+  LogIn, LogOut, User as UserIcon, CreditCard, DollarSign, Briefcase, FileText,
+  ClipboardCheck, TrendingUp
 } from "lucide-react";
 
 export default function Home() {
@@ -65,10 +66,12 @@ export default function Home() {
         <Card href="/finance" icon={DollarSign} title="재무 관리" subtitle="수입 · 지출 · 손익" color="text-emerald-500" />
         <Card href="/staff" icon={Briefcase} title="직원 · 급여" subtitle="원장 · 코치 · 급여" color="text-indigo-500" />
         <Card href="/documents" icon={FileText} title="문서관리" subtitle="영수증 · 계약서" color="text-orange-500" />
+        <Card href="/attendance" icon={ClipboardCheck} title="출결 관리" subtitle="출석 · 결석 · 통계" color="text-teal-500" />
+        <Card href="/dashboard/revenue" icon={TrendingUp} title="매출 통계" subtitle="월별 · 주별 추이" color="text-rose-500" />
       </div>
 
       <div className="mt-16 text-center text-xs text-gray-400">
-        v2.2.0 · Powered by Supabase + Next.js · © 2026 AQUNOTE
+        v2.3.0 · Powered by Supabase + Next.js · © 2026 AQUNOTE
       </div>
     </main>
   );
