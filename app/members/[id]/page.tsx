@@ -5,11 +5,11 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Waves, ArrowLeft, User, Phone, MapPin, Calendar, AlertCircle,
-  Activity, Award, MessageCircle, Save, Plus, Star
+  Activity, Award, MessageCircle, Save, Plus, Star, Trash2, Edit,
+  Sparkles, Send, X, Copy, Check
 } from "lucide-react";
 
 type Member = any;
-type Assessment = { id: string; score: number; label: string };
 
 const BODY_PARTS = [
   { key: "neck", label: "목", x: 100, y: 40 },
@@ -49,23 +49,28 @@ export default function MemberDetail() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"info" | "assessment" | "bodymap" | "sessions">("info");
 
-  // 상태값
   const [skills, setSkills] = useState<Record<string, number>>({});
   const [painMap, setPainMap] = useState<Record<string, number>>({});
   const [sessions, setSessions] = useState<any[]>([]);
   const [newLabels, setNewLabels] = useState<string[]>([]);
   const [newMemo, setNewMemo] = useState("");
   const [saveStatus, setSaveStatus] = useState<string>("");
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+
+  // AI 카톡 모달
+  const [showAIModal, setShowAIModal] = useState(false);
+  const [aiSession, setAiSession] = useState<any>(null);
+  const [aiMessage, setAiMessage] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     (async () => {
       const id = params?.id as string;
       const { data: m } = await supabase.from("members").select("*").eq("id", id).single();
       setMember(m);
-      // extra에 저장된 평가 & painmap 로드
       if (m?.extra?.water_skills) setSkills(m.extra.water_skills);
       if (m?.extra?.pain_map) setPainMap(m.extra.pain_map);
-      // 세션 목록 (예시)
       setSessions(m?.extra?.sessions || []);
       setLoading(false);
     })();
@@ -83,6 +88,7 @@ export default function MemberDetail() {
     if (!member || newLabels.length === 0) return;
     const session = {
       date: new Date().toISOString().slice(0, 10),
+      time: new Date().toTimeString().slice(0, 5),
       labels: newLabels,
       memo: newMemo,
     };
@@ -96,6 +102,70 @@ export default function MemberDetail() {
       setSaveStatus("✅ 세션 저장 완료!");
       setTimeout(() => setSaveStatus(""), 2500);
     }
+  }
+
+  async function deleteSession(idx: number) {
+    if (!confirm(`이 세션을 삭제하시겠습니까?\n(${sessions[idx].date} · ${sessions[idx].labels?.length || 0}개 활동)`)) return;
+    const updated = sessions.filter((_, i) => i !== idx);
+    const newExtra = { ...(member.extra || {}), sessions: updated };
+    const { error } = await supabase.from("members").update({ extra: newExtra }).eq("id", member.id);
+    if (!error) {
+      setSessions(updated);
+      setSaveStatus("🗑️ 세션 삭제됨");
+      setTimeout(() => setSaveStatus(""), 2500);
+    }
+  }
+
+  async function updateSessionMemo(idx: number, memo: string) {
+    const updated = sessions.map((s, i) => (i === idx ? { ...s, memo } : s));
+    const newExtra = { ...(member.extra || {}), sessions: updated };
+    await supabase.from("members").update({ extra: newExtra }).eq("id", member.id);
+    setSessions(updated);
+    setEditingIdx(null);
+    setSaveStatus("✏️ 메모 수정됨");
+    setTimeout(() => setSaveStatus(""), 2000);
+  }
+
+  async function generateAIMessage(session: any) {
+    setAiSession(session);
+    setShowAIModal(true);
+    setAiLoading(true);
+    setAiMessage("");
+    setCopied(false);
+
+    try {
+      const res = await fetch("/api/ai-message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          member: {
+            name: member.name,
+            type: member.member_type,
+            diagnosis: member.extra?.diagnosis,
+            guardian: member.guardian_name,
+          },
+          session: {
+            date: session.date,
+            labels: session.labels,
+            memo: session.memo,
+          },
+          water_skills: skills,
+          pain_map: painMap,
+        }),
+      });
+      const data = await res.json();
+      setAiMessage(data.message || "생성 실패. 다시 시도해주세요.");
+    } catch (e: any) {
+      setAiMessage("네트워크 오류: " + e.message);
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
+  function copyMessage() {
+    navigator.clipboard.writeText(aiMessage);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }
 
   function toggleLabel(l: string) {
@@ -116,12 +186,8 @@ export default function MemberDetail() {
 
   return (
     <main className="max-w-5xl mx-auto px-4 md:px-6 py-6 md:py-10">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <button
-          onClick={() => router.push("/members")}
-          className="flex items-center gap-1 text-sm text-aqu-600 hover:underline"
-        >
+        <button onClick={() => router.push("/members")} className="flex items-center gap-1 text-sm text-aqu-600 hover:underline">
           <ArrowLeft className="w-4 h-4" /> 회원 목록
         </button>
         <Link href="/" className="text-sm text-gray-500 hover:text-aqu-600">홈</Link>
@@ -155,9 +221,7 @@ export default function MemberDetail() {
             </div>
           </div>
           {saveStatus && (
-            <div className="text-sm px-3 py-1.5 rounded-lg bg-aqu-50 text-aqu-700">
-              {saveStatus}
-            </div>
+            <div className="text-sm px-3 py-1.5 rounded-lg bg-aqu-50 text-aqu-700">{saveStatus}</div>
           )}
         </div>
       </div>
@@ -165,43 +229,35 @@ export default function MemberDetail() {
       {/* Tabs */}
       <div className="flex flex-wrap gap-2 mb-4">
         {[
-          { k: "info", label: "📌 기본정보", icon: User },
-          { k: "assessment", label: "🩺 수중기능평가", icon: Award },
-          { k: "bodymap", label: "🗺️ Body Map", icon: Activity },
-          { k: "sessions", label: "📝 세션기록", icon: MessageCircle },
+          { k: "info", label: "📌 기본정보" },
+          { k: "assessment", label: "🩺 수중기능평가" },
+          { k: "bodymap", label: "🗺️ Body Map" },
+          { k: "sessions", label: "📝 세션기록" },
         ].map((t) => (
-          <button
-            key={t.k}
-            onClick={() => setTab(t.k as any)}
-            className={`px-4 py-2 rounded-lg text-sm ${
-              tab === t.k ? "bg-aqu-600 text-white" : "bg-white border border-aqu-200 text-aqu-700 hover:bg-aqu-50"
-            }`}
-          >
+          <button key={t.k} onClick={() => setTab(t.k as any)}
+            className={`px-4 py-2 rounded-lg text-sm ${tab === t.k ? "bg-aqu-600 text-white" : "bg-white border border-aqu-200 text-aqu-700 hover:bg-aqu-50"}`}>
             {t.label}
           </button>
         ))}
       </div>
 
-      {/* Tab Content */}
       <div className="bg-white rounded-2xl shadow-md border border-aqu-100 p-6">
         {tab === "info" && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <InfoRow label="진단명" value={member.extra?.diagnosis || "-"} />
-              <InfoRow label="생년월일" value={member.birth || "-"} />
-              <InfoRow label="유입경로" value={member.source || "-"} />
-              <InfoRow label="상태" value={member.status || "regular"} highlight />
-              {member.member_type === "adult" && (
-                <>
-                  <InfoRow label="통증부위" value={member.extra?.pain_area || "-"} />
-                  <InfoRow label="통증척도" value={String(member.extra?.pain_scale || "-")} />
-                  <InfoRow label="기저질환" value={member.extra?.medical_history || "-"} />
-                </>
-              )}
-              {member.member_type === "child" && (
-                <InfoRow label="특이사항" value={member.extra?.special_notes || member.memo || "-"} />
-              )}
-            </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <InfoRow label="진단명" value={member.extra?.diagnosis || "-"} />
+            <InfoRow label="생년월일" value={member.birth || "-"} />
+            <InfoRow label="유입경로" value={member.source || "-"} />
+            <InfoRow label="상태" value={member.status || "regular"} highlight />
+            {member.member_type === "adult" && (
+              <>
+                <InfoRow label="통증부위" value={member.extra?.pain_area || "-"} />
+                <InfoRow label="통증척도" value={String(member.extra?.pain_scale || "-")} />
+                <InfoRow label="기저질환" value={member.extra?.medical_history || "-"} />
+              </>
+            )}
+            {member.member_type === "child" && (
+              <InfoRow label="특이사항" value={member.extra?.special_notes || member.memo || "-"} />
+            )}
           </div>
         )}
 
@@ -214,15 +270,8 @@ export default function MemberDetail() {
                   <span className="w-28 text-sm text-gray-700">{s.label}</span>
                   <div className="flex gap-1">
                     {[1, 2, 3, 4, 5].map((n) => (
-                      <button
-                        key={n}
-                        onClick={() => setSkills((prev) => ({ ...prev, [s.key]: n }))}
-                        className={`w-8 h-8 rounded-lg text-sm ${
-                          (skills[s.key] || 0) >= n
-                            ? "bg-aqu-500 text-white"
-                            : "bg-gray-100 text-gray-400 hover:bg-aqu-100"
-                        }`}
-                      >
+                      <button key={n} onClick={() => setSkills((prev) => ({ ...prev, [s.key]: n }))}
+                        className={`w-8 h-8 rounded-lg text-sm ${(skills[s.key] || 0) >= n ? "bg-aqu-500 text-white" : "bg-gray-100 text-gray-400 hover:bg-aqu-100"}`}>
                         {n}
                       </button>
                     ))}
@@ -231,10 +280,7 @@ export default function MemberDetail() {
                 </div>
               ))}
             </div>
-            <button
-              onClick={saveAssessment}
-              className="px-4 py-2 bg-aqu-600 text-white rounded-lg text-sm hover:bg-aqu-700 flex items-center gap-1"
-            >
+            <button onClick={saveAssessment} className="px-4 py-2 bg-aqu-600 text-white rounded-lg text-sm hover:bg-aqu-700 flex items-center gap-1">
               <Save className="w-4 h-4" /> 평가 저장
             </button>
           </div>
@@ -246,7 +292,6 @@ export default function MemberDetail() {
             <div className="flex flex-col md:flex-row gap-6">
               <div className="flex-shrink-0">
                 <svg viewBox="0 0 200 400" className="w-48 h-96 mx-auto">
-                  {/* Body outline */}
                   <ellipse cx="100" cy="45" rx="22" ry="28" fill="#f0f9ff" stroke="#0891b2" strokeWidth="1.5"/>
                   <rect x="75" y="70" width="50" height="90" rx="20" fill="#f0f9ff" stroke="#0891b2" strokeWidth="1.5"/>
                   <path d="M75 90 L45 130 L45 190" fill="none" stroke="#0891b2" strokeWidth="1.5"/>
@@ -254,30 +299,24 @@ export default function MemberDetail() {
                   <rect x="75" y="160" width="50" height="80" fill="#f0f9ff" stroke="#0891b2" strokeWidth="1.5"/>
                   <path d="M80 240 L75 340 L70 380" fill="none" stroke="#0891b2" strokeWidth="1.5"/>
                   <path d="M120 240 L125 340 L130 380" fill="none" stroke="#0891b2" strokeWidth="1.5"/>
-                  {/* Pain dots */}
                   {BODY_PARTS.map((p) => {
                     const pain = painMap[p.key] || 0;
                     const size = 6 + pain * 1.5;
                     const color = pain === 0 ? "#e5e7eb" : pain <= 3 ? "#fbbf24" : pain <= 6 ? "#fb923c" : "#dc2626";
                     return (
                       <g key={p.key}>
-                        <circle
-                          cx={p.x} cy={p.y} r={size}
-                          fill={color} stroke="#fff" strokeWidth="1"
+                        <circle cx={p.x} cy={p.y} r={size} fill={color} stroke="#fff" strokeWidth="1"
                           opacity={pain === 0 ? 0.5 : 0.85}
                           onClick={() => setPainMap((prev) => ({ ...prev, [p.key]: ((prev[p.key] || 0) + 1) % 11 }))}
-                          style={{ cursor: "pointer" }}
-                        />
+                          style={{ cursor: "pointer" }} />
                         {pain > 0 && (
-                          <text x={p.x} y={p.y + 3} textAnchor="middle" fontSize="9" fill="white" fontWeight="bold">
-                            {pain}
-                          </text>
+                          <text x={p.x} y={p.y + 3} textAnchor="middle" fontSize="9" fill="white" fontWeight="bold">{pain}</text>
                         )}
                       </g>
                     );
                   })}
                 </svg>
-                <p className="text-xs text-gray-500 text-center mt-2">부위를 클릭하여 통증 강도(0-10) 조정</p>
+                <p className="text-xs text-gray-500 text-center mt-2">부위 클릭하여 통증 강도(0-10) 조정</p>
               </div>
               <div className="flex-1">
                 <div className="grid grid-cols-2 gap-2 mb-4">
@@ -286,17 +325,12 @@ export default function MemberDetail() {
                     return (
                       <div key={p.key} className="flex items-center justify-between text-sm p-2 rounded bg-gray-50">
                         <span className="text-gray-700">{p.label}</span>
-                        <span className={`font-bold ${pain === 0 ? "text-gray-400" : pain <= 3 ? "text-yellow-500" : pain <= 6 ? "text-orange-500" : "text-red-500"}`}>
-                          {pain}
-                        </span>
+                        <span className={`font-bold ${pain === 0 ? "text-gray-400" : pain <= 3 ? "text-yellow-500" : pain <= 6 ? "text-orange-500" : "text-red-500"}`}>{pain}</span>
                       </div>
                     );
                   })}
                 </div>
-                <button
-                  onClick={saveAssessment}
-                  className="w-full px-4 py-2 bg-aqu-600 text-white rounded-lg text-sm hover:bg-aqu-700 flex items-center justify-center gap-1"
-                >
+                <button onClick={saveAssessment} className="w-full px-4 py-2 bg-aqu-600 text-white rounded-lg text-sm hover:bg-aqu-700 flex items-center justify-center gap-1">
                   <Save className="w-4 h-4" /> Body Map 저장
                 </button>
               </div>
@@ -308,41 +342,26 @@ export default function MemberDetail() {
           <div>
             <h3 className="text-lg font-bold text-aqu-900 mb-4">📝 세션 기록 & 라벨링</h3>
 
-            {/* 새 세션 추가 */}
             <div className="mb-6 p-4 bg-aqu-50 rounded-xl">
               <div className="text-sm font-medium text-aqu-900 mb-3">🆕 오늘 세션 활동 선택</div>
               <div className="flex flex-wrap gap-2 mb-3">
                 {ACTIVITY_LABELS.map((l) => (
-                  <button
-                    key={l}
-                    onClick={() => toggleLabel(l)}
-                    className={`px-3 py-1.5 rounded-full text-xs ${
-                      newLabels.includes(l)
-                        ? "bg-aqu-500 text-white"
-                        : "bg-white text-aqu-700 border border-aqu-200 hover:bg-aqu-100"
-                    }`}
-                  >
+                  <button key={l} onClick={() => toggleLabel(l)}
+                    className={`px-3 py-1.5 rounded-full text-xs ${newLabels.includes(l) ? "bg-aqu-500 text-white" : "bg-white text-aqu-700 border border-aqu-200 hover:bg-aqu-100"}`}>
                     {newLabels.includes(l) ? "✓ " : ""}{l}
                   </button>
                 ))}
               </div>
-              <textarea
-                value={newMemo}
-                onChange={(e) => setNewMemo(e.target.value)}
-                placeholder="메모 (선택)"
-                rows={2}
-                className="w-full text-sm p-2 rounded-lg border border-aqu-200 mb-3"
-              />
-              <button
-                onClick={saveSession}
-                disabled={newLabels.length === 0}
-                className="px-4 py-2 bg-aqu-600 text-white rounded-lg text-sm disabled:bg-gray-300 hover:bg-aqu-700 flex items-center gap-1"
-              >
+              <textarea value={newMemo} onChange={(e) => setNewMemo(e.target.value)}
+                placeholder="메모 (선택)" rows={2}
+                className="w-full text-sm p-2 rounded-lg border border-aqu-200 mb-3" />
+              <button onClick={saveSession} disabled={newLabels.length === 0}
+                className="px-4 py-2 bg-aqu-600 text-white rounded-lg text-sm disabled:bg-gray-300 hover:bg-aqu-700 flex items-center gap-1">
                 <Plus className="w-4 h-4" /> 세션 저장 ({newLabels.length}개 활동)
               </button>
             </div>
 
-            {/* 세션 히스토리 */}
+            {/* Session History with Delete & AI */}
             <div className="space-y-2">
               {sessions.length === 0 ? (
                 <div className="text-center py-8 text-gray-400 text-sm">
@@ -350,17 +369,56 @@ export default function MemberDetail() {
                 </div>
               ) : (
                 sessions.map((s: any, i: number) => (
-                  <div key={i} className="p-3 bg-gray-50 rounded-lg text-sm">
+                  <div key={i} className="p-3 bg-gray-50 rounded-lg text-sm hover:bg-gray-100 transition group">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="font-medium text-aqu-900">{s.date}</span>
-                      <span className="text-xs text-gray-500">{s.labels?.length || 0}개 활동</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-aqu-900">{s.date}</span>
+                        {s.time && <span className="text-xs text-gray-500">{s.time}</span>}
+                        <span className="text-xs text-gray-500">· {s.labels?.length || 0}개 활동</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => generateAIMessage(s)}
+                          title="AI 상담 메시지 생성"
+                          className="p-1 rounded hover:bg-aqu-100 text-aqu-600"
+                        >
+                          <Sparkles className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setEditingIdx(editingIdx === i ? null : i)}
+                          title="메모 편집"
+                          className="p-1 rounded hover:bg-blue-100 text-blue-600"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => deleteSession(i)}
+                          title="세션 삭제"
+                          className="p-1 rounded hover:bg-red-100 text-red-600"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                     <div className="flex flex-wrap gap-1 mb-1">
                       {s.labels?.map((l: string) => (
                         <span key={l} className="px-2 py-0.5 bg-aqu-100 text-aqu-700 rounded text-xs">{l}</span>
                       ))}
                     </div>
-                    {s.memo && <div className="text-gray-600 text-xs mt-1">📝 {s.memo}</div>}
+                    {editingIdx === i ? (
+                      <div className="mt-2">
+                        <textarea
+                          defaultValue={s.memo || ""}
+                          rows={2}
+                          onBlur={(e) => updateSessionMemo(i, e.target.value)}
+                          className="w-full text-xs p-2 rounded border border-aqu-200"
+                          autoFocus
+                          placeholder="메모 (Tab 또는 밖 클릭으로 저장)"
+                        />
+                      </div>
+                    ) : (
+                      s.memo && <div className="text-gray-600 text-xs mt-1">📝 {s.memo}</div>
+                    )}
                   </div>
                 ))
               )}
@@ -368,6 +426,65 @@ export default function MemberDetail() {
           </div>
         )}
       </div>
+
+      {/* AI 카톡 생성 Modal */}
+      {showAIModal && aiSession && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowAIModal(false)}>
+          <div className="bg-white rounded-2xl p-5 md:p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-aqu-900 flex items-center gap-1">
+                <Sparkles className="w-5 h-5 text-aqu-500" />
+                AI 상담 메시지 생성
+              </h3>
+              <button onClick={() => setShowAIModal(false)}>
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-aqu-50 rounded-lg mb-4 text-sm">
+              <div className="text-aqu-900 font-medium mb-1">📅 {aiSession.date} 세션 기반</div>
+              <div className="flex flex-wrap gap-1">
+                {aiSession.labels?.map((l: string) => (
+                  <span key={l} className="px-2 py-0.5 bg-white text-aqu-700 rounded text-xs">{l}</span>
+                ))}
+              </div>
+            </div>
+
+            {aiLoading ? (
+              <div className="text-center py-10">
+                <div className="inline-block w-8 h-8 border-4 border-aqu-200 border-t-aqu-600 rounded-full animate-spin"></div>
+                <p className="text-sm text-gray-500 mt-3">AI가 메시지를 작성 중입니다...</p>
+              </div>
+            ) : (
+              <>
+                <textarea
+                  value={aiMessage}
+                  onChange={(e) => setAiMessage(e.target.value)}
+                  rows={12}
+                  className="w-full p-3 rounded-lg border border-aqu-200 text-sm font-mono"
+                />
+                <div className="text-xs text-gray-500 mt-1 mb-3">{aiMessage.length}자 · 편집 가능</div>
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={copyMessage}
+                    className="flex-1 py-2.5 bg-aqu-600 text-white rounded-lg text-sm font-medium hover:bg-aqu-700 flex items-center justify-center gap-1"
+                  >
+                    {copied ? <><Check className="w-4 h-4" /> 복사됨!</> : <><Copy className="w-4 h-4" /> 카카오톡에 붙여넣기</>}
+                  </button>
+                  <button
+                    onClick={() => generateAIMessage(aiSession)}
+                    className="px-4 py-2.5 bg-white border border-aqu-300 text-aqu-700 rounded-lg text-sm hover:bg-aqu-50"
+                    title="다시 생성"
+                  >
+                    🔄
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
 }

@@ -67,7 +67,7 @@ export default function Home() {
       </div>
 
       <div className="mt-16 text-center text-xs text-gray-400">
-        v1.1.0 · Powered by Supabase + Next.js · © 2026 AQUNOTE
+        v1.2.0 · Powered by Supabase + Next.js · © 2026 AQUNOTE
       </div>
     </main>
   );
