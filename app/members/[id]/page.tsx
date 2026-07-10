@@ -67,6 +67,7 @@ const ACTIVITY_LABELS = [
 export default function MemberDetail() {
   const params = useParams();
   const router = useRouter();
+  const id = params?.id as string;
   const [member, setMember] = useState<Member | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"info" | "assessment" | "bodymap" | "sessions" | "documents">("info");
@@ -155,7 +156,6 @@ export default function MemberDetail() {
 
   useEffect(() => {
     (async () => {
-      const id = params?.id as string;
       const { data: m } = await supabase.from("members").select("*").eq("id", id).single();
       setMember(m);
       if (m?.extra?.water_skills) setSkills(m.extra.water_skills);

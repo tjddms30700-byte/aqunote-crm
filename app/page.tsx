@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   Waves, Users, Calendar, ClipboardList, BarChart3,
   LogIn, LogOut, User as UserIcon, CreditCard, DollarSign, Briefcase, FileText,
-  ClipboardCheck, TrendingUp
+  ClipboardCheck, TrendingUp, Ticket
 } from "lucide-react";
 
 export default function Home() {
@@ -68,10 +68,11 @@ export default function Home() {
         <Card href="/documents" icon={FileText} title="문서관리" subtitle="영수증 · 계약서" color="text-orange-500" />
         <Card href="/attendance" icon={ClipboardCheck} title="출결 관리" subtitle="출석 · 결석 · 통계" color="text-teal-500" />
         <Card href="/dashboard/revenue" icon={TrendingUp} title="매출 통계" subtitle="월별 · 주별 추이" color="text-rose-500" />
+        <Card href="/plans" icon={Ticket} title="회원권 관리" subtitle="회수 · 금액 설정" color="text-purple-500" />
       </div>
 
       <div className="mt-16 text-center text-xs text-gray-400">
-        v2.3.0 · Powered by Supabase + Next.js · © 2026 AQUNOTE
+        v2.4.0 · Powered by Supabase + Next.js · © 2026 AQUNOTE
       </div>
     </main>
   );
