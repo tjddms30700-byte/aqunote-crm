@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
+import HomeButton from "@/components/HomeButton";
 import { Waves, Plus, X, Save, Users, DollarSign } from "lucide-react";
 
 const ROLES = [
@@ -142,7 +143,7 @@ export default function StaffPage() {
             className="px-3 py-1.5 bg-aqu-600 text-white rounded-lg text-sm flex items-center gap-1 hover:bg-aqu-700">
             <Plus className="w-4 h-4" /> {tab === "staff" ? "직원 추가" : "급여 등록"}
           </button>
-          <Link href="/" className="text-sm text-aqu-600 hover:underline">← 홈</Link>
+          <HomeButton />
         </div>
       </div>
 

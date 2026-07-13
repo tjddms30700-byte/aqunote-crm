@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
+import HomeButton from "@/components/HomeButton";
 import {
   Waves, Plus, Phone, Calendar, User, MessageCircle,
   ArrowRight, X, Save
@@ -89,7 +90,7 @@ export default function ConsultationsPage() {
           >
             <Plus className="w-4 h-4" /> 신규
           </button>
-          <Link href="/" className="text-sm text-aqu-600 hover:underline">← 홈</Link>
+          <HomeButton />
         </div>
       </div>
 

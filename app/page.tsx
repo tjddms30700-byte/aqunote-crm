@@ -4,23 +4,32 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import {
-  Waves, Users, Calendar, ClipboardList, BarChart3,
+  Users, Calendar, ClipboardList, BarChart3,
   LogIn, LogOut, User as UserIcon, CreditCard, DollarSign, Briefcase, FileText,
-  ClipboardCheck, TrendingUp, Ticket
+  ClipboardCheck, TrendingUp, Ticket, Settings,
+  Target, AlertTriangle, Clock, FileCheck, MessageSquare
 } from "lucide-react";
+import Logo from "@/components/Logo";
 
 const CARDS = [
-  { href: "/dashboard",         icon: BarChart3,      title: "대시보드",    subtitle: "전체 현황 KPI",       from: "from-blue-500",    to: "to-cyan-500" },
-  { href: "/members",           icon: Users,          title: "회원 관리",   subtitle: "아동 · 성인 통합",     from: "from-purple-500",  to: "to-fuchsia-500" },
-  { href: "/consultations",     icon: ClipboardList,  title: "상담 리드",   subtitle: "칸반보드",            from: "from-orange-500",  to: "to-amber-500" },
-  { href: "/schedule",          icon: Calendar,       title: "시간표",     subtitle: "월간 · 주간 · 일간",   from: "from-emerald-500", to: "to-green-500" },
-  { href: "/payments",          icon: CreditCard,     title: "결제 관리",   subtitle: "결제 수단 · 이력",     from: "from-pink-500",    to: "to-rose-500" },
-  { href: "/plans",             icon: Ticket,         title: "회원권",     subtitle: "횟수 · 금액 설정",     from: "from-violet-500",  to: "to-purple-500" },
-  { href: "/finance",           icon: DollarSign,     title: "재무 관리",   subtitle: "수입 · 지출 · 손익",   from: "from-teal-500",    to: "to-emerald-500" },
-  { href: "/staff",             icon: Briefcase,      title: "직원 · 급여", subtitle: "원장 · 치료사 · 관리자", from: "from-indigo-500",  to: "to-blue-500" },
-  { href: "/attendance",        icon: ClipboardCheck, title: "출결 관리",   subtitle: "출석 · 결석 · 병결",   from: "from-cyan-500",    to: "to-teal-500" },
-  { href: "/documents",         icon: FileText,       title: "문서 관리",   subtitle: "영수증 · 계약서",       from: "from-amber-500",   to: "to-orange-500" },
-  { href: "/dashboard/revenue", icon: TrendingUp,     title: "매출 통계",   subtitle: "월별 · 주별 추이",     from: "from-rose-500",    to: "to-red-500" },
+  { href: "/dashboard",         icon: BarChart3,      title: "대시보드",    subtitle: "전체 현황 KPI",         from: "from-blue-500",    to: "to-cyan-500" },
+  { href: "/members",           icon: Users,          title: "회원 관리",   subtitle: "아동 · 성인 통합",       from: "from-purple-500",  to: "to-fuchsia-500" },
+  { href: "/iep",               icon: Target,         title: "IEP 목표",    subtitle: "장단기 · 커리큘럼",       from: "from-violet-500",  to: "to-purple-600" },
+  { href: "/behavior",          icon: AlertTriangle,  title: "행동 중재",   subtitle: "ABC · 빈도 · 지속시간",   from: "from-red-500",     to: "to-rose-600" },
+  { href: "/schedule",          icon: Calendar,       title: "시간표",     subtitle: "월간 · 주간 · 일간",     from: "from-emerald-500", to: "to-green-500" },
+  { href: "/attendance",        icon: ClipboardCheck, title: "회원 출결",   subtitle: "출석 · 결석 · 병결",     from: "from-cyan-500",    to: "to-teal-500" },
+  { href: "/consultations",     icon: ClipboardList,  title: "상담 리드",   subtitle: "칸반보드",              from: "from-orange-500",  to: "to-amber-500" },
+  { href: "/payments",          icon: CreditCard,     title: "결제 관리",   subtitle: "결제 수단 · 이력",       from: "from-pink-500",    to: "to-rose-500" },
+  { href: "/plans",             icon: Ticket,         title: "회원권",     subtitle: "횟수 · 금액 설정",       from: "from-fuchsia-500", to: "to-purple-500" },
+  { href: "/reports",           icon: FileText,       title: "보고서 생성", subtitle: "IEP · 일지 · 행동보고서", from: "from-blue-500",    to: "to-indigo-500" },
+  { href: "/finance",           icon: DollarSign,     title: "재무 관리",   subtitle: "수입 · 지출 · 손익",     from: "from-teal-500",    to: "to-emerald-500" },
+  { href: "/dashboard/revenue", icon: TrendingUp,     title: "매출 통계",   subtitle: "월별 · 주별 추이",       from: "from-rose-500",    to: "to-red-500" },
+  { href: "/staff",             icon: Briefcase,      title: "직원 · 급여", subtitle: "원장 · 치료사 · 관리자",   from: "from-indigo-500",  to: "to-blue-500" },
+  { href: "/attendance-staff",  icon: Clock,          title: "직원 출퇴근", subtitle: "출퇴근 · 근태 통계",     from: "from-sky-500",     to: "to-blue-500" },
+  { href: "/leave",             icon: FileCheck,      title: "휴가 · 결재",  subtitle: "전자결재 · 휴가 신청",    from: "from-emerald-500", to: "to-teal-600" },
+  { href: "/board",             icon: MessageSquare,  title: "사내 게시판", subtitle: "공지 · Q&A · 건의",     from: "from-indigo-400",  to: "to-violet-500" },
+  { href: "/documents",         icon: FileText,       title: "문서 관리",   subtitle: "영수증 · 계약서",         from: "from-amber-500",   to: "to-orange-500" },
+  { href: "/settings",          icon: Settings,       title: "설정",       subtitle: "로고 · 지점",           from: "from-slate-500",   to: "to-gray-600" },
 ];
 
 export default function Home() {
@@ -65,16 +74,14 @@ export default function Home() {
 
       {/* Hero */}
       <div className="text-center mb-10 md:mb-14">
-        <div className="inline-flex items-center gap-3 mb-3">
-          <div className="p-3 bg-gradient-to-br from-aqu-400 to-aqu-600 rounded-2xl shadow-lg">
-            <Waves className="w-8 h-8 md:w-10 md:h-10 text-white" />
-          </div>
+        <div className="flex flex-col items-center gap-3 mb-3">
+          <Logo size="xl" />
           <h1 className="text-4xl md:text-6xl font-bold bg-gradient-to-r from-aqu-600 to-aqu-900 bg-clip-text text-transparent">
             AQUNOTE
           </h1>
         </div>
-        <p className="text-base md:text-xl text-gray-700 font-medium">위례아쿠수중운동센터 통합 CRM+ERP</p>
-        <p className="text-xs md:text-sm text-gray-500 mt-2">회원 · 상담 · 시간표 · 결제 · 출결 · 재무를 하나로</p>
+        <p className="text-base md:text-xl text-gray-700 font-medium">아쿠수중운동센터 통합 CRM+ERP</p>
+        <p className="text-xs md:text-sm text-gray-500 mt-2">회원 · IEP · 행동중재 · 시간표 · 결제 · 재무 · 근태를 하나로</p>
       </div>
 
       {/* Big Cards Grid */}
@@ -82,7 +89,6 @@ export default function Home() {
         {CARDS.map((c) => (
           <Link key={c.href} href={c.href}
             className="group relative overflow-hidden bg-white rounded-3xl shadow-md hover:shadow-2xl transition-all duration-300 border border-gray-100 hover:-translate-y-1">
-            {/* Gradient background */}
             <div className={`absolute inset-0 bg-gradient-to-br ${c.from} ${c.to} opacity-0 group-hover:opacity-100 transition-opacity duration-300`}></div>
 
             <div className="relative p-5 md:p-7 min-h-[130px] md:min-h-[160px] flex flex-col justify-between">
@@ -104,7 +110,7 @@ export default function Home() {
 
       <div className="mt-14 md:mt-20 text-center">
         <div className="text-xs text-gray-400">
-          v2.7.0 · Powered by Supabase + Next.js · © 2026 AQUNOTE
+          v2.9.0 · Powered by Supabase + Next.js · © 2026 AQUNOTE
         </div>
       </div>
     </main>

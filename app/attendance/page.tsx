@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
+import HomeButton from "@/components/HomeButton";
 import { supabase } from "@/lib/supabase";
 import {
   ClipboardCheck, Home, Calendar, RefreshCw, Save, Check,
@@ -207,9 +208,7 @@ export default function AttendancePage() {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
         <div className="flex items-center gap-2 md:gap-3">
-          <Link href="/" className="text-aqu-600 hover:text-aqu-800 flex items-center gap-1 text-sm">
-            <Home className="w-4 h-4" /> 홈
-          </Link>
+          <HomeButton />
           <span className="text-gray-300">/</span>
           <h1 className="text-xl md:text-3xl font-bold text-aqu-900 flex items-center gap-2">
             <ClipboardCheck className="w-6 h-6 md:w-7 md:h-7 text-teal-500" /> 출결 관리

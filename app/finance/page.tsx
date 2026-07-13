@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
+import HomeButton from "@/components/HomeButton";
 import { Waves, Plus, X, Save, TrendingUp, TrendingDown, DollarSign } from "lucide-react";
 
 const CATEGORIES = ["임대료", "수도광열", "소모품", "장비", "홍보", "세금·보험", "잡비"];
@@ -78,7 +79,7 @@ export default function FinancePage() {
           <Waves className="w-8 h-8 text-aqu-600" />
           <h1 className="text-2xl md:text-3xl font-bold text-aqu-900">💰 재무 관리</h1>
         </div>
-        <Link href="/" className="text-sm text-aqu-600 hover:underline">← 홈</Link>
+        <HomeButton />
       </div>
 
       {/* Month selector + Add expense */}

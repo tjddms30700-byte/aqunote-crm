@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
+import HomeButton from "@/components/HomeButton";
 import {
   Waves, Users, Calendar, ClipboardList, TrendingUp, Activity,
   MessageCircle, Send, X, Phone, BarChart3, ClipboardCheck, ArrowRight
@@ -101,7 +102,7 @@ ${lead.member_type === "child" ? "아동" : "성인"} 상담/체험 안내드립
           <Waves className="w-7 md:w-8 h-7 md:h-8 text-aqu-600" />
           <h1 className="text-2xl md:text-3xl font-bold text-aqu-900">📊 대시보드</h1>
         </div>
-        <Link href="/" className="text-sm text-aqu-600 hover:underline">← 홈</Link>
+        <HomeButton />
       </div>
 
       {/* KPI Cards */}

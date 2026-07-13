@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import HomeButton from "@/components/HomeButton";
 import {
   Waves, ArrowLeft, User, Phone, MapPin, Calendar, AlertCircle,
   Activity, Award, MessageCircle, Save, Plus, Star, Trash2, Edit,
@@ -59,10 +60,15 @@ function getStatusLabel(status: string | null) {
   return STATUS_OPTIONS.find((s) => s.key === status)?.label || status || "regular";
 }
 
-const ACTIVITY_LABELS = [
-  "부력적응", "호흡법", "균형운동", "스트레칭", "수중보행",
-  "근력강화", "관절가동", "이완운동", "감각통합", "협응훈련",
+const ACTIVITY_LABEL_CATEGORIES = [
+  { key: "aquatic",      label: "🌊 수중재활",  color: "bg-cyan-500",     lightColor: "bg-cyan-50 border-cyan-200 text-cyan-700" },
+  { key: "physical",     label: "💪 물리치료",  color: "bg-blue-500",     lightColor: "bg-blue-50 border-blue-200 text-blue-700" },
+  { key: "occupational", label: "✋ 작업치료",    color: "bg-emerald-500",  lightColor: "bg-emerald-50 border-emerald-200 text-emerald-700" },
+  { key: "sensory",      label: "🎈 감각통합",   color: "bg-purple-500",   lightColor: "bg-purple-50 border-purple-200 text-purple-700" },
+  { key: "rehab",        label: "🏥 재활기법",     color: "bg-orange-500",   lightColor: "bg-orange-50 border-orange-200 text-orange-700" },
+  { key: "general",      label: "📌 기타",          color: "bg-gray-500",     lightColor: "bg-gray-50 border-gray-200 text-gray-700" },
 ];
+function catColor(cat: string) { return ACTIVITY_LABEL_CATEGORIES.find(c => c.key === cat)?.lightColor || "bg-gray-50"; }
 
 export default function MemberDetail() {
   const params = useParams();
@@ -146,9 +152,69 @@ export default function MemberDetail() {
   const [sessions, setSessions] = useState<any[]>([]);
   const [newLabels, setNewLabels] = useState<string[]>([]);
   const [newMemo, setNewMemo] = useState("");
+  const [labelLib, setLabelLib] = useState<any[]>([]);   // 전체 라벨 (공용 + 개인)
+  const [customLabel, setCustomLabel] = useState("");
+  const [customCat, setCustomCat] = useState("aquatic");
+
+  async function loadLabels() {
+    // 공용 라벨 + 이 회원 전용 라벨
+    const { data } = await supabase.from("label_library")
+      .select("*")
+      .or(`member_id.is.null,member_id.eq.${id}`)
+      .order("category").order("name");
+    setLabelLib(data || []);
+  }
+
+  async function addCustomLabel() {
+    if (!customLabel.trim()) return;
+    const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
+    await supabase.from("label_library").insert({
+      org_id: orgId, member_id: id, name: customLabel.trim(), category: customCat,
+    });
+    setCustomLabel("");
+    await loadLabels();
+  }
+
+  async function deletePersonalLabel(labelId: string) {
+    await supabase.from("label_library").delete().eq("id", labelId);
+    await loadLabels();
+  }
   const [saveStatus, setSaveStatus] = useState<string>("");
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [memberMemo, setMemberMemo] = useState<string>("");
+
+  // 확장 기본정보
+  const [extInfo, setExtInfo] = useState<any>({
+    current_status: "", main_symptom: "", medication: "",
+    treatment_history: "", expected_change: "", special_notes: "",
+  });
+  const [savingExt, setSavingExt] = useState(false);
+  const [extSaveStatus, setExtSaveStatus] = useState("");
+
+  async function saveExtInfo() {
+    setSavingExt(true);
+    const { error } = await supabase.from("members").update({
+      current_status: extInfo.current_status || null,
+      main_symptom: extInfo.main_symptom || null,
+      medication: extInfo.medication || null,
+      treatment_history: extInfo.treatment_history || null,
+      expected_change: extInfo.expected_change || null,
+      special_notes: extInfo.special_notes || null,
+    }).eq("id", id);
+    setSavingExt(false);
+    setExtSaveStatus(error ? "❌ 저장 실패" : "✅ 저장 완료");
+    setTimeout(() => setExtSaveStatus(""), 2500);
+  }
+
+  function calcAge(birth: string): number {
+    if (!birth) return 0;
+    const b = new Date(birth);
+    const now = new Date();
+    let age = now.getFullYear() - b.getFullYear();
+    const m = now.getMonth() - b.getMonth();
+    if (m < 0 || (m === 0 && now.getDate() < b.getDate())) age--;
+    return age;
+  }
 
   // AI 카톡 모달
   const [showAIModal, setShowAIModal] = useState(false);
@@ -164,6 +230,17 @@ export default function MemberDetail() {
       if (m?.extra?.water_skills) setSkills(m.extra.water_skills);
       if (m?.extra?.pain_map) setPainMap(m.extra.pain_map);
       if (m?.extra?.sensation_map) setSensationMap(m.extra.sensation_map);
+      // 확장 기본정보 로드
+      setExtInfo({
+        current_status: m?.current_status || "",
+        main_symptom: m?.main_symptom || "",
+        medication: m?.medication || "",
+        treatment_history: m?.treatment_history || "",
+        expected_change: m?.expected_change || "",
+        special_notes: m?.special_notes || m?.extra?.special_notes || "",
+      });
+      // 라벨 로드
+      await loadLabels();
       setSessions(m?.extra?.sessions || []);
       setMemberMemo(m?.memo || "");
       setLoading(false);
@@ -311,7 +388,7 @@ export default function MemberDetail() {
         <button onClick={() => router.push("/members")} className="flex items-center gap-1 text-sm text-aqu-600 hover:underline">
           <ArrowLeft className="w-4 h-4" /> 회원 목록
         </button>
-        <Link href="/" className="text-sm text-gray-500 hover:text-aqu-600">홈</Link>
+        <HomeButton />
       </div>
 
       {/* Profile Card */}
@@ -372,21 +449,46 @@ export default function MemberDetail() {
       <div className="bg-white rounded-2xl shadow-md border border-aqu-100 p-6">
         {tab === "info" && (
           <div className="space-y-6">
+            {/* 기본 정보 (읽기 전용) */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <InfoRow label="진단명" value={member.extra?.diagnosis || "-"} />
-              <InfoRow label="생년월일" value={member.birth || "-"} />
+              <InfoRow label="생년월일" value={member.birth ? `${member.birth} (만 ${calcAge(member.birth)}세)` : "-"} />
+              <InfoRow label="연락처" value={member.phone || member.guardian_phone || "-"} />
               <InfoRow label="유입경로" value={member.source || "-"} />
               <InfoRow label="상태" value={getStatusLabel(member.status)} highlight />
-              {member.member_type === "adult" && (
-                <>
-                  <InfoRow label="통증부위" value={member.extra?.pain_area || "-"} />
-                  <InfoRow label="통증척도" value={String(member.extra?.pain_scale || "-")} />
-                  <InfoRow label="기저질환" value={member.extra?.medical_history || "-"} />
-                </>
+              {member.member_type === "child" && member.guardian_name && (
+                <InfoRow label="보호자" value={`${member.guardian_name} (${member.guardian_relation || ""})`} />
               )}
-              {member.member_type === "child" && (
-                <InfoRow label="특이사항" value={member.extra?.special_notes || "-"} />
-              )}
+            </div>
+
+            {/* 확장 정보 - 편집 가능 */}
+            <div className="border-t border-aqu-100 pt-4">
+              <h4 className="text-sm font-bold text-aqu-900 mb-3">📋 상세 정보</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <EditableField label="🚑 현재 상태" fieldKey="current_status"
+                  value={extInfo.current_status} onChange={(v) => setExtInfo({...extInfo, current_status: v})}
+                  placeholder="예: 걸음이 늘어났으나 계단 오르내림이 불안정함" />
+                <EditableField label="⚠️ 주 증상" fieldKey="main_symptom"
+                  value={extInfo.main_symptom} onChange={(v) => setExtInfo({...extInfo, main_symptom: v})}
+                  placeholder="예: 오른쪽 다리 근력 약화, 균형 잡기 어려움" />
+                <EditableField label="💊 복용 약" fieldKey="medication"
+                  value={extInfo.medication} onChange={(v) => setExtInfo({...extInfo, medication: v})}
+                  placeholder="예: 항경련제(케프라), 학복약물" />
+                <EditableField label="🏥 치료 이력" fieldKey="treatment_history"
+                  value={extInfo.treatment_history} onChange={(v) => setExtInfo({...extInfo, treatment_history: v})}
+                  placeholder="예: OO병원 물리치료 6개월, 감각통합치료 1년" />
+                <EditableField label="🌟 기대하는 변화" fieldKey="expected_change"
+                  value={extInfo.expected_change} onChange={(v) => setExtInfo({...extInfo, expected_change: v})}
+                  placeholder="예: 물에 적응 · 자신감 향상 · 근력 강화" fullWidth />
+                <EditableField label="📌 특이사항" fieldKey="special_notes"
+                  value={extInfo.special_notes} onChange={(v) => setExtInfo({...extInfo, special_notes: v})}
+                  placeholder="예: 물에 대한 공포, 안지방지업 필요" fullWidth />
+              </div>
+              <button onClick={saveExtInfo} disabled={savingExt}
+                className="mt-3 px-4 py-2 bg-aqu-600 hover:bg-aqu-700 text-white rounded-lg text-sm flex items-center gap-1 disabled:opacity-50">
+                <Save className="w-4 h-4" /> {savingExt ? "저장 중..." : "상세 정보 저장"}
+              </button>
+              {extSaveStatus && <span className="ml-2 text-xs text-aqu-600">{extSaveStatus}</span>}
             </div>
 
             {/* 회원 메모 섹션 */}
@@ -657,16 +759,63 @@ export default function MemberDetail() {
 
             <div className="mb-6 p-4 bg-aqu-50 rounded-xl">
               <div className="text-sm font-medium text-aqu-900 mb-3">🆕 오늘 세션 활동 선택</div>
-              <div className="flex flex-wrap gap-2 mb-3">
-                {ACTIVITY_LABELS.map((l) => (
-                  <button key={l} onClick={() => toggleLabel(l)}
-                    className={`px-3 py-1.5 rounded-full text-xs ${newLabels.includes(l) ? "bg-aqu-500 text-white" : "bg-white text-aqu-700 border border-aqu-200 hover:bg-aqu-100"}`}>
-                    {newLabels.includes(l) ? "✓ " : ""}{l}
-                  </button>
-                ))}
+
+              {/* 카테고리별 라벨 */}
+              <div className="space-y-3 mb-3">
+                {ACTIVITY_LABEL_CATEGORIES.map(cat => {
+                  const catLabels = labelLib.filter(l => l.category === cat.key);
+                  if (catLabels.length === 0) return null;
+                  return (
+                    <div key={cat.key}>
+                      <div className="text-xs font-semibold text-gray-700 mb-1.5">{cat.label}</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {catLabels.map((l: any) => (
+                          <button key={l.id}
+                            onClick={() => toggleLabel(l.name)}
+                            className={`px-2.5 py-1 rounded-full text-[11px] border transition ${
+                              newLabels.includes(l.name)
+                                ? cat.color + " text-white border-transparent font-medium"
+                                : "bg-white " + cat.lightColor + " hover:opacity-80"
+                            } ${l.member_id ? "ring-1 ring-yellow-400" : ""}`}
+                            title={l.member_id ? "이 회원 전용" : "공용 라벨"}>
+                            {newLabels.includes(l.name) ? "✓ " : ""}{l.name}
+                            {l.member_id && (
+                              <span onClick={(e) => { e.stopPropagation(); deletePersonalLabel(l.id); }}
+                                    className="ml-1 opacity-60 hover:opacity-100">×</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
+
+              {/* 개인 라벨 추가 */}
+              <div className="mb-3 p-2 bg-white rounded-lg border border-yellow-200">
+                <div className="text-xs font-semibold text-yellow-800 mb-1.5">➕ 이 회원 전용 라벨 추가</div>
+                <div className="flex gap-1">
+                  <select value={customCat} onChange={e => setCustomCat(e.target.value)}
+                    className="px-2 py-1 border border-gray-200 rounded text-xs">
+                    {ACTIVITY_LABEL_CATEGORIES.map(c => (
+                      <option key={c.key} value={c.key}>{c.label}</option>
+                    ))}
+                  </select>
+                  <input type="text" value={customLabel} onChange={e => setCustomLabel(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && addCustomLabel()}
+                    placeholder="예: 개인 특화 활동"
+                    className="flex-1 px-2 py-1 border border-gray-200 rounded text-xs" />
+                  <button onClick={addCustomLabel}
+                    className="px-3 py-1 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-xs font-medium">
+                    추가
+                  </button>
+                </div>
+                <div className="text-[10px] text-gray-500 mt-1">💡 이 라벨은 <b>이 회원에게만</b> 보입니다 (다른 회원과 섞이지 않음)</div>
+              </div>
+
               <textarea value={newMemo} onChange={(e) => setNewMemo(e.target.value)}
-                placeholder="메모 (선택)" rows={2}
+                placeholder="세션 메모 (선택) - 관찰 내용, 특이사항 등"
+                rows={3}
                 className="w-full text-sm p-2 rounded-lg border border-aqu-200 mb-3" />
               <button onClick={saveSession} disabled={newLabels.length === 0}
                 className="px-4 py-2 bg-aqu-600 text-white rounded-lg text-sm disabled:bg-gray-300 hover:bg-aqu-700 flex items-center gap-1">
@@ -909,6 +1058,19 @@ export default function MemberDetail() {
         </div>
       )}
     </main>
+  );
+}
+
+function EditableField({ label, fieldKey, value, onChange, placeholder, fullWidth }: any) {
+  return (
+    <div className={fullWidth ? "md:col-span-2" : ""}>
+      <label className="block text-xs font-semibold text-gray-600 mb-1">{label}</label>
+      <textarea value={value || ""}
+        onChange={e => onChange(e.target.value)}
+        rows={fullWidth ? 2 : 2}
+        placeholder={placeholder}
+        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none resize-none" />
+    </div>
   );
 }
 

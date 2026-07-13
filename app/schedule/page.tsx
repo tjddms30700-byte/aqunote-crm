@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
+import HomeButton from "@/components/HomeButton";
 import { supabase } from "@/lib/supabase";
 import {
   Calendar, Plus, X, Home, ChevronLeft, ChevronRight,
@@ -84,7 +85,7 @@ export default function SchedulePage() {
     setLoading(true);
     const [sRes, mRes, stRes] = await Promise.all([
       supabase.from("schedule_slots").select("*").order("event_date").order("time_slot"),
-      supabase.from("members").select("id, name, member_type").is("deleted_at", null).order("name"),
+      supabase.from("members").select("id, name, member_type, status").is("deleted_at", null).order("name"),
       supabase.from("staff").select("id, name, role").order("name"),
     ]);
     setSlots(sRes.data || []);
@@ -306,9 +307,7 @@ export default function SchedulePage() {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
         <div className="flex items-center gap-2">
-          <Link href="/" className="text-aqu-600 hover:text-aqu-800 flex items-center gap-1 text-sm">
-            <Home className="w-4 h-4" /> 홈
-          </Link>
+          <HomeButton />
           <span className="text-gray-300">/</span>
           <h1 className="text-xl md:text-2xl font-bold text-aqu-900 flex items-center gap-2">
             <Calendar className="w-6 h-6 text-green-500" /> 시간표
@@ -1020,12 +1019,15 @@ function SlotModal({ f, setF, modal, members, staff, onClose, onSave, onDelete, 
               <select value={f.member_id} onChange={e => setF({ ...f, member_id: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none">
                 <option value="">-- 회원 선택 --</option>
-                {members.map((m: any) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name} ({m.member_type === "child" ? "아동" : "성인"})
-                  </option>
-                ))}
+                {members
+                  .filter((m: any) => (m.status || "regular") === "regular")
+                  .map((m: any) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} ({m.member_type === "child" ? "아동" : "성인"})
+                    </option>
+                  ))}
               </select>
+              <div className="text-[10px] text-gray-500 mt-1">💡 <b>정규등록</b> 회원만 표시됩니다 ({members.filter((m: any) => (m.status || "regular") === "regular").length}명)</div>
             </Field>
           )}
 
