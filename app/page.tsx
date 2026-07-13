@@ -7,34 +7,97 @@ import {
   Users, Calendar, ClipboardList, BarChart3,
   LogIn, LogOut, User as UserIcon, CreditCard, DollarSign, Briefcase, FileText,
   ClipboardCheck, TrendingUp, Ticket, Settings,
-  Target, AlertTriangle, Clock, FileCheck, MessageSquare
+  Target, AlertTriangle, Clock, FileCheck, MessageSquare,
+  Waves, Wallet, UserCog, PieChart
 } from "lucide-react";
 import Logo from "@/components/Logo";
 
-const CARDS = [
-  { href: "/dashboard",         icon: BarChart3,      title: "대시보드",    subtitle: "전체 현황 KPI",         from: "from-blue-500",    to: "to-cyan-500" },
-  { href: "/members",           icon: Users,          title: "회원 관리",   subtitle: "아동 · 성인 통합",       from: "from-purple-500",  to: "to-fuchsia-500" },
-  { href: "/iep",               icon: Target,         title: "IEP 목표",    subtitle: "장단기 · 커리큘럼",       from: "from-violet-500",  to: "to-purple-600" },
-  { href: "/behavior",          icon: AlertTriangle,  title: "행동 중재",   subtitle: "ABC · 빈도 · 지속시간",   from: "from-red-500",     to: "to-rose-600" },
-  { href: "/schedule",          icon: Calendar,       title: "시간표",     subtitle: "월간 · 주간 · 일간",     from: "from-emerald-500", to: "to-green-500" },
-  { href: "/attendance",        icon: ClipboardCheck, title: "회원 출결",   subtitle: "출석 · 결석 · 병결",     from: "from-cyan-500",    to: "to-teal-500" },
-  { href: "/consultations",     icon: ClipboardList,  title: "상담 리드",   subtitle: "칸반보드",              from: "from-orange-500",  to: "to-amber-500" },
-  { href: "/payments",          icon: CreditCard,     title: "결제 관리",   subtitle: "결제 수단 · 이력",       from: "from-pink-500",    to: "to-rose-500" },
-  { href: "/plans",             icon: Ticket,         title: "회원권",     subtitle: "횟수 · 금액 설정",       from: "from-fuchsia-500", to: "to-purple-500" },
-  { href: "/reports",           icon: FileText,       title: "보고서 생성", subtitle: "IEP · 일지 · 행동보고서", from: "from-blue-500",    to: "to-indigo-500" },
-  { href: "/finance",           icon: DollarSign,     title: "재무 관리",   subtitle: "수입 · 지출 · 손익",     from: "from-teal-500",    to: "to-emerald-500" },
-  { href: "/dashboard/revenue", icon: TrendingUp,     title: "매출 통계",   subtitle: "월별 · 주별 추이",       from: "from-rose-500",    to: "to-red-500" },
-  { href: "/staff",             icon: Briefcase,      title: "직원 · 급여", subtitle: "원장 · 치료사 · 관리자",   from: "from-indigo-500",  to: "to-blue-500" },
-  { href: "/attendance-staff",  icon: Clock,          title: "직원 출퇴근", subtitle: "출퇴근 · 근태 통계",     from: "from-sky-500",     to: "to-blue-500" },
-  { href: "/leave",             icon: FileCheck,      title: "휴가 · 결재",  subtitle: "전자결재 · 휴가 신청",    from: "from-emerald-500", to: "to-teal-600" },
-  { href: "/board",             icon: MessageSquare,  title: "사내 게시판", subtitle: "공지 · Q&A · 건의",     from: "from-indigo-400",  to: "to-violet-500" },
-  { href: "/documents",         icon: FileText,       title: "문서 관리",   subtitle: "영수증 · 계약서",         from: "from-amber-500",   to: "to-orange-500" },
-  { href: "/settings",          icon: Settings,       title: "설정",       subtitle: "로고 · 지점",           from: "from-slate-500",   to: "to-gray-600" },
+/* ═════ 6개 대분류 ═════ */
+const GROUPS = [
+  {
+    key: "members",
+    title: "회원 · 수업",
+    subtitle: "회원 관리부터 IEP·행동중재까지",
+    icon: Users,
+    from: "from-purple-500",
+    to: "to-fuchsia-600",
+    accent: "text-purple-600",
+    bg: "bg-purple-50",
+    items: [
+      { href: "/members",         icon: Users,          title: "회원 관리",    desc: "아동·성인 통합" },
+      { href: "/consultations",   icon: ClipboardList,  title: "상담 리드",    desc: "칸반보드" },
+      { href: "/schedule",        icon: Calendar,       title: "시간표",       desc: "월간·주간·일간" },
+      { href: "/attendance",      icon: ClipboardCheck, title: "회원 출결",    desc: "출석·결석·병결" },
+      { href: "/iep",             icon: Target,         title: "IEP 목표",    desc: "장단기·커리큘럼" },
+      { href: "/behavior",        icon: AlertTriangle,  title: "행동 중재",    desc: "ABC·빈도·시간" },
+      { href: "/documents",       icon: FileText,       title: "문서 관리",    desc: "영수증·계약서" },
+    ],
+  },
+  {
+    key: "finance",
+    title: "결제 · 재무",
+    subtitle: "결제부터 매출 분석까지",
+    icon: Wallet,
+    from: "from-pink-500",
+    to: "to-rose-600",
+    accent: "text-pink-600",
+    bg: "bg-pink-50",
+    items: [
+      { href: "/payments",          icon: CreditCard,  title: "결제 관리",  desc: "결제 수단·이력" },
+      { href: "/plans",             icon: Ticket,      title: "회원권",    desc: "횟수·금액 설정" },
+      { href: "/finance",           icon: DollarSign,  title: "재무 관리",  desc: "수입·지출·손익" },
+      { href: "/dashboard/revenue", icon: TrendingUp,  title: "매출 통계",  desc: "월별·주별 추이" },
+    ],
+  },
+  {
+    key: "staff",
+    title: "직원 · 근무",
+    subtitle: "인사·근태·소통을 한 곳에",
+    icon: UserCog,
+    from: "from-blue-500",
+    to: "to-indigo-600",
+    accent: "text-blue-600",
+    bg: "bg-blue-50",
+    items: [
+      { href: "/staff",            icon: Briefcase,     title: "직원 · 급여",  desc: "원장·치료사·관리자" },
+      { href: "/attendance-staff", icon: Clock,         title: "직원 출퇴근",  desc: "출퇴근·근태 통계" },
+      { href: "/leave",            icon: FileCheck,     title: "휴가 · 결재",   desc: "전자결재·휴가 신청" },
+      { href: "/board",            icon: MessageSquare, title: "사내 게시판",  desc: "공지·Q&A·건의" },
+    ],
+  },
+  {
+    key: "analytics",
+    title: "대시보드 · 보고서",
+    subtitle: "인사이트와 문서 자동 생성",
+    icon: PieChart,
+    from: "from-teal-500",
+    to: "to-emerald-600",
+    accent: "text-teal-600",
+    bg: "bg-teal-50",
+    items: [
+      { href: "/dashboard", icon: BarChart3, title: "통합 대시보드", desc: "전체 현황 KPI" },
+      { href: "/reports",   icon: FileText,  title: "보고서 생성",   desc: "IEP·일지·행동 보고서" },
+    ],
+  },
+  {
+    key: "settings",
+    title: "설정",
+    subtitle: "센터 정보 · 로고 · 지점",
+    icon: Settings,
+    from: "from-slate-500",
+    to: "to-gray-700",
+    accent: "text-slate-600",
+    bg: "bg-slate-50",
+    items: [
+      { href: "/settings", icon: Settings, title: "환경 설정", desc: "로고·지점·센터명" },
+    ],
+  },
 ];
 
 export default function Home() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
+  const [expandedGroup, setExpandedGroup] = useState<string | null>("members");
 
   useEffect(() => {
     (async () => {
@@ -84,35 +147,97 @@ export default function Home() {
         <p className="text-xs md:text-sm text-gray-500 mt-2">회원 · IEP · 행동중재 · 시간표 · 결제 · 재무 · 근태를 하나로</p>
       </div>
 
-      {/* Big Cards Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-5">
-        {CARDS.map((c) => (
-          <Link key={c.href} href={c.href}
-            className="group relative overflow-hidden bg-white rounded-3xl shadow-md hover:shadow-2xl transition-all duration-300 border border-gray-100 hover:-translate-y-1">
-            <div className={`absolute inset-0 bg-gradient-to-br ${c.from} ${c.to} opacity-0 group-hover:opacity-100 transition-opacity duration-300`}></div>
+      {/* ═══ 6개 그룹 카드 ═══ */}
+      <div className="space-y-6">
+        {GROUPS.map((group) => {
+          const isExpanded = expandedGroup === group.key;
+          const GroupIcon = group.icon;
 
-            <div className="relative p-5 md:p-7 min-h-[130px] md:min-h-[160px] flex flex-col justify-between">
-              <div className={`w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-gradient-to-br ${c.from} ${c.to} p-3 shadow-md group-hover:shadow-lg group-hover:scale-110 transition-transform duration-300`}>
-                <c.icon className="w-full h-full text-white" />
-              </div>
-              <div className="mt-3 md:mt-4">
-                <h2 className="font-bold text-base md:text-xl text-aqu-900 group-hover:text-white transition-colors">
-                  {c.title}
-                </h2>
-                <p className="text-xs md:text-sm text-gray-500 mt-0.5 md:mt-1 group-hover:text-white/90 transition-colors">
-                  {c.subtitle}
-                </p>
-              </div>
+          return (
+            <div key={group.key} className="bg-white rounded-3xl shadow-md hover:shadow-lg transition-shadow border border-gray-100 overflow-hidden">
+              {/* Group Header */}
+              <button
+                onClick={() => setExpandedGroup(isExpanded ? null : group.key)}
+                className="w-full p-5 md:p-6 flex items-center gap-4 hover:bg-gray-50 transition text-left">
+                {/* Big icon */}
+                <div className={`w-14 h-14 md:w-16 md:h-16 rounded-2xl bg-gradient-to-br ${group.from} ${group.to} p-3 md:p-4 shadow-md shrink-0`}>
+                  <GroupIcon className="w-full h-full text-white" />
+                </div>
+                {/* Title */}
+                <div className="flex-1 min-w-0">
+                  <h2 className="text-lg md:text-2xl font-bold text-aqu-900 flex items-center gap-2">
+                    {group.title}
+                    <span className={`text-[10px] md:text-xs px-2 py-0.5 rounded-full ${group.bg} ${group.accent} font-medium`}>
+                      {group.items.length}개
+                    </span>
+                  </h2>
+                  <p className="text-xs md:text-sm text-gray-500 mt-0.5">{group.subtitle}</p>
+                </div>
+                {/* Expand indicator */}
+                <div className={`w-8 h-8 rounded-full ${group.bg} flex items-center justify-center shrink-0 transition-transform ${isExpanded ? "rotate-180" : ""}`}>
+                  <svg className={`w-4 h-4 ${group.accent}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7"/>
+                  </svg>
+                </div>
+              </button>
+
+              {/* Sub items (expanded) */}
+              {isExpanded && (
+                <div className="border-t border-gray-100 p-4 md:p-5 bg-gradient-to-br from-gray-50/50 to-white">
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
+                    {group.items.map((item) => {
+                      const ItemIcon = item.icon;
+                      return (
+                        <Link key={item.href} href={item.href}
+                          className={`group relative overflow-hidden bg-white rounded-2xl shadow-sm hover:shadow-lg transition-all duration-200 border border-gray-100 hover:border-transparent hover:-translate-y-0.5`}>
+                          <div className={`absolute inset-0 bg-gradient-to-br ${group.from} ${group.to} opacity-0 group-hover:opacity-100 transition-opacity duration-200`}></div>
+                          <div className="relative p-3 md:p-4 flex flex-col justify-between min-h-[100px] md:min-h-[110px]">
+                            <div className={`w-9 h-9 md:w-10 md:h-10 rounded-xl bg-gradient-to-br ${group.from} ${group.to} p-2 md:p-2.5 shadow-sm shrink-0`}>
+                              <ItemIcon className="w-full h-full text-white" />
+                            </div>
+                            <div className="mt-2">
+                              <div className="font-bold text-xs md:text-sm text-aqu-900 group-hover:text-white transition-colors">
+                                {item.title}
+                              </div>
+                              <div className="text-[10px] md:text-xs text-gray-500 group-hover:text-white/90 transition-colors mt-0.5">
+                                {item.desc}
+                              </div>
+                            </div>
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
-          </Link>
-        ))}
+          );
+        })}
+      </div>
+
+      {/* Quick tips (footer) */}
+      <div className="mt-10 md:mt-14 grid grid-cols-2 md:grid-cols-4 gap-3">
+        <QuickTip icon="🎯" title="IEP 목표" desc="영역별 커리큘럼으로" href="/iep" />
+        <QuickTip icon="🧭" title="ABC 관찰" desc="행동 패턴 자동 분석" href="/behavior" />
+        <QuickTip icon="🌊" title="시간표" desc="드래그로 이월" href="/schedule" />
+        <QuickTip icon="📄" title="보고서" desc="원클릭 자동 생성" href="/reports" />
       </div>
 
       <div className="mt-14 md:mt-20 text-center">
         <div className="text-xs text-gray-400">
-          v2.9.0 · Powered by Supabase + Next.js · © 2026 AQUNOTE
+          v3.0.0 · Powered by Supabase + Next.js · © 2026 AQUNOTE
         </div>
       </div>
     </main>
+  );
+}
+
+function QuickTip({ icon, title, desc, href }: any) {
+  return (
+    <Link href={href} className="p-3 bg-white rounded-xl border border-gray-100 hover:border-aqu-300 hover:shadow-sm transition text-center">
+      <div className="text-2xl mb-1">{icon}</div>
+      <div className="text-xs font-bold text-aqu-900">{title}</div>
+      <div className="text-[10px] text-gray-500 mt-0.5">{desc}</div>
+    </Link>
   );
 }
