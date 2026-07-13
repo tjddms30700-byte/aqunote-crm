@@ -6,7 +6,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import {
   DollarSign, TrendingUp, Calendar, Home, Users,
-  BarChart3, ArrowUpRight, ArrowDownRight
+  BarChart3, ArrowUpRight, ArrowDownRight, AlertTriangle, Clock
 } from "lucide-react";
 
 type Payment = {
@@ -28,6 +28,17 @@ type Slot = {
   created_at: string;
 };
 
+type Membership = {
+  id: string;
+  member_id: string;
+  plan_name: string;
+  total_sessions: number;
+  used_sessions: number;
+  start_date: string;
+  end_date: string;
+  price: number;
+};
+
 function fmtKRW(n: number) {
   return "₩" + (n || 0).toLocaleString();
 }
@@ -47,20 +58,23 @@ export default function RevenueDashboardPage() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [slots, setSlots]       = useState<Slot[]>([]);
   const [members, setMembers]   = useState<any[]>([]);
+  const [memberships, setMemberships] = useState<Membership[]>([]);
   const [loading, setLoading]   = useState(true);
   const [period, setPeriod]     = useState<"month" | "week">("month");
 
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const [payRes, slotRes, memRes] = await Promise.all([
+      const [payRes, slotRes, memRes, mshipRes] = await Promise.all([
         supabase.from("payments").select("*").order("created_at", { ascending: false }),
         supabase.from("schedule_slots").select("*").eq("event_type", "revenue"),
         supabase.from("members").select("id, name, member_type").is("deleted_at", null),
+        supabase.from("memberships").select("*").order("end_date", { ascending: true }),
       ]);
       setPayments(payRes.data || []);
       setSlots(slotRes.data || []);
       setMembers(memRes.data || []);
+      setMemberships(mshipRes.data || []);
       setLoading(false);
     })();
   }, []);
@@ -113,6 +127,36 @@ export default function RevenueDashboardPage() {
   }, [revenues, period]);
 
   const maxGroup = Math.max(...grouped.map(g => g[1]), 1);
+
+  // 곧 결제 예정자: 잔여 2회 이하 OR 만료 7일 이내
+  const upcomingRenewals = useMemo(() => {
+    const now = new Date();
+    const in7days = new Date();
+    in7days.setDate(now.getDate() + 7);
+    return memberships
+      .map(m => {
+        const mem = members.find(x => x.id === m.member_id);
+        const remaining = (m.total_sessions || 0) - (m.used_sessions || 0);
+        const endDate = m.end_date ? new Date(m.end_date) : null;
+        const daysLeft = endDate ? Math.ceil((endDate.getTime() - now.getTime()) / 86400000) : 9999;
+        const urgentByRemaining = remaining <= 2 && remaining >= 0;
+        const urgentByDate = endDate && daysLeft >= 0 && daysLeft <= 7;
+        const isExpired = endDate && daysLeft < 0;
+        return {
+          ...m,
+          memberName: mem?.name || "?",
+          memberType: mem?.member_type,
+          remaining, daysLeft, urgentByRemaining, urgentByDate, isExpired,
+        };
+      })
+      .filter(m => m.urgentByRemaining || m.urgentByDate || m.isExpired)
+      .sort((a, b) => {
+        // Expired first, then by daysLeft asc
+        if (a.isExpired && !b.isExpired) return -1;
+        if (!a.isExpired && b.isExpired) return 1;
+        return a.daysLeft - b.daysLeft;
+      });
+  }, [memberships, members]);
 
   // Per-member payment status
   const memberStats = useMemo(() => {
@@ -251,6 +295,86 @@ export default function RevenueDashboardPage() {
                     상위 30명 표시 · 전체 {memberStats.length}명
                   </div>
                 )}
+              </div>
+            )}
+          </div>
+
+          {/* ─── 곰 결제 예정자 ─── */}
+          <div className="mt-4 bg-white rounded-2xl shadow-md border border-orange-100 p-4 md:p-6">
+            <h2 className="text-sm md:text-base font-bold text-orange-900 mb-3 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 md:w-5 md:h-5 text-orange-500" />
+              곰 결제 예정자 (잔여 2회 이하 or 만료 7일 이내)
+              <span className="text-xs text-gray-500 font-normal">{upcomingRenewals.length}명</span>
+            </h2>
+            {upcomingRenewals.length === 0 ? (
+              <div className="text-center py-6 text-sm text-gray-400">
+                🎉 갱신 대상 있는 회원이 없습니다
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs md:text-sm">
+                  <thead className="bg-orange-50 border-b border-orange-100">
+                    <tr>
+                      <th className="p-2 md:p-3 text-left font-semibold text-orange-800">회원</th>
+                      <th className="p-2 md:p-3 text-left font-semibold text-orange-800">회원권</th>
+                      <th className="p-2 md:p-3 text-center font-semibold text-orange-800">잔여횟수</th>
+                      <th className="p-2 md:p-3 text-center font-semibold text-orange-800 hidden sm:table-cell">만료일</th>
+                      <th className="p-2 md:p-3 text-center font-semibold text-orange-800">상태</th>
+                      <th className="p-2 md:p-3 text-right font-semibold text-orange-800 hidden md:table-cell">금액</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {upcomingRenewals.slice(0, 20).map(r => (
+                      <tr key={r.id} className={`border-b border-gray-100 ${r.isExpired ? "bg-red-50/40" : r.urgentByRemaining ? "bg-orange-50/40" : ""}`}>
+                        <td className="p-2 md:p-3">
+                          <Link href={`/members/${r.member_id}`} className="text-aqu-700 hover:underline font-medium">
+                            {r.memberName}
+                          </Link>
+                          <span className="ml-1 text-[9px] text-gray-500">
+                            ({r.memberType === "child" ? "아동" : "성인"})
+                          </span>
+                        </td>
+                        <td className="p-2 md:p-3 text-gray-700">{r.plan_name}</td>
+                        <td className="p-2 md:p-3 text-center">
+                          <span className={`font-bold ${r.remaining <= 0 ? "text-red-500" : r.remaining <= 2 ? "text-orange-600" : "text-gray-600"}`}>
+                            {r.remaining}/{r.total_sessions}회
+                          </span>
+                        </td>
+                        <td className="p-2 md:p-3 text-center hidden sm:table-cell text-[11px] text-gray-500">
+                          {r.end_date}
+                        </td>
+                        <td className="p-2 md:p-3 text-center">
+                          {r.isExpired ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700 border border-red-300">
+                              ⚠️ 만료
+                            </span>
+                          ) : r.urgentByRemaining && r.urgentByDate ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700 border border-red-300">
+                              🔥 D-{r.daysLeft}
+                            </span>
+                          ) : r.urgentByRemaining ? (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-orange-100 text-orange-700 border border-orange-300">
+                              회수임박
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-yellow-100 text-yellow-800 border border-yellow-300">
+                              <Clock className="w-2.5 h-2.5 inline" /> D-{r.daysLeft}
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-2 md:p-3 text-right hidden md:table-cell text-gray-700">
+                          ₩{(r.price || 0).toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {upcomingRenewals.length > 0 && (
+              <div className="mt-3 text-xs text-orange-700 bg-orange-50 rounded p-2">
+                💡 근를 만료/임박 회원에게 재등록 안내 카톡을 보내세요 →
+                <Link href="/dashboard" className="underline font-medium ml-1">대시보드 발송센터</Link>
               </div>
             )}
           </div>

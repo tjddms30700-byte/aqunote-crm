@@ -7,7 +7,8 @@ import { supabase } from "@/lib/supabase";
 import {
   Calendar, Plus, X, Home, ChevronLeft, ChevronRight,
   Clock, User, DollarSign, Trash2, Check, XCircle,
-  AlertCircle, Ban, Repeat, ArrowLeftRight, Grid3x3, LayoutGrid
+  AlertCircle, Ban, Repeat, ArrowLeftRight, Grid3x3, LayoutGrid,
+  Move
 } from "lucide-react";
 
 /* ═════ 상수 ═════ */
@@ -19,12 +20,12 @@ const TIMES = [
 ];
 
 const STATUS_OPTIONS = [
-  { value: "scheduled", label: "예약",  color: "bg-blue-100 text-blue-800 border-blue-300",     dot: "bg-blue-500" },
-  { value: "done",      label: "완료",  color: "bg-green-100 text-green-800 border-green-300",  dot: "bg-green-500" },
-  { value: "sick",      label: "병결",  color: "bg-orange-100 text-orange-800 border-orange-300", dot: "bg-orange-500" },
-  { value: "cancel",    label: "취소",  color: "bg-gray-100 text-gray-700 border-gray-300",      dot: "bg-gray-400" },
-  { value: "noshow",    label: "노쇼",  color: "bg-red-100 text-red-800 border-red-300",         dot: "bg-red-500" },
-  { value: "carryover", label: "이월",  color: "bg-purple-100 text-purple-800 border-purple-300", dot: "bg-purple-500" },
+  { value: "scheduled", label: "예약",  color: "bg-blue-100 text-blue-800 border-blue-300",     dot: "bg-blue-500",   textColor: "text-blue-700" },
+  { value: "done",      label: "완료",  color: "bg-green-100 text-green-800 border-green-300",  dot: "bg-green-500",  textColor: "text-green-700" },
+  { value: "sick",      label: "병결",  color: "bg-orange-100 text-orange-800 border-orange-300", dot: "bg-orange-500", textColor: "text-orange-700" },
+  { value: "cancel",    label: "취소",  color: "bg-gray-100 text-gray-700 border-gray-300",      dot: "bg-gray-400",   textColor: "text-gray-700" },
+  { value: "noshow",    label: "노쇼",  color: "bg-red-100 text-red-800 border-red-300",         dot: "bg-red-500",    textColor: "text-red-700" },
+  { value: "carryover", label: "이월",  color: "bg-purple-100 text-purple-800 border-purple-300", dot: "bg-purple-500", textColor: "text-purple-700" },
 ];
 function statusMeta(s: string) {
   return STATUS_OPTIONS.find(x => x.value === s) || STATUS_OPTIONS[0];
@@ -35,11 +36,19 @@ function ymd(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 }
 function todayStr() { return ymd(new Date()); }
+function uuid() {
+  // Simple UUID v4 generator (browser has crypto.randomUUID but fall back for safety)
+  if (typeof crypto !== "undefined" && (crypto as any).randomUUID) return (crypto as any).randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
 
 // 월 그리드용 6주 × 7일 배열 생성
 function monthGrid(year: number, month0: number) {
   const first = new Date(year, month0, 1);
-  const firstWeekday = first.getDay(); // 0=Sun
+  const firstWeekday = first.getDay();
   const start = new Date(year, month0, 1 - firstWeekday);
   const cells: Date[] = [];
   for (let i = 0; i < 42; i++) {
@@ -48,22 +57,26 @@ function monthGrid(year: number, month0: number) {
   return cells;
 }
 
-/* ═════ 컴포넌트 ═════ */
+/* ═════ 메인 컴포넌트 ═════ */
 export default function SchedulePage() {
-  const [view, setView] = useState<"month" | "week">("month");
+  const [view, setView] = useState<"month" | "week" | "day">("month");
   const [year, setYear]     = useState(new Date().getFullYear());
-  const [month0, setMonth0] = useState(new Date().getMonth()); // 0-based
+  const [month0, setMonth0] = useState(new Date().getMonth());
   const [selectedDate, setSelectedDate] = useState(todayStr());
 
-  const [slots, setSlots]       = useState<any[]>([]);
-  const [members, setMembers]   = useState<any[]>([]);
-  const [staff, setStaff]       = useState<any[]>([]);
-  const [loading, setLoading]   = useState(true);
+  const [slots, setSlots]     = useState<any[]>([]);
+  const [members, setMembers] = useState<any[]>([]);
+  const [staff, setStaff]     = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   // Modal
   const [modal, setModal] = useState<{date: string, time?: string, editing?: any} | null>(null);
   const [f, setF]         = useState<any>({});
   const [saving, setSaving] = useState(false);
+
+  // Drag & drop
+  const [dragging, setDragging] = useState<any | null>(null);
+  const [dragOverDate, setDragOverDate] = useState<string | null>(null);
 
   useEffect(() => { loadAll(); }, []);
 
@@ -80,7 +93,6 @@ export default function SchedulePage() {
     setLoading(false);
   }
 
-  /* 월 이동 */
   function prevMonth() {
     if (month0 === 0) { setYear(year - 1); setMonth0(11); }
     else setMonth0(month0 - 1);
@@ -95,7 +107,6 @@ export default function SchedulePage() {
     setSelectedDate(todayStr());
   }
 
-  /* 날짜별 슬롯 그룹 */
   const slotsByDate = useMemo(() => {
     const map: Record<string, any[]> = {};
     slots.forEach(s => {
@@ -103,29 +114,27 @@ export default function SchedulePage() {
       if (!map[s.event_date]) map[s.event_date] = [];
       map[s.event_date].push(s);
     });
-    // 시간 순 정렬
     Object.keys(map).forEach(k => {
       map[k].sort((a, b) => (a.time_slot || "").localeCompare(b.time_slot || ""));
     });
     return map;
   }, [slots]);
 
-  /* 월간 셀 데이터 */
   const monthCells = useMemo(() => monthGrid(year, month0), [year, month0]);
 
-  /* 이번달 합계 */
-  const monthTotal = useMemo(() => {
+  /* 이번 달 상태별 통계 */
+  const monthStats = useMemo(() => {
     const prefix = `${year}-${String(month0+1).padStart(2,"0")}`;
     const monthSlots = slots.filter(s => (s.event_date || "").startsWith(prefix));
-    return {
-      total: monthSlots.length,
-      done: monthSlots.filter(s => s.status === "done").length,
-      scheduled: monthSlots.filter(s => s.status === "scheduled" || !s.status).length,
-      sick: monthSlots.filter(s => s.status === "sick").length,
-      cancel: monthSlots.filter(s => s.status === "cancel").length,
-      noshow: monthSlots.filter(s => s.status === "noshow").length,
-      revenue: monthSlots.filter(s => s.event_type === "revenue").reduce((a,b) => a + (b.amount || 0), 0),
-    };
+    const byStatus: Record<string, number> = {};
+    STATUS_OPTIONS.forEach(o => byStatus[o.value] = 0);
+    monthSlots.forEach(s => {
+      const st = s.status || "scheduled";
+      byStatus[st] = (byStatus[st] || 0) + 1;
+    });
+    const total = monthSlots.length;
+    const revenue = monthSlots.filter(s => s.event_type === "revenue").reduce((a,b) => a + (b.amount || 0), 0);
+    return { total, byStatus, revenue };
   }, [slots, year, month0]);
 
   /* 모달 열기 */
@@ -140,6 +149,9 @@ export default function SchedulePage() {
       status: "scheduled",
       note: "",
       amount: 0,
+      // 반복예약 관련
+      recurring_enabled: false,
+      recurring_weeks: 4,
     });
     setModal({ date, time });
   }
@@ -156,6 +168,9 @@ export default function SchedulePage() {
       status: slot.status || "scheduled",
       note: slot.note || "",
       amount: slot.amount || 0,
+      recurring_id: slot.recurring_id,
+      recurring_enabled: false,
+      recurring_weeks: 0,
     });
     setModal({ date: slot.event_date, time: slot.time_slot, editing: slot });
   }
@@ -165,38 +180,79 @@ export default function SchedulePage() {
     setSaving(true);
 
     const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
-    const d = new Date(f.event_date);
-    const dow = d.getDay() === 0 ? 7 : d.getDay(); // 월=1 ~ 일=7
+    const buildDow = (dateStr: string) => {
+      const d = new Date(dateStr);
+      return d.getDay() === 0 ? 7 : d.getDay();
+    };
 
-    const payload: any = {
-      event_date: f.event_date,
+    const basePayload: any = {
       time_slot: f.time_slot,
       event_type: f.event_type,
       status: f.status,
       lesson_name: f.lesson_name || null,
       note: f.note || null,
-      day_of_week: dow,
     };
-    if (orgId) payload.org_id = orgId;
-    if (f.member_id) payload.member_id = f.member_id;
-    if (f.staff_id) payload.staff_id = f.staff_id;
-    if (f.event_type === "revenue") payload.amount = Number(f.amount || 0);
+    if (orgId) basePayload.org_id = orgId;
+    if (f.member_id) basePayload.member_id = f.member_id;
+    if (f.staff_id) basePayload.staff_id = f.staff_id;
+    if (f.event_type === "revenue") basePayload.amount = Number(f.amount || 0);
 
-    const { error } = f.id
-      ? await supabase.from("schedule_slots").update(payload).eq("id", f.id)
-      : await supabase.from("schedule_slots").insert(payload);
-
-    if (error) alert("저장 실패: " + error.message);
-    else {
+    try {
+      if (f.id) {
+        // 수정
+        const payload = {
+          ...basePayload,
+          event_date: f.event_date,
+          day_of_week: buildDow(f.event_date),
+        };
+        const { error } = await supabase.from("schedule_slots").update(payload).eq("id", f.id);
+        if (error) throw error;
+      } else if (f.recurring_enabled && f.recurring_weeks > 1) {
+        // 반복예약 등록: 오늘 포함 N주 동안 매주 같은 요일에 등록
+        const recurringId = uuid();
+        const startDate = new Date(f.event_date);
+        const rows: any[] = [];
+        for (let i = 0; i < f.recurring_weeks; i++) {
+          const d = new Date(startDate);
+          d.setDate(startDate.getDate() + i * 7);
+          const dateStr = ymd(d);
+          rows.push({
+            ...basePayload,
+            event_date: dateStr,
+            day_of_week: buildDow(dateStr),
+            recurring_id: recurringId,
+            recurring_weeks: f.recurring_weeks,
+          });
+        }
+        const { error } = await supabase.from("schedule_slots").insert(rows);
+        if (error) throw error;
+      } else {
+        // 단일 등록
+        const payload = {
+          ...basePayload,
+          event_date: f.event_date,
+          day_of_week: buildDow(f.event_date),
+        };
+        const { error } = await supabase.from("schedule_slots").insert(payload);
+        if (error) throw error;
+      }
       setModal(null);
       await loadAll();
+    } catch (err: any) {
+      alert("저장 실패: " + err.message);
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   }
 
-  async function deleteSlot(id: string) {
-    if (!confirm("이 일정을 삭제할까요?")) return;
-    await supabase.from("schedule_slots").delete().eq("id", id);
+  async function deleteSlot(id: string, opts?: { series?: boolean, recurring_id?: string }) {
+    if (opts?.series && opts.recurring_id) {
+      if (!confirm("반복 시리즈 전체를 삭제할까요?")) return;
+      await supabase.from("schedule_slots").delete().eq("recurring_id", opts.recurring_id);
+    } else {
+      if (!confirm("이 일정을 삭제할까요?")) return;
+      await supabase.from("schedule_slots").delete().eq("id", id);
+    }
     await loadAll();
   }
 
@@ -205,19 +261,45 @@ export default function SchedulePage() {
     await loadAll();
   }
 
+  /* 드래그앤드롭 이월 */
+  function handleDragStart(slot: any, e: React.DragEvent) {
+    setDragging(slot);
+    e.dataTransfer.effectAllowed = "move";
+    // Chrome 요구사항
+    e.dataTransfer.setData("text/plain", slot.id);
+  }
+  function handleDragOver(dateStr: string, e: React.DragEvent) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dragOverDate !== dateStr) setDragOverDate(dateStr);
+  }
+  async function handleDrop(newDate: string, e: React.DragEvent) {
+    e.preventDefault();
+    if (!dragging) { setDragOverDate(null); return; }
+    if (dragging.event_date === newDate) { setDragging(null); setDragOverDate(null); return; }
+
+    const d = new Date(newDate);
+    const dow = d.getDay() === 0 ? 7 : d.getDay();
+    const oldDate = dragging.event_date;
+    setDragging(null);
+    setDragOverDate(null);
+
+    const { error } = await supabase.from("schedule_slots").update({
+      event_date: newDate,
+      day_of_week: dow,
+      status: "carryover", // 자동으로 이월 상태 부여
+      note: (dragging.note ? dragging.note + " · " : "") + `[${oldDate}→${newDate} 이월]`,
+    }).eq("id", dragging.id);
+    if (error) alert("이동 실패: " + error.message);
+    else await loadAll();
+  }
+
   function memberName(id: string) {
     return members.find(m => m.id === id)?.name || "";
   }
   function staffName(id: string) {
     return staff.find(s => s.id === id)?.name || "";
   }
-
-  /* 주간 뷰용 슬롯 필터 */
-  const weekSlots = useMemo(() => {
-    // 이번 주 (월~토) 계산
-    const today = new Date(year, month0, 1); // 표시월의 1일 기준으로 이번주 아님 → 별도 처리
-    return slots;
-  }, [slots, year, month0]);
 
   return (
     <main className="max-w-7xl mx-auto px-3 md:px-6 py-4 md:py-8">
@@ -233,7 +315,6 @@ export default function SchedulePage() {
           </h1>
         </div>
 
-        {/* View toggle */}
         <div className="flex items-center gap-2">
           <div className="flex bg-white border border-aqu-100 rounded-lg p-1 text-xs">
             <button onClick={() => setView("month")}
@@ -243,6 +324,10 @@ export default function SchedulePage() {
             <button onClick={() => setView("week")}
               className={`px-3 py-1.5 rounded flex items-center gap-1 ${view === "week" ? "bg-aqu-600 text-white" : "text-gray-600"}`}>
               <Grid3x3 className="w-3.5 h-3.5" /> 주간
+            </button>
+            <button onClick={() => setView("day")}
+              className={`px-3 py-1.5 rounded flex items-center gap-1 ${view === "day" ? "bg-aqu-600 text-white" : "text-gray-600"}`}>
+              <Clock className="w-3.5 h-3.5" /> 일간
             </button>
           </div>
           <button onClick={() => openNewModal(selectedDate)}
@@ -281,16 +366,20 @@ export default function SchedulePage() {
         </button>
       </div>
 
-      {/* KPI */}
+      {/* 상단 KPI (컴팩트) */}
       <div className="grid grid-cols-3 md:grid-cols-7 gap-2 mb-3 text-xs">
-        <MonthKPI label="총 일정" val={monthTotal.total + ""} color="text-aqu-700" />
-        <MonthKPI label="✓ 완료"  val={monthTotal.done + ""} color="text-green-600" />
-        <MonthKPI label="예약"    val={monthTotal.scheduled + ""} color="text-blue-600" />
-        <MonthKPI label="병결"    val={monthTotal.sick + ""} color="text-orange-600" />
-        <MonthKPI label="취소"    val={monthTotal.cancel + ""} color="text-gray-600" />
-        <MonthKPI label="노쇼"    val={monthTotal.noshow + ""} color="text-red-600" />
-        <MonthKPI label="💰매출"  val={monthTotal.revenue > 0 ? "₩" + monthTotal.revenue.toLocaleString() : "-"} color="text-pink-600" />
+        <MonthKPI label="총 일정" val={monthStats.total + ""} color="text-aqu-700" />
+        {STATUS_OPTIONS.map(s => (
+          <MonthKPI key={s.value} label={s.label} val={(monthStats.byStatus[s.value]||0) + ""} color={s.textColor} />
+        ))}
       </div>
+
+      {/* 드래그 안내 */}
+      {view === "month" && (
+        <div className="mb-2 text-[11px] text-gray-500 flex items-center gap-1">
+          <Move className="w-3 h-3" /> 예약을 다른 날짜로 <b className="text-aqu-700">드래그</b>하면 자동으로 <b className="text-purple-600">이월</b> 처리됩니다
+        </div>
+      )}
 
       {loading ? (
         <div className="text-center py-10 text-gray-500">로딩 중...</div>
@@ -298,7 +387,6 @@ export default function SchedulePage() {
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-3">
           {/* ═══ 월간 캘린더 ═══ */}
           <div className="bg-white rounded-2xl shadow-md border border-aqu-100 overflow-hidden">
-            {/* 요일 헤더 */}
             <div className="grid grid-cols-7 border-b border-aqu-100 bg-aqu-50">
               {DAYS_KR.map((d, i) => (
                 <div key={d} className={`p-2 text-center text-xs md:text-sm font-semibold ${i===0 ? "text-red-500" : i===6 ? "text-blue-500" : "text-aqu-800"}`}>
@@ -307,25 +395,27 @@ export default function SchedulePage() {
               ))}
             </div>
 
-            {/* 6주 × 7일 그리드 */}
             <div className="grid grid-cols-7">
               {monthCells.map((cell, idx) => {
                 const cellStr = ymd(cell);
                 const isOtherMonth = cell.getMonth() !== month0;
                 const isToday = cellStr === todayStr();
                 const isSelected = cellStr === selectedDate;
+                const isDragOver = dragOverDate === cellStr;
                 const daySlots = slotsByDate[cellStr] || [];
                 const dow = cell.getDay();
-
-                // 그날 총액
                 const dayRevenue = daySlots.filter(s => s.event_type === "revenue").reduce((a,b) => a + (b.amount || 0), 0);
 
                 return (
                   <div key={idx}
                     onClick={() => setSelectedDate(cellStr)}
+                    onDragOver={(e) => handleDragOver(cellStr, e)}
+                    onDragLeave={() => dragOverDate === cellStr && setDragOverDate(null)}
+                    onDrop={(e) => handleDrop(cellStr, e)}
                     className={`min-h-[80px] md:min-h-[110px] border-r border-b border-gray-100 p-1 md:p-1.5 cursor-pointer transition
                       ${isOtherMonth ? "bg-gray-50/50 text-gray-400" : "bg-white"}
                       ${isSelected ? "ring-2 ring-aqu-400 ring-inset" : "hover:bg-aqu-50/30"}
+                      ${isDragOver ? "bg-purple-100 ring-2 ring-purple-500 ring-inset" : ""}
                     `}>
                     <div className="flex items-center justify-between mb-0.5">
                       <span className={`text-xs md:text-sm font-semibold ${
@@ -341,19 +431,23 @@ export default function SchedulePage() {
                       )}
                     </div>
 
-                    {/* 그날의 슬롯 (최대 3개 표시) */}
                     <div className="space-y-0.5 overflow-hidden">
                       {daySlots.slice(0, 3).map(s => {
                         const meta = statusMeta(s.status || "scheduled");
+                        const staffP = staff.find((st: any) => st.id === s.staff_id);
                         return (
                           <div key={s.id}
+                            draggable
+                            onDragStart={(e) => handleDragStart(s, e)}
                             onClick={(e) => { e.stopPropagation(); openEditModal(s); }}
-                            className={`text-[9px] md:text-[10px] px-1 py-0.5 rounded border truncate ${meta.color} hover:shadow-sm`}
-                            title={`${s.time_slot} ${memberName(s.member_id) || s.lesson_name || ""}`}>
+                            style={staffP ? { borderLeftColor: staffP.color, borderLeftWidth: 3 } : {}}
+                            className={`text-[9px] md:text-[10px] px-1 py-0.5 rounded border truncate ${meta.color} hover:shadow-sm cursor-move flex items-center gap-0.5`}
+                            title={`${s.time_slot} ${memberName(s.member_id) || s.lesson_name || ""}${staffP ? " (" + staffP.name + ")" : ""} (드래그하여 이월)`}>
                             <span className="font-mono opacity-70">{s.time_slot?.slice(0,5)}</span>
-                            <span className="ml-0.5">
+                            <span className="truncate">
                               {memberName(s.member_id) || s.lesson_name || (s.event_type === "revenue" ? "💰" + (s.amount||0)/1000 + "k" : "일정")}
                             </span>
+                            {s.recurring_id && <Repeat className="w-2.5 h-2.5 opacity-60" />}
                           </div>
                         );
                       })}
@@ -374,7 +468,7 @@ export default function SchedulePage() {
             </div>
           </div>
 
-          {/* ═══ 오른쪽 사이드바 (선택 날짜 상세) ═══ */}
+          {/* ═══ 오른쪽 사이드바 ═══ */}
           <aside className="space-y-3">
             {/* 미니 달력 */}
             <div className="bg-white rounded-2xl shadow-md border border-aqu-100 p-3">
@@ -414,11 +508,11 @@ export default function SchedulePage() {
               </div>
             </div>
 
-            {/* 선택 날짜 상세 패널 */}
+            {/* 선택 날짜 상세 */}
             <SelectedDayPanel
               date={selectedDate}
               slots={slotsByDate[selectedDate] || []}
-              memberName={memberName}
+              members={members}
               staffName={staffName}
               onAdd={() => openNewModal(selectedDate)}
               onEdit={openEditModal}
@@ -427,19 +521,30 @@ export default function SchedulePage() {
             />
           </aside>
         </div>
-      ) : (
-        /* ═══ 주간 뷰 ═══ */
+      ) : view === "week" ? (
         <WeekView
-          year={year} month0={month0}
           slots={slots}
-          members={members} staff={staff}
+          members={members}
+          staff={staff}
           onCellClick={(date, time) => openNewModal(date, time)}
           onEdit={openEditModal}
-          onDelete={deleteSlot}
           memberName={memberName}
-          staffName={staffName}
+        />
+      ) : (
+        <DayView
+          date={selectedDate}
+          setDate={setSelectedDate}
+          slots={slots}
+          members={members}
+          staff={staff}
+          onCellClick={(date, time) => openNewModal(date, time)}
+          onEdit={openEditModal}
+          memberName={memberName}
         />
       )}
+
+      {/* ═══ 하단 상태별 통계 요약 ═══ */}
+      <StatsSummary stats={monthStats} year={year} month0={month0} />
 
       {/* ═══ 등록/수정 모달 ═══ */}
       {modal && (
@@ -449,7 +554,7 @@ export default function SchedulePage() {
           members={members} staff={staff}
           onClose={() => setModal(null)}
           onSave={saveSlot}
-          onDelete={f.id ? () => deleteSlot(f.id) : undefined}
+          onDelete={f.id ? (opts?: any) => { deleteSlot(f.id, opts); setModal(null); } : undefined}
           saving={saving}
         />
       )}
@@ -457,10 +562,15 @@ export default function SchedulePage() {
   );
 }
 
-/* ═════ 선택 날짜 상세 패널 ═════ */
-function SelectedDayPanel({ date, slots, memberName, staffName, onAdd, onEdit, onQuickStatus, onDelete }: any) {
+/* ═════ 선택 날짜 상세 패널 (회원 이름 → 링크) ═════ */
+function SelectedDayPanel({ date, slots, members, staffName, onAdd, onEdit, onQuickStatus, onDelete }: any) {
   const d = new Date(date);
   const dayLabel = `${d.getMonth()+1}월 ${d.getDate()}일 (${DAYS_KR[d.getDay()]})`;
+  const memberMap = useMemo(() => {
+    const m: Record<string, any> = {};
+    members.forEach((mem: any) => m[mem.id] = mem);
+    return m;
+  }, [members]);
 
   return (
     <div className="bg-white rounded-2xl shadow-md border border-aqu-100 p-3">
@@ -480,19 +590,29 @@ function SelectedDayPanel({ date, slots, memberName, staffName, onAdd, onEdit, o
         <div className="space-y-1.5 max-h-[500px] overflow-y-auto">
           {slots.map((s: any) => {
             const meta = statusMeta(s.status || "scheduled");
+            const mem = memberMap[s.member_id];
             return (
               <div key={s.id} className={`border rounded-lg p-2 ${meta.color} border-opacity-50`}>
                 <div className="flex items-center justify-between gap-1 mb-1">
                   <span className="font-mono text-xs font-bold">{s.time_slot?.slice(0,5)}</span>
-                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium`}>
-                    {meta.label}
-                  </span>
+                  <div className="flex items-center gap-1">
+                    {s.recurring_id && (
+                      <span className="text-[9px] px-1 py-0.5 rounded bg-white/60 flex items-center gap-0.5" title="반복 예약">
+                        <Repeat className="w-2.5 h-2.5" /> 반복
+                      </span>
+                    )}
+                    <span className="text-[9px] px-1.5 py-0.5 rounded font-medium">{meta.label}</span>
+                  </div>
                 </div>
                 <div className="text-xs">
-                  {memberName(s.member_id) && (
-                    <div className="font-medium flex items-center gap-1">
-                      <User className="w-3 h-3" /> {memberName(s.member_id)}
-                    </div>
+                  {mem && (
+                    <Link href={`/members/${mem.id}`}
+                      className="font-medium flex items-center gap-1 hover:underline decoration-dotted">
+                      <User className="w-3 h-3" /> {mem.name}
+                      <span className="text-[9px] opacity-70 ml-0.5">
+                        ({mem.member_type === "child" ? "아동" : "성인"})
+                      </span>
+                    </Link>
                   )}
                   {staffName(s.staff_id) && (
                     <div className="text-[10px] opacity-80">👤 {staffName(s.staff_id)}</div>
@@ -508,7 +628,6 @@ function SelectedDayPanel({ date, slots, memberName, staffName, onAdd, onEdit, o
                   )}
                 </div>
 
-                {/* 상태 빠른변경 */}
                 <div className="flex flex-wrap gap-0.5 mt-1.5 pt-1.5 border-t border-white/50">
                   {STATUS_OPTIONS.map(st => (
                     <button key={st.value} onClick={() => onQuickStatus(s, st.value)}
@@ -518,11 +637,11 @@ function SelectedDayPanel({ date, slots, memberName, staffName, onAdd, onEdit, o
                     </button>
                   ))}
                   <button onClick={() => onEdit(s)}
-                    className="text-[9px] px-1 py-0.5 rounded bg-white/30 hover:bg-white/60 ml-auto">
+                    className="text-[9px] px-1 py-0.5 rounded bg-white/30 hover:bg-white/60 ml-auto" title="편집">
                     ✎
                   </button>
                   <button onClick={() => onDelete(s.id)}
-                    className="text-[9px] px-1 py-0.5 rounded bg-red-100 text-red-600 hover:bg-red-200">
+                    className="text-[9px] px-1 py-0.5 rounded bg-red-100 text-red-600 hover:bg-red-200" title="삭제">
                     🗑
                   </button>
                 </div>
@@ -531,46 +650,123 @@ function SelectedDayPanel({ date, slots, memberName, staffName, onAdd, onEdit, o
           })}
         </div>
       )}
-
-      {/* 상태 범례 */}
-      <div className="mt-3 pt-3 border-t border-gray-100">
-        <div className="text-[10px] text-gray-500 mb-1">상태 색상</div>
-        <div className="grid grid-cols-3 gap-1">
-          {STATUS_OPTIONS.map(s => (
-            <div key={s.value} className="flex items-center gap-1 text-[10px]">
-              <span className={`w-2 h-2 rounded-full ${s.dot}`}></span>
-              <span className="text-gray-600">{s.label}</span>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }
 
-/* ═════ 주간 뷰 컴포넌트 ═════ */
-function WeekView({ year, month0, slots, members, staff, onCellClick, onEdit, onDelete, memberName, staffName }: any) {
-  // 이번주 (월~토) 날짜 계산
+/* ═════ 하단 상태별 통계 요약 ═════ */
+function StatsSummary({ stats, year, month0 }: any) {
+  const total = stats.total || 0;
+  const done = stats.byStatus.done || 0;
+  const scheduled = stats.byStatus.scheduled || 0;
+  const sick = stats.byStatus.sick || 0;
+  const cancel = stats.byStatus.cancel || 0;
+  const noshow = stats.byStatus.noshow || 0;
+  const carryover = stats.byStatus.carryover || 0;
+
+  const doneRate     = total > 0 ? Math.round((done / total) * 100)     : 0;
+  const attendedRate = total > 0 ? Math.round(((done + carryover) / total) * 100) : 0;
+  const missedRate   = total > 0 ? Math.round(((sick + cancel + noshow) / total) * 100) : 0;
+
+  return (
+    <div className="mt-4 bg-white rounded-2xl shadow-md border border-aqu-100 p-4 md:p-5">
+      <h2 className="text-sm md:text-base font-bold text-aqu-900 mb-3 flex items-center gap-2">
+        📊 {year}년 {month0+1}월 상태별 요약
+        {total === 0 && <span className="text-xs text-gray-400 font-normal">(데이터 없음)</span>}
+      </h2>
+
+      {total > 0 && (
+        <>
+          {/* 프로그레스 바 */}
+          <div className="mb-4">
+            <div className="flex w-full h-4 rounded-full overflow-hidden border border-gray-200">
+              {STATUS_OPTIONS.map(s => {
+                const cnt = stats.byStatus[s.value] || 0;
+                const pct = (cnt / total) * 100;
+                if (pct === 0) return null;
+                return (
+                  <div key={s.value}
+                    className={s.dot}
+                    style={{ width: pct + "%" }}
+                    title={`${s.label}: ${cnt}건 (${Math.round(pct)}%)`} />
+                );
+              })}
+            </div>
+            <div className="flex flex-wrap gap-2 mt-2 text-[10px] md:text-xs">
+              {STATUS_OPTIONS.map(s => {
+                const cnt = stats.byStatus[s.value] || 0;
+                if (cnt === 0) return null;
+                const pct = Math.round((cnt / total) * 100);
+                return (
+                  <div key={s.value} className="flex items-center gap-1">
+                    <span className={`w-2 h-2 rounded-full ${s.dot}`}></span>
+                    <span className="text-gray-700 font-medium">{s.label}</span>
+                    <span className="text-gray-500">{cnt}건 · {pct}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 요약 지표 */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
+            <BigStat label="✓ 완료율"    val={doneRate + "%"}     sub={`${done}/${total}건`} color="text-green-600 bg-green-50" />
+            <BigStat label="📅 예약 중"  val={scheduled + "건"}   sub={`전체의 ${total > 0 ? Math.round((scheduled/total)*100) : 0}%`} color="text-blue-600 bg-blue-50" />
+            <BigStat label="⚠️ 결석/취소" val={(sick+cancel+noshow) + "건"} sub={`병결 ${sick} · 취소 ${cancel} · 노쇼 ${noshow}`} color="text-red-600 bg-red-50" />
+            <BigStat label="↻ 이월"      val={carryover + "건"}   sub={carryover > 0 ? `${Math.round((carryover/total)*100)}% 이월` : "이월 없음"} color="text-purple-600 bg-purple-50" />
+          </div>
+
+          {/* 매출 */}
+          {stats.revenue > 0 && (
+            <div className="mt-3 p-3 bg-gradient-to-r from-pink-50 to-rose-50 rounded-xl border border-pink-100 flex items-center justify-between">
+              <span className="text-sm font-medium text-pink-800 flex items-center gap-2">
+                <DollarSign className="w-4 h-4" /> 이번 달 시간표 등록 매출
+              </span>
+              <span className="text-lg md:text-xl font-bold text-pink-700">
+                ₩{stats.revenue.toLocaleString()}
+              </span>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function BigStat({ label, val, sub, color }: any) {
+  return (
+    <div className={`p-3 rounded-xl ${color}`}>
+      <div className="text-[10px] md:text-xs font-medium opacity-80">{label}</div>
+      <div className="text-lg md:text-xl font-bold">{val}</div>
+      <div className="text-[10px] opacity-70 mt-0.5">{sub}</div>
+    </div>
+  );
+}
+
+/* ═════ 주간 뷰 ═════ */
+function WeekView({ slots, members, staff, onCellClick, onEdit, memberName }: any) {
+  const staffMap = useMemo(() => {
+    const m: Record<string, any> = {};
+    (staff || []).forEach((s: any) => m[s.id] = s);
+    return m;
+  }, [staff]);
   const [weekStart, setWeekStart] = useState(() => {
     const now = new Date();
-    const dow = now.getDay(); // 0=Sun ~ 6=Sat
+    const dow = now.getDay();
     const monday = new Date(now);
     monday.setDate(now.getDate() - (dow === 0 ? 6 : dow - 1));
     return monday;
   });
-
   const weekDates = Array.from({length: 6}).map((_, i) => {
     const d = new Date(weekStart);
     d.setDate(weekStart.getDate() + i);
     return d;
   });
-
   function shiftWeek(delta: number) {
     const d = new Date(weekStart);
     d.setDate(weekStart.getDate() + delta * 7);
     setWeekStart(d);
   }
-
   function slotsAt(date: string, time: string) {
     return slots.filter((s: any) => s.event_date === date && s.time_slot === time);
   }
@@ -614,13 +810,23 @@ function WeekView({ year, month0, slots, members, staff, onCellClick, onEdit, on
                       <div className="space-y-1">
                         {cellSlots.map((s: any) => {
                           const meta = statusMeta(s.status || "scheduled");
+                          const mem = members.find((mm: any) => mm.id === s.member_id);
+                          const staffP = staffMap[s.staff_id];
+                          const borderColor = staffP?.color || undefined;
                           return (
                             <div key={s.id}
                               onClick={() => onEdit(s)}
+                              style={borderColor ? { borderLeftColor: borderColor, borderLeftWidth: 3 } : {}}
                               className={`text-[10px] p-1 rounded border ${meta.color} cursor-pointer hover:shadow-sm`}>
                               <div className="font-medium truncate">
-                                {memberName(s.member_id) || s.lesson_name || "일정"}
+                                {mem?.name || s.lesson_name || "일정"}
                               </div>
+                              {staffP && (
+                                <div className="text-[9px] opacity-90 flex items-center gap-0.5">
+                                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: staffP.color }}></span>
+                                  {staffP.name}
+                                </div>
+                              )}
                               {s.status && s.status !== "scheduled" && (
                                 <div className="text-[9px] opacity-70">{meta.label}</div>
                               )}
@@ -644,16 +850,139 @@ function WeekView({ year, month0, slots, members, staff, onCellClick, onEdit, on
   );
 }
 
-/* ═════ 등록/수정 모달 ═════ */
+/* ═════ 일간 뷰 (강사별 컬럼) ═════ */
+function DayView({ date, setDate, slots, members, staff, onCellClick, onEdit, memberName }: any) {
+  const dayDate = new Date(date);
+  const activeStaff = staff && staff.length > 0 ? staff : [{ id: null, name: "미배정", color: "#94a3b8", role: "" }];
+
+  function shift(delta: number) {
+    const d = new Date(dayDate);
+    d.setDate(dayDate.getDate() + delta);
+    setDate(ymd(d));
+  }
+
+  function slotsAtStaff(staffId: string | null, time: string) {
+    return slots.filter((s: any) =>
+      s.event_date === date &&
+      s.time_slot === time &&
+      (staffId ? s.staff_id === staffId : !s.staff_id)
+    );
+  }
+
+  const daySlots = slots.filter((s: any) => s.event_date === date);
+  const total = daySlots.length;
+
+  return (
+    <div className="bg-white rounded-2xl shadow-md border border-aqu-100 overflow-hidden">
+      {/* 헤더 */}
+      <div className="flex items-center justify-between p-3 border-b border-aqu-100 bg-aqu-50">
+        <button onClick={() => shift(-1)} className="p-1.5 hover:bg-white rounded">
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+        <div className="text-sm md:text-base font-bold text-aqu-800">
+          {date} ({DAYS_KR[dayDate.getDay()]}) · 총 {total}건
+        </div>
+        <button onClick={() => shift(1)} className="p-1.5 hover:bg-white rounded">
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* 강사별 컬럼 */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-aqu-100">
+              <th className="p-2 text-left w-14 md:w-20 bg-aqu-50">시간</th>
+              {activeStaff.map((st: any) => (
+                <th key={st.id || "unassigned"}
+                    className="p-2 text-center min-w-[120px] bg-aqu-50"
+                    style={{ borderTop: `4px solid ${st.color || "#94a3b8"}` }}>
+                  <div className="flex items-center justify-center gap-1">
+                    <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: st.color || "#94a3b8" }}></span>
+                    <span className="font-bold text-aqu-800">{st.name}</span>
+                  </div>
+                  {st.role && <div className="text-[9px] text-gray-500">{st.role}</div>}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {TIMES.map(time => (
+              <tr key={time} className="border-b border-gray-100">
+                <td className="p-2 font-medium text-gray-700 bg-gray-50 text-xs">{time}</td>
+                {activeStaff.map((st: any) => {
+                  const cellSlots = slotsAtStaff(st.id, time);
+                  return (
+                    <td key={st.id || "un"} className="p-1 align-top border-l border-gray-100 min-w-[120px]">
+                      <div className="space-y-1">
+                        {cellSlots.map((s: any) => {
+                          const meta = statusMeta(s.status || "scheduled");
+                          const mem = members.find((m: any) => m.id === s.member_id);
+                          return (
+                            <div key={s.id}
+                              onClick={() => onEdit(s)}
+                              style={{ borderLeft: `4px solid ${st.color || "#94a3b8"}` }}
+                              className={`text-[10px] p-1.5 rounded ${meta.color} cursor-pointer hover:shadow-sm`}>
+                              <div className="font-medium truncate">
+                                {mem?.name || s.lesson_name || "일정"}
+                              </div>
+                              {s.lesson_name && mem && (
+                                <div className="text-[9px] opacity-70 truncate">{s.lesson_name}</div>
+                              )}
+                              {s.status && s.status !== "scheduled" && (
+                                <div className="text-[9px] font-bold">{meta.label}</div>
+                              )}
+                            </div>
+                          );
+                        })}
+                        <button onClick={() => onCellClick(date, time)}
+                          className="w-full text-gray-400 hover:text-aqu-600 hover:bg-aqu-50 rounded border border-dashed border-gray-200 py-0.5">
+                          <Plus className="w-3 h-3 inline" />
+                        </button>
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* 범례 */}
+      <div className="p-3 border-t border-aqu-100 bg-aqu-50/50">
+        <div className="text-[10px] text-gray-600 mb-1">강사 색상 범례</div>
+        <div className="flex flex-wrap gap-2">
+          {activeStaff.map((st: any) => (
+            <div key={st.id || "un"} className="flex items-center gap-1 text-[10px]">
+              <span className="w-3 h-3 rounded" style={{ backgroundColor: st.color || "#94a3b8" }}></span>
+              <span>{st.name}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═════ 등록/수정 모달 (반복예약 옵션 포함) ═════ */
 function SlotModal({ f, setF, modal, members, staff, onClose, onSave, onDelete, saving }: any) {
+  const isEditing = !!f.id;
+  const isRecurring = !!f.recurring_id;
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3"
       onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-5 max-h-[95vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-aqu-900">
-            {modal.editing ? "일정 수정" : "새 일정"}
+          <h2 className="text-lg font-bold text-aqu-900 flex items-center gap-2">
+            {isEditing ? "일정 수정" : "새 일정"}
+            {isRecurring && (
+              <span className="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded flex items-center gap-1">
+                <Repeat className="w-3 h-3" /> 반복 시리즈
+              </span>
+            )}
           </h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
             <X className="w-5 h-5" />
@@ -743,14 +1072,56 @@ function SlotModal({ f, setF, modal, members, staff, onClose, onSave, onDelete, 
               placeholder="예: 컨디션 나빠 30분 조기 종료"
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none" />
           </Field>
+
+          {/* 반복 예약 옵션 (새 예약일 때만) */}
+          {!isEditing && (
+            <div className="p-3 bg-purple-50/50 border border-purple-100 rounded-xl">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={f.recurring_enabled}
+                  onChange={e => setF({ ...f, recurring_enabled: e.target.checked })}
+                  className="w-4 h-4 accent-purple-600" />
+                <span className="text-sm font-medium text-purple-900 flex items-center gap-1">
+                  <Repeat className="w-4 h-4" /> 매주 반복 예약
+                </span>
+              </label>
+              {f.recurring_enabled && (
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="text-xs text-purple-800">이번 주부터</span>
+                  <select value={f.recurring_weeks}
+                    onChange={e => setF({ ...f, recurring_weeks: parseInt(e.target.value) })}
+                    className="px-2 py-1 border border-purple-200 rounded text-sm bg-white focus:ring-2 focus:ring-purple-400 focus:outline-none">
+                    {[2,4,6,8,10,12,16,20,24].map(n => (
+                      <option key={n} value={n}>{n}주 동안</option>
+                    ))}
+                  </select>
+                  <span className="text-xs text-purple-800">매주 같은 시간</span>
+                </div>
+              )}
+              {f.recurring_enabled && f.event_date && (
+                <div className="text-[11px] text-purple-700 mt-2">
+                  📅 {f.event_date} ({DAYS_KR[new Date(f.event_date).getDay()]})요일 {f.time_slot}에 <b>{f.recurring_weeks}회</b> 자동 등록됩니다
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex gap-2 mt-5">
           {onDelete && (
-            <button onClick={() => { if(confirm("삭제할까요?")) { onDelete(); onClose(); } }}
-              className="px-3 py-2 border border-red-200 text-red-500 rounded-lg text-sm hover:bg-red-50">
-              <Trash2 className="w-4 h-4" />
-            </button>
+            <div className="flex flex-col gap-1">
+              <button onClick={() => onDelete()}
+                className="px-3 py-2 border border-red-200 text-red-500 rounded-lg text-xs hover:bg-red-50 flex items-center gap-1"
+                title="이 일정만 삭제">
+                <Trash2 className="w-4 h-4" />
+              </button>
+              {isRecurring && (
+                <button onClick={() => onDelete({ series: true, recurring_id: f.recurring_id })}
+                  className="px-2 py-1 border border-red-300 text-red-600 rounded-lg text-[10px] hover:bg-red-50"
+                  title="반복 시리즈 전체 삭제">
+                  시리즈 전체
+                </button>
+              )}
+            </div>
           )}
           <button onClick={onClose} disabled={saving}
             className="flex-1 px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50">
@@ -758,7 +1129,7 @@ function SlotModal({ f, setF, modal, members, staff, onClose, onSave, onDelete, 
           </button>
           <button onClick={onSave} disabled={saving}
             className="flex-1 px-4 py-2 bg-aqu-600 text-white rounded-lg text-sm hover:bg-aqu-700 disabled:opacity-50">
-            {saving ? "저장 중..." : "저장"}
+            {saving ? "저장 중..." : (f.recurring_enabled ? `${f.recurring_weeks}주 등록` : "저장")}
           </button>
         </div>
       </div>

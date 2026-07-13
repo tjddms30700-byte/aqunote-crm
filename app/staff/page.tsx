@@ -5,9 +5,15 @@ import Link from "next/link";
 import { Waves, Plus, X, Save, Users, DollarSign } from "lucide-react";
 
 const ROLES = [
-  { k: "director", label: "👑 원장" },
-  { k: "coach", label: "🏊 코치" },
-  { k: "admin", label: "📋 관리자" },
+  { k: "director",  label: "👑 원장" },
+  { k: "therapist", label: "🩺 치료사" },
+  { k: "admin",     label: "📋 관리자" },
+];
+function roleLabel(r: string) { return ROLES.find(x => x.k === r)?.label || r; }
+
+const COLOR_PALETTE = [
+  "#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6",
+  "#ec4899", "#06b6d4", "#84cc16", "#f97316", "#6366f1",
 ];
 
 export default function StaffPage() {
@@ -18,9 +24,11 @@ export default function StaffPage() {
   const [showStaffModal, setShowStaffModal] = useState(false);
   const [showPayrollModal, setShowPayrollModal] = useState(false);
   const [newStaff, setNewStaff] = useState<any>({
-    name: "", email: "", phone: "", role: "coach",
+    name: "", email: "", phone: "", role: "therapist",
     salary_type: "hourly", salary_amount: 0, address: "",
+    color: "#3b82f6",
   });
+  const [editStaff, setEditStaff] = useState<any>(null);
   const [newPay, setNewPay] = useState<any>({
     staff_id: "", pay_month: new Date().toISOString().slice(0, 7),
     base_amount: 0, bonus: 0, deduction: 0,
@@ -44,19 +52,39 @@ export default function StaffPage() {
     if (!newStaff.name) return;
     const { data: orgs } = await supabase.from("organizations").select("id").limit(1);
     const orgId = orgs?.[0]?.id;
-    await supabase.from("staff").insert({
+    const payload = {
       org_id: orgId,
       name: newStaff.name,
-      email: newStaff.email,
-      phone: newStaff.phone,
+      email: newStaff.email || null,
+      phone: newStaff.phone || null,
       role: newStaff.role,
       salary_type: newStaff.salary_type,
-      salary_amount: Number(newStaff.salary_amount),
-      address: newStaff.address,
-    });
+      salary_amount: Number(newStaff.salary_amount || 0),
+      address: newStaff.address || null,
+      color: newStaff.color || "#3b82f6",
+    };
+    if (editStaff?.id) {
+      await supabase.from("staff").update(payload).eq("id", editStaff.id);
+    } else {
+      await supabase.from("staff").insert(payload);
+    }
     setShowStaffModal(false);
-    setNewStaff({ name: "", email: "", phone: "", role: "coach", salary_type: "hourly", salary_amount: 0, address: "" });
+    setEditStaff(null);
+    setNewStaff({ name: "", email: "", phone: "", role: "therapist", salary_type: "hourly", salary_amount: 0, address: "", color: "#3b82f6" });
     loadAll();
+  }
+
+  function openEdit(s: any) {
+    setEditStaff(s);
+    setNewStaff({
+      name: s.name || "", email: s.email || "", phone: s.phone || "",
+      role: s.role || "therapist",
+      salary_type: s.salary_type || "hourly",
+      salary_amount: s.salary_amount || 0,
+      address: s.address || "",
+      color: s.color || "#3b82f6",
+    });
+    setShowStaffModal(true);
   }
 
   async function deleteStaff(id: string) {
@@ -104,7 +132,13 @@ export default function StaffPage() {
           <h1 className="text-2xl md:text-3xl font-bold text-aqu-900">🧑‍💼 직원 · 급여</h1>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => tab === "staff" ? setShowStaffModal(true) : setShowPayrollModal(true)}
+          <button onClick={() => {
+              if (tab === "staff") {
+                setEditStaff(null);
+                setNewStaff({ name: "", email: "", phone: "", role: "therapist", salary_type: "hourly", salary_amount: 0, address: "", color: "#3b82f6" });
+                setShowStaffModal(true);
+              } else setShowPayrollModal(true);
+            }}
             className="px-3 py-1.5 bg-aqu-600 text-white rounded-lg text-sm flex items-center gap-1 hover:bg-aqu-700">
             <Plus className="w-4 h-4" /> {tab === "staff" ? "직원 추가" : "급여 등록"}
           </button>
@@ -145,10 +179,15 @@ export default function StaffPage() {
                 <tbody>
                   {staff.map((s) => (
                     <tr key={s.id} className="border-t border-aqu-100 hover:bg-aqu-50/30">
-                      <td className="px-4 py-3 font-medium">{s.name}</td>
+                      <td className="px-4 py-3 font-medium">
+                        <div className="flex items-center gap-2">
+                          <span className="w-3 h-3 rounded-full border border-gray-300" style={{ backgroundColor: s.color || "#3b82f6" }} title="시간표 색상"></span>
+                          {s.name}
+                        </div>
+                      </td>
                       <td className="px-4 py-3">
                         <span className="px-2 py-0.5 rounded text-xs bg-aqu-100 text-aqu-700">
-                          {ROLES.find((r) => r.k === s.role)?.label || s.role}
+                          {roleLabel(s.role)}
                         </span>
                       </td>
                       <td className="px-4 py-3 hidden md:table-cell text-xs text-gray-600">{s.email || "-"}</td>
@@ -161,7 +200,8 @@ export default function StaffPage() {
                           </>
                         ) : "-"}
                       </td>
-                      <td className="px-2">
+                      <td className="px-2 whitespace-nowrap">
+                        <button onClick={() => openEdit(s)} className="text-aqu-600 hover:text-aqu-800 text-xs mr-2">수정</button>
                         <button onClick={() => deleteStaff(s.id)} className="text-red-400 hover:text-red-600 text-xs">삭제</button>
                       </td>
                     </tr>
@@ -211,8 +251,8 @@ export default function StaffPage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowStaffModal(false)}>
           <div className="bg-white rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-aqu-900">🧑‍💼 직원 등록</h3>
-              <button onClick={() => setShowStaffModal(false)}><X className="w-5 h-5 text-gray-500" /></button>
+              <h3 className="text-lg font-bold text-aqu-900">🧑‍💼 직원 {editStaff ? "수정" : "등록"}</h3>
+              <button onClick={() => { setShowStaffModal(false); setEditStaff(null); }}><X className="w-5 h-5 text-gray-500" /></button>
             </div>
             <div className="space-y-3">
               <Field label="이름 *" value={newStaff.name} onChange={(v: string) => setNewStaff({ ...newStaff, name: v })} />
@@ -230,6 +270,20 @@ export default function StaffPage() {
               <Field label="이메일" value={newStaff.email} onChange={(v: string) => setNewStaff({ ...newStaff, email: v })} />
               <Field label="전화번호" value={newStaff.phone} onChange={(v: string) => setNewStaff({ ...newStaff, phone: v })} />
               <Field label="주소" value={newStaff.address} onChange={(v: string) => setNewStaff({ ...newStaff, address: v })} />
+              <div>
+                <label className="text-xs text-gray-600">시간표 색상</label>
+                <div className="flex flex-wrap gap-2 mt-1">
+                  {COLOR_PALETTE.map((c) => (
+                    <button key={c} type="button" onClick={() => setNewStaff({ ...newStaff, color: c })}
+                      className={`w-8 h-8 rounded-full border-2 transition ${newStaff.color === c ? "border-gray-900 scale-110" : "border-gray-200 hover:scale-105"}`}
+                      style={{ backgroundColor: c }} title={c}></button>
+                  ))}
+                  <input type="color" value={newStaff.color || "#3b82f6"}
+                    onChange={e => setNewStaff({ ...newStaff, color: e.target.value })}
+                    className="w-8 h-8 rounded-full border-2 border-gray-200 cursor-pointer" />
+                </div>
+                <div className="text-[11px] text-gray-500 mt-1">💡 시간표에서 이 직원이 담당하는 수업 색상이 됩니다</div>
+              </div>
               <div>
                 <label className="text-xs text-gray-600">급여 구분</label>
                 <div className="flex gap-2 mt-1">

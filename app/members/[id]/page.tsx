@@ -6,7 +6,7 @@ import Link from "next/link";
 import {
   Waves, ArrowLeft, User, Phone, MapPin, Calendar, AlertCircle,
   Activity, Award, MessageCircle, Save, Plus, Star, Trash2, Edit,
-  Sparkles, Send, X, Copy, Check, Trash, FileText, Upload, Download, Eye, ExternalLink
+  Sparkles, Send, X, Copy, Check, Trash, FileText, Upload, Download, Eye, ExternalLink, RefreshCw
 } from "lucide-react";
 
 const DOC_CATEGORIES = [
@@ -140,6 +140,9 @@ export default function MemberDetail() {
 
   const [skills, setSkills] = useState<Record<string, number>>({});
   const [painMap, setPainMap] = useState<Record<string, number>>({});
+  const [sensationMap, setSensationMap] = useState<Record<string, string>>({});
+  // sensation: 'sensitive' (과민/예민), 'dull' (둔감), 'numb' (저림)
+  const [bodySelectedPart, setBodySelectedPart] = useState<string | null>(null);
   const [sessions, setSessions] = useState<any[]>([]);
   const [newLabels, setNewLabels] = useState<string[]>([]);
   const [newMemo, setNewMemo] = useState("");
@@ -160,6 +163,7 @@ export default function MemberDetail() {
       setMember(m);
       if (m?.extra?.water_skills) setSkills(m.extra.water_skills);
       if (m?.extra?.pain_map) setPainMap(m.extra.pain_map);
+      if (m?.extra?.sensation_map) setSensationMap(m.extra.sensation_map);
       setSessions(m?.extra?.sessions || []);
       setMemberMemo(m?.memo || "");
       setLoading(false);
@@ -195,7 +199,7 @@ export default function MemberDetail() {
 
   async function saveAssessment() {
     if (!member) return;
-    const newExtra = { ...(member.extra || {}), water_skills: skills, pain_map: painMap };
+    const newExtra = { ...(member.extra || {}), water_skills: skills, pain_map: painMap, sensation_map: sensationMap };
     const { error } = await supabase.from("members").update({ extra: newExtra }).eq("id", member.id);
     setSaveStatus(error ? "❌ 저장 실패" : "✅ 저장 완료!");
     setTimeout(() => setSaveStatus(""), 2500);
@@ -458,8 +462,20 @@ export default function MemberDetail() {
 
         {tab === "bodymap" && (
           <div>
-            <h3 className="text-lg font-bold text-aqu-900 mb-4">🗺️ Body Map - 통증 부위 (0-10)</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-aqu-900">🗺️ Body Map - 통증 + 감각 지도</h3>
+              <button onClick={() => {
+                if (confirm("모든 통증/감각 정보를 초기화합니다 (저장 전입니다)")) {
+                  setPainMap({}); setSensationMap({}); setBodySelectedPart(null);
+                }
+              }}
+              className="text-xs px-3 py-1.5 bg-red-50 border border-red-200 text-red-600 rounded hover:bg-red-100 flex items-center gap-1">
+                <Trash2 className="w-3 h-3" /> 전체 리셋
+              </button>
+            </div>
+
             <div className="flex flex-col md:flex-row gap-6">
+              {/* SVG 인체 */}
               <div className="flex-shrink-0">
                 <svg viewBox="0 0 200 400" className="w-48 h-96 mx-auto">
                   <ellipse cx="100" cy="45" rx="22" ry="28" fill="#f0f9ff" stroke="#0891b2" strokeWidth="1.5"/>
@@ -471,38 +487,165 @@ export default function MemberDetail() {
                   <path d="M120 240 L125 340 L130 380" fill="none" stroke="#0891b2" strokeWidth="1.5"/>
                   {BODY_PARTS.map((p) => {
                     const pain = painMap[p.key] || 0;
-                    const size = 6 + pain * 1.5;
-                    const color = pain === 0 ? "#e5e7eb" : pain <= 3 ? "#fbbf24" : pain <= 6 ? "#fb923c" : "#dc2626";
+                    const sens = sensationMap[p.key];
+                    const isSelected = bodySelectedPart === p.key;
+                    const size = 8 + pain * 1.3;
+                    const color = pain === 0
+                      ? (sens === "sensitive" ? "#a78bfa" : sens === "dull" ? "#94a3b8" : sens === "numb" ? "#64748b" : "#e5e7eb")
+                      : pain <= 3 ? "#fbbf24" : pain <= 6 ? "#fb923c" : "#dc2626";
                     return (
                       <g key={p.key}>
-                        <circle cx={p.x} cy={p.y} r={size} fill={color} stroke="#fff" strokeWidth="1"
-                          opacity={pain === 0 ? 0.5 : 0.85}
-                          onClick={() => setPainMap((prev) => ({ ...prev, [p.key]: ((prev[p.key] || 0) + 1) % 11 }))}
+                        {isSelected && (
+                          <circle cx={p.x} cy={p.y} r={size + 4} fill="none" stroke="#0ea5e9" strokeWidth="2" strokeDasharray="3 2" />
+                        )}
+                        <circle cx={p.x} cy={p.y} r={size} fill={color} stroke="#fff" strokeWidth="1.5"
+                          opacity={pain === 0 && !sens ? 0.4 : 0.9}
+                          onClick={() => setBodySelectedPart(p.key)}
                           style={{ cursor: "pointer" }} />
                         {pain > 0 && (
                           <text x={p.x} y={p.y + 3} textAnchor="middle" fontSize="9" fill="white" fontWeight="bold">{pain}</text>
+                        )}
+                        {pain === 0 && sens && (
+                          <text x={p.x} y={p.y + 3} textAnchor="middle" fontSize="8" fill="white" fontWeight="bold">
+                            {sens === "sensitive" ? "⭐" : sens === "dull" ? "○" : "∅"}
+                          </text>
                         )}
                       </g>
                     );
                   })}
                 </svg>
-                <p className="text-xs text-gray-500 text-center mt-2">부위 클릭하여 통증 강도(0-10) 조정</p>
+                <p className="text-xs text-gray-500 text-center mt-2">부위 클릭하여 선택 → 오른쪽에서 조정</p>
+
+                {/* 범례 */}
+                <div className="mt-3 p-2 bg-gray-50 rounded text-[10px] space-y-1">
+                  <div className="font-medium text-gray-700 mb-1">범례</div>
+                  <div className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-gray-300"></span> 통증 없음</div>
+                  <div className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-yellow-400"></span> 경미 (1-3)</div>
+                  <div className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-orange-400"></span> 중등 (4-6)</div>
+                  <div className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-red-600"></span> 심함 (7-10)</div>
+                  <div className="pt-1 border-t border-gray-200 mt-1"></div>
+                  <div className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-purple-400"></span> ⭐ 예민/과민</div>
+                  <div className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-slate-400"></span> ○ 둔감</div>
+                  <div className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-slate-600"></span> ∅ 저림</div>
+                </div>
               </div>
+
+              {/* 종 모든 조정 패널 */}
               <div className="flex-1">
-                <div className="grid grid-cols-2 gap-2 mb-4">
+                {/* 선택된 부위 상세 조정 */}
+                {bodySelectedPart && (
+                  <div className="mb-4 p-4 bg-gradient-to-br from-aqu-50 to-blue-50 border-2 border-aqu-300 rounded-xl">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="font-bold text-aqu-900">
+                        📍 {BODY_PARTS.find(p => p.key === bodySelectedPart)?.label}
+                      </h4>
+                      <button onClick={() => setBodySelectedPart(null)}
+                        className="text-gray-400 hover:text-gray-600">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* 통증 강도 */}
+                    <div className="mb-3">
+                      <label className="text-xs font-semibold text-gray-700 mb-1 block">통증 강도 (0-10)</label>
+                      <div className="flex items-center gap-2">
+                        <input type="range" min="0" max="10"
+                          value={painMap[bodySelectedPart] || 0}
+                          onChange={e => setPainMap(prev => ({ ...prev, [bodySelectedPart]: parseInt(e.target.value) }))}
+                          className="flex-1 accent-aqu-600" />
+                        <span className={`w-10 text-center font-bold text-lg ${
+                          (painMap[bodySelectedPart] || 0) === 0 ? "text-gray-400" :
+                          (painMap[bodySelectedPart] || 0) <= 3 ? "text-yellow-500" :
+                          (painMap[bodySelectedPart] || 0) <= 6 ? "text-orange-500" : "text-red-500"
+                        }`}>{painMap[bodySelectedPart] || 0}</span>
+                      </div>
+                    </div>
+
+                    {/* 감각 */}
+                    <div className="mb-3">
+                      <label className="text-xs font-semibold text-gray-700 mb-1 block">감각 (선택)</label>
+                      <div className="grid grid-cols-4 gap-1">
+                        {[
+                          { v: "", label: "정상", color: "bg-white border-gray-300 text-gray-600" },
+                          { v: "sensitive", label: "⭐ 예민", color: "bg-purple-100 border-purple-400 text-purple-800" },
+                          { v: "dull", label: "○ 둔감", color: "bg-slate-100 border-slate-400 text-slate-700" },
+                          { v: "numb", label: "∅ 저림", color: "bg-slate-200 border-slate-500 text-slate-800" },
+                        ].map(s => (
+                          <button key={s.v} type="button"
+                            onClick={() => setSensationMap(prev => {
+                              const nx = { ...prev };
+                              if (s.v) nx[bodySelectedPart] = s.v;
+                              else delete nx[bodySelectedPart];
+                              return nx;
+                            })}
+                            className={`py-1.5 text-xs rounded border-2 ${
+                              (sensationMap[bodySelectedPart] || "") === s.v
+                                ? s.color + " font-bold shadow-sm"
+                                : "bg-white border-gray-200 text-gray-400 hover:bg-gray-50"
+                            }`}>
+                            {s.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* 이 부위만 리셋 */}
+                    <button onClick={() => {
+                      setPainMap(prev => { const n = {...prev}; delete n[bodySelectedPart]; return n; });
+                      setSensationMap(prev => { const n = {...prev}; delete n[bodySelectedPart]; return n; });
+                    }}
+                    className="w-full text-xs px-3 py-1.5 bg-white border border-red-200 text-red-600 rounded hover:bg-red-50 flex items-center justify-center gap-1">
+                      <RefreshCw className="w-3 h-3" /> 이 부위만 리셋
+                    </button>
+                  </div>
+                )}
+
+                {/* 요약 리스트 */}
+                <div className="grid grid-cols-2 gap-2 mb-4 max-h-[280px] overflow-y-auto">
                   {BODY_PARTS.map((p) => {
                     const pain = painMap[p.key] || 0;
+                    const sens = sensationMap[p.key];
+                    const hasData = pain > 0 || sens;
                     return (
-                      <div key={p.key} className="flex items-center justify-between text-sm p-2 rounded bg-gray-50">
-                        <span className="text-gray-700">{p.label}</span>
-                        <span className={`font-bold ${pain === 0 ? "text-gray-400" : pain <= 3 ? "text-yellow-500" : pain <= 6 ? "text-orange-500" : "text-red-500"}`}>{pain}</span>
-                      </div>
+                      <button key={p.key} type="button"
+                        onClick={() => setBodySelectedPart(p.key)}
+                        className={`text-left flex items-center justify-between text-sm p-2 rounded transition ${
+                          bodySelectedPart === p.key ? "bg-aqu-100 border-2 border-aqu-500" : hasData ? "bg-yellow-50 border border-yellow-200" : "bg-gray-50 hover:bg-gray-100"
+                        }`}>
+                        <span className="text-gray-700 text-xs">{p.label}</span>
+                        <span className="flex items-center gap-1">
+                          {pain > 0 && (
+                            <span className={`font-bold text-xs ${pain <= 3 ? "text-yellow-600" : pain <= 6 ? "text-orange-500" : "text-red-500"}`}>{pain}</span>
+                          )}
+                          {sens === "sensitive" && <span className="text-[10px] text-purple-600">⭐</span>}
+                          {sens === "dull" && <span className="text-[10px] text-slate-500">○</span>}
+                          {sens === "numb" && <span className="text-[10px] text-slate-700">∅</span>}
+                        </span>
+                      </button>
                     );
                   })}
                 </div>
-                <button onClick={saveAssessment} className="w-full px-4 py-2 bg-aqu-600 text-white rounded-lg text-sm hover:bg-aqu-700 flex items-center justify-center gap-1">
-                  <Save className="w-4 h-4" /> Body Map 저장
-                </button>
+
+                {/* 버튼 */}
+                <div className="flex gap-2">
+                  <button onClick={() => {
+                    // 저장 직전 되돌리기 (서버에서 재로드)
+                    if (confirm("저장 전 상태로 되돌릴까요?")) {
+                      setPainMap(member?.extra?.pain_map || {});
+                      setSensationMap(member?.extra?.sensation_map || {});
+                      setBodySelectedPart(null);
+                    }
+                  }}
+                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 flex items-center gap-1">
+                    <RefreshCw className="w-4 h-4" /> 되돌리기
+                  </button>
+                  <button onClick={saveAssessment} className="flex-1 px-4 py-2 bg-aqu-600 text-white rounded-lg text-sm hover:bg-aqu-700 flex items-center justify-center gap-1">
+                    <Save className="w-4 h-4" /> Body Map 저장
+                  </button>
+                </div>
+                {saveStatus && (
+                  <div className="mt-2 text-center text-sm font-medium text-aqu-700">{saveStatus}</div>
+                )}
               </div>
             </div>
           </div>
