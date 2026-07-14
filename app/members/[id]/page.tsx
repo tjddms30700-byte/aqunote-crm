@@ -193,21 +193,22 @@ export default function MemberDetail() {
 
   async function saveExtInfo() {
     setSavingExt(true);
-    // 1차: 컬럼 직접 저장 시도
-    const { error } = await supabase.from("members").update({
+    // 1차: 컬럼 직접 저장 시도 + .select()로 실제 반환 rows 검증
+    const { data: updatedRows, error } = await supabase.from("members").update({
       current_status: extInfo.current_status || null,
       main_symptom: extInfo.main_symptom || null,
       medication: extInfo.medication || null,
       treatment_history: extInfo.treatment_history || null,
       expected_change: extInfo.expected_change || null,
       special_notes: extInfo.special_notes || null,
-    }).eq("id", id);
+    }).eq("id", id).select();
 
+    // ❌ CASE 1: 에러 발생 (컬럼 없음 등)
     if (error) {
       console.error("저장 실패 상세:", error);
-      // 컬럼이 없는 경우 → extra JSONB로 fallback
       const isMissingCol = error.message?.includes("column") || error.code === "PGRST204" || error.code === "42703";
       if (isMissingCol) {
+        // 컬럼이 없는 경우 → extra JSONB로 fallback
         const { data: cur } = await supabase.from("members").select("extra").eq("id", id).single();
         const newExtra = {
           ...(cur?.extra || {}),
@@ -218,17 +219,36 @@ export default function MemberDetail() {
           expected_change: extInfo.expected_change || null,
           special_notes: extInfo.special_notes || null,
         };
-        const { error: e2 } = await supabase.from("members").update({ extra: newExtra }).eq("id", id);
+        const { data: ed, error: e2 } = await supabase.from("members").update({ extra: newExtra }).eq("id", id).select();
         setSavingExt(false);
-        setExtSaveStatus(e2 ? `❌ 저장 실패: ${e2.message}` : "✅ 저장 완료 (임시 저장)");
+        if (e2) {
+          setExtSaveStatus(`❌ 저장 실패: ${e2.message}`);
+        } else if (!ed || ed.length === 0) {
+          setExtSaveStatus("❌ RLS 정책으로 저장 차단됨! 관리자에게 AQUNOTE_FIX_RLS_UPDATE.sql 실행 요청");
+        } else {
+          setExtSaveStatus("✅ 저장 완료 (임시 저장)");
+        }
       } else {
         setSavingExt(false);
         setExtSaveStatus(`❌ 저장 실패: ${error.message}`);
       }
-    } else {
-      setSavingExt(false);
-      setExtSaveStatus("✅ 저장 완료");
+      setTimeout(() => setExtSaveStatus(""), 8000);
+      return;
     }
+
+    // ❌ CASE 2: 에러는 없지만 0 rows updated → RLS 차단이 유력한 원인
+    if (!updatedRows || updatedRows.length === 0) {
+      setSavingExt(false);
+      setExtSaveStatus("❌ 저장 되지 않음! Supabase RLS 정책이 UPDATE를 막고 있습니다. AQUNOTE_FIX_RLS_UPDATE.sql 실행 필요");
+      setTimeout(() => setExtSaveStatus(""), 10000);
+      return;
+    }
+
+    // ✅ 성공
+    setSavingExt(false);
+    setExtSaveStatus("✅ 저장 완료");
+    // 로드된 member state도 갱신
+    setMember({ ...member, ...updatedRows[0] });
     setTimeout(() => setExtSaveStatus(""), 4000);
   }
 

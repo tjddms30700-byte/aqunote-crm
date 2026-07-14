@@ -51,6 +51,7 @@ export default function MembersPage() {
 
   // 상태 드롭다운 열림 여부
   const [openStatusId, setOpenStatusId] = useState<string | null>(null);
+  const [inboxPending, setInboxPending] = useState(0);
 
   const [newMember, setNewMember] = useState<any>({
     member_type: "child", name: "", birth: "", gender: "", phone: "",
@@ -59,7 +60,12 @@ export default function MembersPage() {
     medical_history: "", source: "검색", status: "waiting",
   });
 
-  useEffect(() => { loadMembers(); }, []);
+  useEffect(() => {
+    loadMembers();
+    // 신규 유입 미처리 건수
+    supabase.from("leads_inbox").select("*", { count: "exact", head: true }).eq("processed", false)
+      .then(({ count }) => setInboxPending(count || 0));
+  }, []);
 
   async function loadMembers() {
     setLoading(true);
@@ -76,11 +82,27 @@ export default function MembersPage() {
     setOpenStatusId(null);
     // Optimistic update
     setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, status: newStatus } : m)));
-    const { error } = await supabase.from("members").update({ status: newStatus }).eq("id", memberId);
+    // .select()로 실제 반환 rows 검증 (RLS 차단 감지)
+    const { data, error } = await supabase.from("members")
+      .update({ status: newStatus })
+      .eq("id", memberId)
+      .select();
+
     if (error) {
-      alert("상태 변경 실패: " + error.message);
-      loadMembers(); // rollback
+      alert("❌ 상태 변경 실패: " + error.message);
+      loadMembers();
+      return;
     }
+    if (!data || data.length === 0) {
+      alert(
+        "❌ 상태 변경이 저장되지 않았습니다!\n\n" +
+        "[원인] Supabase RLS(Row Level Security) 정책이 UPDATE를 막고 있습니다.\n" +
+        "[해결] AQUNOTE_FIX_RLS_UPDATE.sql 파일을 Supabase SQL Editor에서 실행해주세요."
+      );
+      loadMembers();
+      return;
+    }
+    // ✅ 성공 - 이미 optimistic update 되었음
   }
 
   function openMemoModal(m: Member) {
@@ -170,6 +192,12 @@ export default function MembersPage() {
           <h1 className="text-2xl md:text-3xl font-bold text-aqu-900">👥 회원 관리</h1>
         </div>
         <div className="flex items-center gap-2">
+          {inboxPending > 0 && (
+            <Link href="/inbox"
+              className="px-3 py-1.5 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-lg text-sm flex items-center gap-1 hover:from-orange-600 hover:to-red-600 shadow-md animate-pulse">
+              📥 신규 유입 <span className="bg-white text-red-600 px-1.5 rounded font-bold">{inboxPending}</span>
+            </Link>
+          )}
           <button onClick={() => setShowAddModal(true)}
             className="px-3 py-1.5 bg-aqu-600 text-white rounded-lg text-sm flex items-center gap-1 hover:bg-aqu-700">
             <UserPlus className="w-4 h-4" /> 신규 회원

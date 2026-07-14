@@ -8,7 +8,7 @@ import {
   LogIn, LogOut, User as UserIcon, CreditCard, DollarSign, Briefcase, FileText,
   ClipboardCheck, TrendingUp, Ticket, Settings,
   Target, AlertTriangle, Clock, FileCheck, MessageSquare,
-  Waves, Wallet, UserCog, PieChart
+  Waves, Wallet, UserCog, PieChart, Inbox
 } from "lucide-react";
 import Logo from "@/components/Logo";
 
@@ -24,6 +24,7 @@ const GROUPS = [
     accent: "text-purple-600",
     bg: "bg-purple-50",
     items: [
+      { href: "/inbox",           icon: Inbox,          title: "📥 신규 유입",  desc: "구글시트 자동 연동", badgeKey: "inbox_pending" },
       { href: "/members",         icon: Users,          title: "회원 관리",    desc: "아동·성인 통합" },
       { href: "/consultations",   icon: ClipboardList,  title: "상담 리드",    desc: "칸반보드" },
       { href: "/schedule",        icon: Calendar,       title: "시간표",       desc: "월간·주간·일간" },
@@ -98,11 +99,19 @@ export default function Home() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [expandedGroup, setExpandedGroup] = useState<string | null>("members");
+  const [badges, setBadges] = useState<Record<string, number>>({});
 
   useEffect(() => {
     (async () => {
       const { data } = await supabase.auth.getUser();
       setUser(data.user);
+
+      // 신규 유입 미처리 건수 조회
+      const { count } = await supabase
+        .from("leads_inbox")
+        .select("*", { count: "exact", head: true })
+        .eq("processed", false);
+      setBadges({ inbox_pending: count || 0 });
     })();
   }, []);
 
@@ -192,8 +201,13 @@ export default function Home() {
                           className={`group relative overflow-hidden bg-white rounded-2xl shadow-sm hover:shadow-lg transition-all duration-200 border border-gray-100 hover:border-transparent hover:-translate-y-0.5`}>
                           <div className={`absolute inset-0 bg-gradient-to-br ${group.from} ${group.to} opacity-0 group-hover:opacity-100 transition-opacity duration-200`}></div>
                           <div className="relative p-3 md:p-4 flex flex-col justify-between min-h-[100px] md:min-h-[110px]">
-                            <div className={`w-9 h-9 md:w-10 md:h-10 rounded-xl bg-gradient-to-br ${group.from} ${group.to} p-2 md:p-2.5 shadow-sm shrink-0`}>
+                            <div className={`w-9 h-9 md:w-10 md:h-10 rounded-xl bg-gradient-to-br ${group.from} ${group.to} p-2 md:p-2.5 shadow-sm shrink-0 relative`}>
                               <ItemIcon className="w-full h-full text-white" />
+                              {(item as any).badgeKey && badges[(item as any).badgeKey] > 0 && (
+                                <span className="absolute -top-2 -right-2 min-w-[20px] h-5 px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center animate-pulse">
+                                  {badges[(item as any).badgeKey]}
+                                </span>
+                              )}
                             </div>
                             <div className="mt-2">
                               <div className="font-bold text-xs md:text-sm text-aqu-900 group-hover:text-white transition-colors">
