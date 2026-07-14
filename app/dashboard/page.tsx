@@ -1,263 +1,375 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import {
-  Waves, Users, Calendar, ClipboardList, TrendingUp, Activity,
-  MessageCircle, Send, X, Phone, BarChart3, ClipboardCheck, ArrowRight
+  BarChart3, Users, Calendar, CreditCard, MessageCircle,
+  TrendingUp, TrendingDown, AlertCircle, Clock, DollarSign,
+  UserCheck, UserX, Activity, Target, Sparkles
 } from "lucide-react";
 
-export default function Dashboard() {
-  const [stats, setStats] = useState({ child: 0, adult: 0, total: 0, timeslots: 0, activities: 0, templates: 0 });
-  const [statusCount, setStatusCount] = useState<any>({});
-  const [recentLeads, setRecentLeads] = useState<any[]>([]);
+export default function DashboardPage() {
+  const [data, setData] = useState<any>({
+    members: [], payments: [], memberships: [], slots: [], attendance: [], staff: [],
+  });
   const [loading, setLoading] = useState(true);
-  const [showSendModal, setShowSendModal] = useState(false);
-  const [selectedLead, setSelectedLead] = useState<any>(null);
-  const [sendChannel, setSendChannel] = useState<"sms" | "kakao" | "email">("kakao");
-  const [sendMessage, setSendMessage] = useState("");
-  const [sendResult, setSendResult] = useState<string>("");
 
   useEffect(() => { loadAll(); }, []);
 
   async function loadAll() {
-    const [c, a, t, l, tpl, allMembers] = await Promise.all([
-      supabase.from("members").select("*", { count: "exact", head: true }).eq("member_type", "child"),
-      supabase.from("members").select("*", { count: "exact", head: true }).eq("member_type", "adult"),
-      supabase.from("timeslots").select("*", { count: "exact", head: true }),
-      supabase.from("label_library").select("*", { count: "exact", head: true }),
-      supabase.from("assessment_templates").select("*", { count: "exact", head: true }),
-      supabase.from("members").select("*").order("created_at", { ascending: false }).limit(50),
+    setLoading(true);
+    const [m, p, ms, sl, at, st] = await Promise.all([
+      supabase.from("members").select("*").is("deleted_at", null),
+      supabase.from("payments").select("*").order("paid_at", { ascending: false }),
+      supabase.from("memberships").select("*"),
+      supabase.from("schedule_slots").select("*"),
+      supabase.from("attendance").select("*"),
+      supabase.from("staff").select("*").is("deleted_at", null),
     ]);
-    setStats({
-      child: c.count || 0,
-      adult: a.count || 0,
-      total: (c.count || 0) + (a.count || 0),
-      timeslots: t.count || 0,
-      activities: l.count || 0,
-      templates: tpl.count || 0,
+    setData({
+      members: m.data || [],
+      payments: p.data || [],
+      memberships: ms.data || [],
+      slots: sl.data || [],
+      attendance: at.data || [],
+      staff: st.data || [],
     });
-    // 상태별 카운트
-    const sc: any = {};
-    (allMembers.data || []).forEach((m: any) => { sc[m.status || "regular"] = (sc[m.status || "regular"] || 0) + 1; });
-    setStatusCount(sc);
-    // 최근 리드 5명
-    setRecentLeads((allMembers.data || []).slice(0, 5));
     setLoading(false);
   }
 
-  function openSendModal(lead: any) {
-    setSelectedLead(lead);
-    const template = `${lead.name}님 안녕하세요. 위례아쿠수중운동센터입니다 😊
+  const stats = useMemo(() => {
+    const now = new Date();
+    const thisMonth = now.getMonth();
+    const thisYear = now.getFullYear();
+    const today = now.toISOString().slice(0, 10);
+    const weekAgo = new Date(now.getTime() - 7 * 86400000);
 
-${lead.member_type === "child" ? "아동" : "성인"} 상담/체험 안내드립니다.
-원하시는 요일/시간대를 알려주시면 가능한 일정을 안내해드리겠습니다.
+    const regularMembers = data.members.filter((m: any) => m.status === "regular").length;
+    const waitingMembers = data.members.filter((m: any) => m.status === "waiting").length;
+    const trialMembers = data.members.filter((m: any) => m.status === "trial_scheduled" || m.status === "trial_done").length;
+    const childMembers = data.members.filter((m: any) => m.member_type === "child").length;
+    const adultMembers = data.members.filter((m: any) => m.member_type === "adult").length;
 
-💰 체험비 70,000원 / 예약금 35,000원
+    const monthlyRevenue = data.payments
+      .filter((p: any) => {
+        const d = new Date(p.paid_at);
+        return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
+      })
+      .reduce((s: number, p: any) => s + (p.amount || 0), 0);
 
-문의: 02-XXX-XXXX
-- AQUNOTE`;
-    setSendMessage(template);
-    setSendChannel("kakao");
-    setSendResult("");
-    setShowSendModal(true);
-  }
+    const lastMonthRevenue = data.payments
+      .filter((p: any) => {
+        const d = new Date(p.paid_at);
+        const lm = thisMonth === 0 ? 11 : thisMonth - 1;
+        const ly = thisMonth === 0 ? thisYear - 1 : thisYear;
+        return d.getMonth() === lm && d.getFullYear() === ly;
+      })
+      .reduce((s: number, p: any) => s + (p.amount || 0), 0);
 
-  async function sendMessageNow() {
-    if (!selectedLead || !sendMessage) return;
-    setSendResult("발송 중...");
-    const res = await fetch("/api/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        channel: sendChannel,
-        to: selectedLead.phone || selectedLead.email || "",
-        message: sendMessage,
-        name: selectedLead.name,
-      }),
-    });
-    const data = await res.json();
-    if (data.success) {
-      setSendResult(`✅ ${sendChannel.toUpperCase()} 발송 대기 큐에 등록됨! (${data.note})`);
-    } else {
-      setSendResult(`❌ ${data.error}`);
+    const revenueGrowth = lastMonthRevenue > 0
+      ? ((monthlyRevenue - lastMonthRevenue) / lastMonthRevenue * 100).toFixed(1)
+      : "0";
+
+    const newLeadsThisWeek = data.members.filter((m: any) => {
+      const d = new Date(m.created_at);
+      return d >= weekAgo;
+    }).length;
+
+    // 곧 결제 예정자 (잔여 2회 이하 or 만료 7일 이내)
+    const paymentDueMembers = data.memberships
+      .map((ms: any) => {
+        const memb = data.members.find((m: any) => m.id === ms.member_id);
+        if (!memb) return null;
+        const remaining = (ms.sessions_total || 0) - (ms.sessions_used || 0);
+        const daysToExpire = ms.end_date
+          ? Math.floor((new Date(ms.end_date).getTime() - now.getTime()) / 86400000)
+          : null;
+        const urgent = remaining <= 2 || (daysToExpire !== null && daysToExpire <= 7 && daysToExpire >= 0);
+        if (!urgent || remaining <= 0) return null;
+        return { member: memb, membership: ms, remaining, daysToExpire };
+      })
+      .filter(Boolean)
+      .sort((a: any, b: any) => a.remaining - b.remaining)
+      .slice(0, 8);
+
+    // 오늘 수업
+    const todaySlots = data.slots.filter((s: any) => s.event_date === today);
+    const todayAttendance = data.attendance.filter((a: any) => a.date === today);
+    const todayPresent = todayAttendance.filter((a: any) => a.status === "present").length;
+    const todayAbsent = todayAttendance.filter((a: any) => a.status === "absent" || a.status === "sick").length;
+
+    return {
+      totalMembers: data.members.length,
+      regularMembers, waitingMembers, trialMembers, childMembers, adultMembers,
+      monthlyRevenue, lastMonthRevenue, revenueGrowth,
+      newLeadsThisWeek, paymentDueMembers,
+      todaySlots: todaySlots.length, todayPresent, todayAbsent,
+      totalStaff: data.staff.length,
+    };
+  }, [data]);
+
+  // 월별 매출 (최근 6개월)
+  const monthlyTrend = useMemo(() => {
+    const now = new Date();
+    const arr = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const label = `${d.getMonth() + 1}월`;
+      const rev = data.payments
+        .filter((p: any) => {
+          const pd = new Date(p.paid_at);
+          return pd.getMonth() === d.getMonth() && pd.getFullYear() === d.getFullYear();
+        })
+        .reduce((s: number, p: any) => s + (p.amount || 0), 0);
+      arr.push({ label, rev });
     }
-  }
+    const max = Math.max(...arr.map(a => a.rev), 1);
+    return arr.map(a => ({ ...a, pct: (a.rev / max) * 100 }));
+  }, [data.payments]);
 
-  const Card = ({ icon: Icon, label, value, color }: any) => (
-    <div className="p-4 md:p-6 bg-white rounded-2xl shadow-md border border-aqu-100">
-      <div className="flex items-center justify-between mb-2">
-        <Icon className={`w-6 md:w-8 h-6 md:h-8 ${color}`} />
-        <span className="text-2xl md:text-3xl font-bold text-aqu-900">{loading ? "..." : value}</span>
-      </div>
-      <div className="text-xs md:text-sm text-gray-500">{label}</div>
-    </div>
-  );
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center bg-aqu-50">로딩 중...</div>;
+  }
 
   return (
-    <main className="max-w-6xl mx-auto px-4 md:px-6 py-6 md:py-10">
-      <div className="flex items-center justify-between mb-6 md:mb-8">
-        <div className="flex items-center gap-2">
-          <Waves className="w-7 md:w-8 h-7 md:h-8 text-aqu-600" />
-          <h1 className="text-2xl md:text-3xl font-bold text-aqu-900">📊 대시보드</h1>
+    <div className="min-h-screen bg-gradient-to-b from-aqu-50 to-white p-6">
+      {/* Header */}
+      <div className="max-w-7xl mx-auto mb-6 flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-aqu-600 to-cyan-600 bg-clip-text text-transparent">
+            📊 통합 대시보드
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">
+            {new Date().toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric", weekday: "long" })}
+          </p>
         </div>
         <HomeButton />
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-3 gap-3 md:gap-4 mb-4 md:mb-8">
-        <Card icon={Users} label="아동 회원" value={stats.child} color="text-blue-500" />
-        <Card icon={Users} label="성인 회원" value={stats.adult} color="text-purple-500" />
-        <Card icon={TrendingUp} label="전체 회원" value={stats.total} color="text-aqu-500" />
+      {/* 최상단 4개 핵심 KPI */}
+      <div className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <BigKPI
+          icon={<DollarSign className="w-6 h-6" />}
+          label="이번 달 매출"
+          value={`₩${stats.monthlyRevenue.toLocaleString()}`}
+          sub={`전월 대비 ${Number(stats.revenueGrowth) >= 0 ? "▲" : "▼"} ${Math.abs(Number(stats.revenueGrowth))}%`}
+          subColor={Number(stats.revenueGrowth) >= 0 ? "text-emerald-100" : "text-red-100"}
+          gradient="from-emerald-500 to-teal-500"
+          href="/dashboard/revenue"
+        />
+        <BigKPI
+          icon={<Users className="w-6 h-6" />}
+          label="정규 회원"
+          value={`${stats.regularMembers}명`}
+          sub={`전체 ${stats.totalMembers}명 · 아동 ${stats.childMembers} / 성인 ${stats.adultMembers}`}
+          subColor="text-purple-100"
+          gradient="from-purple-500 to-pink-500"
+          href="/members"
+        />
+        <BigKPI
+          icon={<MessageCircle className="w-6 h-6" />}
+          label="대기자"
+          value={`${stats.waitingMembers}명`}
+          sub={`이번 주 신규 ${stats.newLeadsThisWeek}건`}
+          subColor="text-amber-100"
+          gradient="from-amber-500 to-orange-500"
+          href="/consultations"
+        />
+        <BigKPI
+          icon={<Calendar className="w-6 h-6" />}
+          label="오늘 수업"
+          value={`${stats.todaySlots}건`}
+          sub={`출석 ${stats.todayPresent} · 결석 ${stats.todayAbsent}`}
+          subColor="text-blue-100"
+          gradient="from-blue-500 to-cyan-500"
+          href="/schedule"
+        />
       </div>
 
-      <div className="grid grid-cols-3 gap-3 md:gap-4 mb-6 md:mb-8">
-        <Card icon={Calendar} label="시간표" value={stats.timeslots} color="text-orange-500" />
-        <Card icon={Activity} label="활동 라벨" value={stats.activities} color="text-green-500" />
-        <Card icon={ClipboardList} label="평가" value={stats.templates} color="text-pink-500" />
-      </div>
-
-      {/* Quick Nav to sub-dashboards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6 md:mb-8">
-        <Link href="/dashboard/revenue"
-          className="bg-gradient-to-r from-rose-500 to-pink-600 text-white p-4 rounded-2xl shadow-md hover:shadow-lg transition flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <BarChart3 className="w-6 h-6 md:w-8 md:h-8" />
-            <div>
-              <div className="font-bold text-sm md:text-base">매출 통계</div>
-              <div className="text-[10px] md:text-xs opacity-90">월별·주별 추이 + 회원별 결제 현황</div>
-            </div>
+      {/* 2단 레이아웃 */}
+      <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+        {/* 월별 매출 트렌드 */}
+        <div className="lg:col-span-2 bg-white rounded-xl border border-aqu-100 p-5">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="font-bold text-aqu-900 flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-emerald-500" /> 최근 6개월 매출 트렌드
+            </h2>
+            <Link href="/dashboard/revenue" className="text-xs text-aqu-600 hover:underline">자세히 →</Link>
           </div>
-          <ArrowRight className="w-5 h-5" />
-        </Link>
-        <Link href="/attendance"
-          className="bg-gradient-to-r from-teal-500 to-emerald-600 text-white p-4 rounded-2xl shadow-md hover:shadow-lg transition flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <ClipboardCheck className="w-6 h-6 md:w-8 md:h-8" />
-            <div>
-              <div className="font-bold text-sm md:text-base">출결 관리</div>
-              <div className="text-[10px] md:text-xs opacity-90">오늘 출석 체크 + 30일 출석률</div>
-            </div>
-          </div>
-          <ArrowRight className="w-5 h-5" />
-        </Link>
-      </div>
-
-      {/* Status pipeline */}
-      <div className="bg-white rounded-2xl shadow-md border border-aqu-100 p-4 md:p-6 mb-6">
-        <h3 className="font-bold text-aqu-900 mb-3">🎯 상담 파이프라인</h3>
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-center">
-          {[
-            { k: "waiting", label: "대기중", color: "bg-yellow-50 text-yellow-700" },
-            { k: "trial_scheduled", label: "체험예정", color: "bg-blue-50 text-blue-700" },
-            { k: "trial_done", label: "체험완료", color: "bg-purple-50 text-purple-700" },
-            { k: "regular", label: "정규", color: "bg-green-50 text-green-700" },
-            { k: "paused", label: "보류", color: "bg-gray-50 text-gray-700" },
-            { k: "ended", label: "종료", color: "bg-red-50 text-red-700" },
-          ].map((s) => (
-            <div key={s.k} className={`p-2 md:p-3 rounded-lg ${s.color}`}>
-              <div className="text-xl md:text-2xl font-bold">{statusCount[s.k] || 0}</div>
-              <div className="text-xs">{s.label}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Recent leads with quick send */}
-      <div className="bg-white rounded-2xl shadow-md border border-aqu-100 p-4 md:p-6 mb-6">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-bold text-aqu-900">💬 빠른 안내문 발송</h3>
-          <Link href="/consultations" className="text-xs text-aqu-600 hover:underline">전체 리드 →</Link>
-        </div>
-        <div className="space-y-2">
-          {recentLeads.map((l) => (
-            <div key={l.id} className="flex items-center justify-between p-2 md:p-3 bg-aqu-50/30 rounded-lg">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className={`px-1.5 py-0.5 rounded text-[10px] flex-shrink-0 ${l.member_type === "child" ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"}`}>
-                  {l.member_type === "child" ? "아동" : "성인"}
-                </span>
-                <span className="font-medium text-sm text-aqu-900 truncate">{l.name}</span>
-                <span className="text-xs text-gray-500 truncate hidden sm:inline">{l.phone || "-"}</span>
-              </div>
-              <button
-                onClick={() => openSendModal(l)}
-                className="text-xs px-2 py-1 bg-aqu-600 text-white rounded hover:bg-aqu-700 flex items-center gap-1 flex-shrink-0"
-              >
-                <Send className="w-3 h-3" /> 발송
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="p-4 md:p-6 bg-gradient-to-r from-aqu-500 to-aqu-700 text-white rounded-2xl shadow-lg">
-        <h2 className="text-lg md:text-xl font-bold mb-2">🌊 AQUNOTE v1.1</h2>
-        <p className="text-aqu-100 text-xs md:text-sm">
-          회원 상세 · 상담 칸반 · 로그인 · 자동발송 · 모바일 대응 - 5가지 기능 완성!
-        </p>
-      </div>
-
-      {/* Send Modal */}
-      {showSendModal && selectedLead && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-             onClick={() => setShowSendModal(false)}>
-          <div className="bg-white rounded-2xl p-5 md:p-6 w-full max-w-md max-h-[90vh] overflow-y-auto"
-               onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-aqu-900">💬 {selectedLead.name}님께 발송</h3>
-              <button onClick={() => setShowSendModal(false)}>
-                <X className="w-5 h-5 text-gray-500" />
-              </button>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs text-gray-600">채널 선택</label>
-                <div className="flex gap-2 mt-1">
-                  {[
-                    { k: "kakao", label: "카톡", emoji: "💛" },
-                    { k: "sms", label: "SMS", emoji: "📱" },
-                    { k: "email", label: "이메일", emoji: "✉️" },
-                  ].map((ch) => (
-                    <button key={ch.k}
-                      onClick={() => setSendChannel(ch.k as any)}
-                      className={`flex-1 py-2 rounded-lg text-sm ${sendChannel === ch.k ? "bg-aqu-600 text-white" : "bg-gray-100"}`}>
-                      {ch.emoji} {ch.label}
-                    </button>
-                  ))}
+          <div className="flex items-end gap-3 h-40">
+            {monthlyTrend.map((m, i) => (
+              <div key={i} className="flex-1 flex flex-col items-center">
+                <div className="text-[10px] text-gray-500 mb-1">{(m.rev / 10000).toFixed(0)}만</div>
+                <div
+                  className="w-full rounded-t-lg bg-gradient-to-t from-emerald-400 to-teal-400 relative group cursor-pointer"
+                  style={{ height: `${m.pct}%`, minHeight: m.rev > 0 ? "8px" : "2px" }}
+                >
+                  <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                    ₩{m.rev.toLocaleString()}
+                  </div>
                 </div>
+                <div className="text-xs text-gray-600 mt-1">{m.label}</div>
               </div>
-              <div>
-                <label className="text-xs text-gray-600">받는 사람</label>
-                <div className="mt-1 px-3 py-2 rounded-lg bg-gray-50 text-sm">
-                  <Phone className="w-3.5 h-3.5 inline mr-1 text-gray-400" />
-                  {selectedLead.phone || "연락처 없음"}
-                </div>
-              </div>
-              <div>
-                <label className="text-xs text-gray-600">메시지</label>
-                <textarea value={sendMessage} onChange={(e) => setSendMessage(e.target.value)}
-                  rows={8}
-                  className="w-full mt-1 px-3 py-2 rounded-lg border border-aqu-200 text-sm font-mono" />
-                <div className="text-xs text-gray-400 mt-1">{sendMessage.length}자</div>
-              </div>
-              {sendResult && (
-                <div className={`text-xs p-3 rounded-lg ${sendResult.startsWith("✅") ? "bg-green-50 text-green-700" : sendResult.startsWith("❌") ? "bg-red-50 text-red-700" : "bg-blue-50 text-blue-700"}`}>
-                  {sendResult}
-                </div>
-              )}
-              <button onClick={sendMessageNow}
-                disabled={!sendMessage || !selectedLead.phone}
-                className="w-full py-2.5 bg-aqu-600 text-white rounded-lg text-sm font-medium hover:bg-aqu-700 disabled:bg-gray-300 flex items-center justify-center gap-1">
-                <Send className="w-4 h-4" /> 지금 발송
-              </button>
-              <div className="text-xs text-gray-400 text-center">
-                💡 MVP 버전: 발송 큐에 저장됩니다. 실제 API 연동 예정.
-              </div>
-            </div>
+            ))}
           </div>
         </div>
-      )}
-    </main>
+
+        {/* 오늘의 요약 */}
+        <div className="bg-gradient-to-br from-aqu-500 to-cyan-500 rounded-xl p-5 text-white">
+          <h2 className="font-bold flex items-center gap-2 mb-3">
+            <Activity className="w-5 h-5" /> 오늘의 현황
+          </h2>
+          <div className="space-y-3">
+            <div className="flex justify-between items-center">
+              <span className="text-sm opacity-90">예약된 수업</span>
+              <span className="text-2xl font-bold">{stats.todaySlots}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm opacity-90 flex items-center gap-1"><UserCheck className="w-4 h-4" /> 출석</span>
+              <span className="text-2xl font-bold">{stats.todayPresent}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-sm opacity-90 flex items-center gap-1"><UserX className="w-4 h-4" /> 결석/병결</span>
+              <span className="text-2xl font-bold">{stats.todayAbsent}</span>
+            </div>
+            <div className="pt-3 border-t border-white/20 flex justify-between items-center">
+              <span className="text-sm opacity-90">근무 직원</span>
+              <span className="text-xl font-bold">{stats.totalStaff}명</span>
+            </div>
+          </div>
+          <div className="mt-4 flex gap-2">
+            <Link href="/attendance" className="flex-1 bg-white/20 hover:bg-white/30 rounded-lg py-2 text-center text-xs font-medium">
+              출결 관리
+            </Link>
+            <Link href="/schedule" className="flex-1 bg-white/20 hover:bg-white/30 rounded-lg py-2 text-center text-xs font-medium">
+              시간표
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {/* 곧 결제 예정자 */}
+      <div className="max-w-7xl mx-auto bg-white rounded-xl border border-orange-200 p-5 mb-6">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="font-bold text-orange-900 flex items-center gap-2">
+            <AlertCircle className="w-5 h-5 text-orange-500" />
+            🔥 곧 결제/재등록 예정자
+            <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">{stats.paymentDueMembers.length}명</span>
+          </h2>
+          <Link href="/payments" className="text-xs text-orange-600 hover:underline">전체 결제 →</Link>
+        </div>
+        {stats.paymentDueMembers.length === 0 ? (
+          <p className="text-sm text-gray-500 text-center py-4">🎉 곧 결제 예정자가 없습니다</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+            {stats.paymentDueMembers.map((p: any) => (
+              <Link key={p.membership.id} href={`/members/${p.member.id}`}
+                className="border border-orange-100 rounded-lg p-3 hover:border-orange-400 hover:shadow-md transition-all bg-orange-50/30">
+                <div className="flex justify-between items-start mb-1">
+                  <span className="font-medium text-aqu-900 text-sm">{p.member.name}</span>
+                  <span className="text-[10px] text-gray-500">{p.member.member_type === "child" ? "🧒" : "👤"}</span>
+                </div>
+                <div className="text-xs text-gray-600 space-y-0.5">
+                  <div>💧 잔여: <strong className="text-orange-600">{p.remaining}회</strong></div>
+                  {p.daysToExpire !== null && p.daysToExpire >= 0 && (
+                    <div>📅 만료: <strong className={p.daysToExpire <= 3 ? "text-red-600" : "text-orange-600"}>D-{p.daysToExpire}</strong></div>
+                  )}
+                </div>
+                {(p.remaining <= 1 || (p.daysToExpire !== null && p.daysToExpire <= 3)) && (
+                  <div className="mt-2 text-[10px] bg-red-500 text-white rounded px-2 py-0.5 inline-block">🚨 긴급</div>
+                )}
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 회원 유입 & 구성 */}
+      <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="bg-white rounded-xl border border-aqu-100 p-5">
+          <h3 className="text-sm font-medium text-gray-600 mb-3">👥 회원 상태 분포</h3>
+          <div className="space-y-2">
+            <MiniBar label="정규 회원" val={stats.regularMembers} total={stats.totalMembers} color="bg-emerald-500" />
+            <MiniBar label="체험 예정/완료" val={stats.trialMembers} total={stats.totalMembers} color="bg-blue-500" />
+            <MiniBar label="대기중" val={stats.waitingMembers} total={stats.totalMembers} color="bg-amber-500" />
+          </div>
+        </div>
+        <div className="bg-white rounded-xl border border-aqu-100 p-5">
+          <h3 className="text-sm font-medium text-gray-600 mb-3">🎯 아동 vs 성인</h3>
+          <div className="flex items-center justify-around h-32">
+            <PieRing label="아동" val={stats.childMembers} total={stats.totalMembers} color="#a855f7" />
+            <PieRing label="성인" val={stats.adultMembers} total={stats.totalMembers} color="#0ea5e9" />
+          </div>
+        </div>
+        <div className="bg-white rounded-xl border border-aqu-100 p-5">
+          <h3 className="text-sm font-medium text-gray-600 mb-3 flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-purple-500" /> 빠른 이동
+          </h3>
+          <div className="grid grid-cols-2 gap-2">
+            <QuickLink href="/members" label="회원 관리" icon="👥" />
+            <QuickLink href="/consultations" label="상담 리드" icon="💬" />
+            <QuickLink href="/payments" label="결제 관리" icon="💰" />
+            <QuickLink href="/schedule" label="시간표" icon="📅" />
+            <QuickLink href="/attendance" label="출결" icon="✅" />
+            <QuickLink href="/reports" label="보고서" icon="📄" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BigKPI({ icon, label, value, sub, subColor, gradient, href }: any) {
+  return (
+    <Link href={href} className={`bg-gradient-to-br ${gradient} rounded-xl p-5 text-white shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all`}>
+      <div className="flex justify-between items-start mb-2">
+        <div className="opacity-90">{icon}</div>
+      </div>
+      <div className="text-xs opacity-90">{label}</div>
+      <div className="text-2xl font-bold mt-1">{value}</div>
+      {sub && <div className={`text-[11px] mt-1 ${subColor}`}>{sub}</div>}
+    </Link>
+  );
+}
+
+function MiniBar({ label, val, total, color }: any) {
+  const pct = total > 0 ? (val / total) * 100 : 0;
+  return (
+    <div>
+      <div className="flex justify-between text-xs mb-1">
+        <span className="text-gray-600">{label}</span>
+        <span className="font-medium">{val}명 ({pct.toFixed(0)}%)</span>
+      </div>
+      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+        <div className={color} style={{ width: `${pct}%`, height: "100%" }}></div>
+      </div>
+    </div>
+  );
+}
+
+function PieRing({ label, val, total, color }: any) {
+  const pct = total > 0 ? (val / total) * 100 : 0;
+  const circ = 2 * Math.PI * 26;
+  return (
+    <div className="text-center">
+      <svg width="90" height="90" viewBox="0 0 60 60">
+        <circle cx="30" cy="30" r="26" fill="none" stroke="#f3f4f6" strokeWidth="6" />
+        <circle cx="30" cy="30" r="26" fill="none" stroke={color} strokeWidth="6"
+          strokeDasharray={circ} strokeDashoffset={circ * (1 - pct / 100)}
+          transform="rotate(-90 30 30)" strokeLinecap="round" />
+        <text x="30" y="34" textAnchor="middle" fontSize="11" fill="#111" fontWeight="600">{val}</text>
+      </svg>
+      <div className="text-xs text-gray-600 mt-1">{label} ({pct.toFixed(0)}%)</div>
+    </div>
+  );
+}
+
+function QuickLink({ href, label, icon }: any) {
+  return (
+    <Link href={href} className="p-2 border border-gray-200 rounded-lg hover:border-aqu-400 hover:bg-aqu-50 text-center text-xs">
+      <div className="text-lg">{icon}</div>
+      <div className="mt-1">{label}</div>
+    </Link>
   );
 }

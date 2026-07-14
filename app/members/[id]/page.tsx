@@ -193,6 +193,7 @@ export default function MemberDetail() {
 
   async function saveExtInfo() {
     setSavingExt(true);
+    // 1차: 컬럼 직접 저장 시도
     const { error } = await supabase.from("members").update({
       current_status: extInfo.current_status || null,
       main_symptom: extInfo.main_symptom || null,
@@ -201,9 +202,73 @@ export default function MemberDetail() {
       expected_change: extInfo.expected_change || null,
       special_notes: extInfo.special_notes || null,
     }).eq("id", id);
-    setSavingExt(false);
-    setExtSaveStatus(error ? "❌ 저장 실패" : "✅ 저장 완료");
-    setTimeout(() => setExtSaveStatus(""), 2500);
+
+    if (error) {
+      console.error("저장 실패 상세:", error);
+      // 컬럼이 없는 경우 → extra JSONB로 fallback
+      const isMissingCol = error.message?.includes("column") || error.code === "PGRST204" || error.code === "42703";
+      if (isMissingCol) {
+        const { data: cur } = await supabase.from("members").select("extra").eq("id", id).single();
+        const newExtra = {
+          ...(cur?.extra || {}),
+          current_status: extInfo.current_status || null,
+          main_symptom: extInfo.main_symptom || null,
+          medication: extInfo.medication || null,
+          treatment_history: extInfo.treatment_history || null,
+          expected_change: extInfo.expected_change || null,
+          special_notes: extInfo.special_notes || null,
+        };
+        const { error: e2 } = await supabase.from("members").update({ extra: newExtra }).eq("id", id);
+        setSavingExt(false);
+        setExtSaveStatus(e2 ? `❌ 저장 실패: ${e2.message}` : "✅ 저장 완료 (임시 저장)");
+      } else {
+        setSavingExt(false);
+        setExtSaveStatus(`❌ 저장 실패: ${error.message}`);
+      }
+    } else {
+      setSavingExt(false);
+      setExtSaveStatus("✅ 저장 완료");
+    }
+    setTimeout(() => setExtSaveStatus(""), 4000);
+  }
+
+  // AI 회원 메모 자동 정리
+  const [aiMemoLoading, setAiMemoLoading] = useState(false);
+  const [aiMemo, setAiMemo] = useState("");
+  async function generateAiMemo() {
+    setAiMemoLoading(true);
+    try {
+      const res = await fetch("/api/ai-memo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          member,
+          ext: extInfo,
+          skills, painMap, sensationMap,
+        }),
+      });
+      const j = await res.json();
+      if (j?.summary) {
+        setAiMemo(j.summary);
+        // DB 저장
+        await supabase.from("members").update({
+          ai_summary: j.summary,
+          ai_summary_at: new Date().toISOString(),
+        }).eq("id", id).then(({ error }) => {
+          if (error) {
+            // 컬럼 없으면 extra에
+            supabase.from("members").select("extra").eq("id", id).single().then(({ data }) => {
+              supabase.from("members").update({
+                extra: { ...(data?.extra || {}), ai_summary: j.summary, ai_summary_at: new Date().toISOString() },
+              }).eq("id", id);
+            });
+          }
+        });
+      }
+    } catch (e) {
+      alert("AI 정리 실패: " + (e as any).message);
+    }
+    setAiMemoLoading(false);
   }
 
   function calcAge(birth: string): number {
@@ -516,6 +581,42 @@ export default function MemberDetail() {
                 className="mt-2 px-4 py-2 bg-aqu-600 text-white rounded-lg text-sm hover:bg-aqu-700 flex items-center gap-1">
                 <Save className="w-4 h-4" /> 메모 저장
               </button>
+            </div>
+
+            {/* AI 종합 정리 섹션 */}
+            <div className="border-t border-aqu-100 pt-4 mt-4">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-purple-900 flex items-center gap-1">
+                  🤖 AI 종합 정리 <span className="text-xs text-gray-500">(기본정보 + 상세정보 + 평가 통합)</span>
+                </label>
+                <button
+                  onClick={generateAiMemo}
+                  disabled={aiMemoLoading}
+                  className="px-3 py-1.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs rounded-lg hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 flex items-center gap-1"
+                >
+                  {aiMemoLoading ? "⏳ 분석 중..." : "✨ AI 정리 생성"}
+                </button>
+              </div>
+              {(aiMemo || member?.ai_summary || member?.extra?.ai_summary) && (
+                <div className="p-4 bg-gradient-to-br from-purple-50 to-pink-50 border border-purple-200 rounded-lg">
+                  <div className="whitespace-pre-wrap text-sm text-gray-800 leading-relaxed">
+                    {aiMemo || member?.ai_summary || member?.extra?.ai_summary}
+                  </div>
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      onClick={() => navigator.clipboard.writeText(aiMemo || member?.ai_summary || member?.extra?.ai_summary || "")}
+                      className="px-3 py-1 bg-white border border-purple-200 text-purple-700 text-xs rounded hover:bg-purple-50"
+                    >
+                      📋 복사
+                    </button>
+                  </div>
+                </div>
+              )}
+              {!aiMemo && !member?.ai_summary && !member?.extra?.ai_summary && (
+                <p className="text-xs text-gray-500 p-3 bg-gray-50 rounded-lg">
+                  💡 상세 정보를 저장한 뒤 “AI 정리 생성” 버튼을 눌러주세요. 회원의 기본정보 · 상세정보 · 평가 · 통증/감각 데이터를 종합해 프로필과 프로그램 방향을 자동으로 정리해줍니다.
+                </p>
+              )}
             </div>
 
             {/* 상태 변경 */}
