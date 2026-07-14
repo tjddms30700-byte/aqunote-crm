@@ -38,6 +38,7 @@ const COLUMNS = [
   { key: "trial_done", label: "✅ 체험완료", color: "bg-purple-50 border-purple-200" },
   { key: "regular", label: "🎯 정규등록", color: "bg-green-50 border-green-200" },
   { key: "paused", label: "⏸️ 보류", color: "bg-gray-50 border-gray-200" },
+  { key: "closed", label: "🏳️ 종결", color: "bg-slate-100 border-slate-300" },
   { key: "ended", label: "🛑 대기종료", color: "bg-red-50 border-red-200" },
 ];
 

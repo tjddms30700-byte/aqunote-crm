@@ -79,19 +79,82 @@ export default function SchedulePage() {
   const [dragging, setDragging] = useState<any | null>(null);
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
 
+  // Quick action sheet (예약 클릭 시)
+  const [quickAction, setQuickAction] = useState<any | null>(null);
+  const [payments, setPayments] = useState<any[]>([]);
+  const [attendance, setAttendance] = useState<any[]>([]);
+
   useEffect(() => { loadAll(); }, []);
 
   async function loadAll() {
     setLoading(true);
-    const [sRes, mRes, stRes] = await Promise.all([
+    const [sRes, mRes, stRes, pRes, aRes] = await Promise.all([
       supabase.from("schedule_slots").select("*").order("event_date").order("time_slot"),
-      supabase.from("members").select("id, name, member_type, status").is("deleted_at", null).order("name"),
+      supabase.from("members").select("id, name, member_type, status, phone").is("deleted_at", null).order("name"),
       supabase.from("staff").select("id, name, role").order("name"),
+      supabase.from("payments").select("*").order("paid_at", { ascending: false }),
+      supabase.from("attendance").select("*"),
     ]);
     setSlots(sRes.data || []);
     setMembers(mRes.data || []);
     setStaff(stRes.data || []);
+    setPayments(pRes.data || []);
+    setAttendance(aRes.data || []);
     setLoading(false);
+  }
+
+  // 예약 클릭 시 액션 시트 열기
+  function openQuickAction(slot: any) {
+    setQuickAction(slot);
+  }
+
+  // 출결 상태 변경
+  async function setAttendanceStatus(slot: any, status: "present" | "absent" | "sick") {
+    if (!slot.member_id || !slot.event_date) {
+      alert("회원/날짜 정보가 없는 예약입니다.");
+      return;
+    }
+    const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
+    // upsert
+    const existing = attendance.find((a: any) => a.member_id === slot.member_id && a.date === slot.event_date);
+    if (existing) {
+      const { error } = await supabase.from("attendance").update({ status, slot_id: slot.id }).eq("id", existing.id).select();
+      if (error) return alert("오류: " + error.message);
+    } else {
+      const { error } = await supabase.from("attendance").insert({
+        org_id: orgId, member_id: slot.member_id, date: slot.event_date, status, slot_id: slot.id,
+      }).select();
+      if (error) return alert("오류: " + error.message);
+    }
+    // schedule_slots의 status도 동기화
+    const scheduleStatus = status === "present" ? "completed" : status === "absent" ? "cancelled" : "sick";
+    await supabase.from("schedule_slots").update({ status: scheduleStatus }).eq("id", slot.id);
+    await loadAll();
+    alert(status === "present" ? "✅ 출석" : status === "absent" ? "⚠️ 결석" : "🤒 병결");
+  }
+
+  // 결제 간단 추가
+  async function addPaymentFromSlot(slot: any, amount: number, method: string, lessonName: string) {
+    if (!slot.member_id) { alert("회원 정보가 없습니다."); return; }
+    const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
+    const { error } = await supabase.from("payments").insert({
+      org_id: orgId,
+      member_id: slot.member_id,
+      amount, method, lesson_name: lessonName,
+      paid_at: new Date().toISOString(),
+      event_date: slot.event_date,
+      slot_id: slot.id,
+    }).select();
+    if (error) return alert("결제 등록 실패: " + error.message);
+    await loadAll();
+    alert("✅ 결제 등록되었습니다");
+  }
+
+  // 결제 삭제
+  async function deletePayment(id: string) {
+    if (!confirm("이 결제 내역을 삭제하시겠습니까?")) return;
+    await supabase.from("payments").delete().eq("id", id);
+    await loadAll();
   }
 
   function prevMonth() {
@@ -438,7 +501,7 @@ export default function SchedulePage() {
                           <div key={s.id}
                             draggable
                             onDragStart={(e) => handleDragStart(s, e)}
-                            onClick={(e) => { e.stopPropagation(); openEditModal(s); }}
+                            onClick={(e) => { e.stopPropagation(); openQuickAction(s); }}
                             style={staffP ? { borderLeftColor: staffP.color, borderLeftWidth: 3 } : {}}
                             className={`text-[9px] md:text-[10px] px-1 py-0.5 rounded border truncate ${meta.color} hover:shadow-sm cursor-move flex items-center gap-0.5`}
                             title={`${s.time_slot} ${memberName(s.member_id) || s.lesson_name || ""}${staffP ? " (" + staffP.name + ")" : ""} (드래그하여 이월)`}>
@@ -555,6 +618,22 @@ export default function SchedulePage() {
           onSave={saveSlot}
           onDelete={f.id ? (opts?: any) => { deleteSlot(f.id, opts); setModal(null); } : undefined}
           saving={saving}
+        />
+      )}
+
+      {/* ═══ 예약 클릭 시 빠른 액션 시트 ═══ */}
+      {quickAction && (
+        <QuickActionSheet
+          slot={quickAction}
+          members={members}
+          staff={staff}
+          payments={payments.filter((p: any) => p.slot_id === quickAction.id || (p.member_id === quickAction.member_id && p.event_date === quickAction.event_date))}
+          attendance={attendance.find((a: any) => a.member_id === quickAction.member_id && a.date === quickAction.event_date)}
+          onClose={() => setQuickAction(null)}
+          onEdit={() => { openEditModal(quickAction); setQuickAction(null); }}
+          onAttendance={(status: any) => setAttendanceStatus(quickAction, status)}
+          onAddPayment={(amount: number, method: string, lessonName: string) => addPaymentFromSlot(quickAction, amount, method, lessonName)}
+          onDeletePayment={deletePayment}
         />
       )}
     </main>
@@ -1016,18 +1095,11 @@ function SlotModal({ f, setF, modal, members, staff, onClose, onSave, onDelete, 
 
           {(f.event_type === "lesson" || f.event_type === "trial" || f.event_type === "revenue") && (
             <Field label="회원">
-              <select value={f.member_id} onChange={e => setF({ ...f, member_id: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none">
-                <option value="">-- 회원 선택 --</option>
-                {members
-                  .filter((m: any) => (m.status || "regular") === "regular")
-                  .map((m: any) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name} ({m.member_type === "child" ? "아동" : "성인"})
-                    </option>
-                  ))}
-              </select>
-              <div className="text-[10px] text-gray-500 mt-1">💡 <b>정규등록</b> 회원만 표시됩니다 ({members.filter((m: any) => (m.status || "regular") === "regular").length}명)</div>
+              <MemberSearchSelect
+                members={members}
+                value={f.member_id}
+                onChange={(id: string) => setF({ ...f, member_id: id })}
+              />
             </Field>
           )}
 
@@ -1153,6 +1225,251 @@ function Field({ label, children }: any) {
     <div>
       <label className="block text-xs font-semibold text-gray-600 mb-1">{label}</label>
       {children}
+    </div>
+  );
+}
+
+// 예약 셀 클릭 시 떨어지는 빠른 액션 시트 (출결 + 결제 + 수정)
+function QuickActionSheet({ slot, members, staff, payments, attendance, onClose, onEdit, onAttendance, onAddPayment, onDeletePayment }: any) {
+  const member = members.find((m: any) => m.id === slot.member_id);
+  const staffP = staff.find((s: any) => s.id === slot.staff_id);
+  const [tab, setTab] = useState<"info" | "attend" | "payment">("info");
+
+  // 새 결제 폼
+  const [payAmount, setPayAmount] = useState(0);
+  const [payMethod, setPayMethod] = useState("card");
+  const [payLesson, setPayLesson] = useState(slot.lesson_name || "");
+
+  const currentAttStatus = attendance?.status;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+        {/* 헤더 */}
+        <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-aqu-50 to-cyan-50">
+          <div className="flex justify-between items-start">
+            <div>
+              <div className="text-xs text-gray-500">{slot.event_date} · {slot.time_slot}</div>
+              <div className="text-lg font-bold text-aqu-900 mt-0.5 flex items-center gap-2">
+                {member ? (
+                  <>
+                    {member.member_type === "child" ? "🧒" : "👤"} {member.name}
+                    <a href={`/members/${member.id}`} className="text-xs text-aqu-600 hover:underline">👁️ 상세</a>
+                  </>
+                ) : (
+                  <span className="text-gray-500">회원 미지정</span>
+                )}
+              </div>
+              <div className="text-xs text-gray-600 mt-1">
+                {slot.lesson_name && `📐 ${slot.lesson_name}`}
+                {staffP && ` · 👨‍⚕️ ${staffP.name}`}
+              </div>
+            </div>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+          </div>
+        </div>
+
+        {/* 탭 */}
+        <div className="flex border-b border-gray-100">
+          <button onClick={() => setTab("info")}
+            className={`flex-1 py-3 text-sm font-medium ${tab === "info" ? "text-aqu-700 border-b-2 border-aqu-500 bg-aqu-50/50" : "text-gray-500"}`}>
+            ℹ️ 예약정보
+          </button>
+          <button onClick={() => setTab("attend")}
+            className={`flex-1 py-3 text-sm font-medium ${tab === "attend" ? "text-purple-700 border-b-2 border-purple-500 bg-purple-50/50" : "text-gray-500"}`}>
+            ✅ 출결 {currentAttStatus && (
+              <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] ${
+                currentAttStatus === "present" ? "bg-emerald-100 text-emerald-700" :
+                currentAttStatus === "absent" ? "bg-red-100 text-red-700" :
+                "bg-orange-100 text-orange-700"}`}>
+                {currentAttStatus === "present" ? "출석" : currentAttStatus === "absent" ? "결석" : "병결"}
+              </span>
+            )}
+          </button>
+          <button onClick={() => setTab("payment")}
+            className={`flex-1 py-3 text-sm font-medium ${tab === "payment" ? "text-pink-700 border-b-2 border-pink-500 bg-pink-50/50" : "text-gray-500"}`}>
+            💰 결제 {payments.length > 0 && <span className="ml-1 px-1.5 bg-pink-100 text-pink-700 text-[10px] rounded-full">{payments.length}</span>}
+          </button>
+        </div>
+
+        {/* 본문 */}
+        <div className="flex-1 overflow-y-auto p-5">
+          {tab === "info" && (
+            <div className="space-y-3">
+              <InfoLine label="날짜" value={slot.event_date} />
+              <InfoLine label="시간" value={slot.time_slot} />
+              <InfoLine label="유형" value={slot.event_type} />
+              <InfoLine label="상태" value={slot.status || "예약"} />
+              {slot.note && <InfoLine label="메모" value={slot.note} />}
+              {slot.recurring_id && (
+                <div className="p-2 bg-purple-50 border border-purple-200 rounded-lg text-xs text-purple-800">
+                  ♻️ 반복 예약의 일부입니다
+                </div>
+              )}
+              <button onClick={onEdit}
+                className="w-full py-2.5 bg-aqu-500 hover:bg-aqu-600 text-white text-sm font-medium rounded-lg mt-4">
+                ✏️ 예약 수정/삭제
+              </button>
+            </div>
+          )}
+
+          {tab === "attend" && (
+            <div className="space-y-3">
+              <div className="text-xs text-gray-600">이 회원의 <b>{slot.event_date}</b> 출석 상태를 입력하세요.</div>
+              <div className="grid grid-cols-3 gap-2">
+                <button onClick={() => onAttendance("present")}
+                  className={`py-4 rounded-xl border-2 font-medium text-sm ${currentAttStatus === "present" ? "bg-emerald-500 border-emerald-500 text-white shadow-md" : "border-emerald-200 text-emerald-700 hover:bg-emerald-50"}`}>
+                  ✅<br/>출석
+                </button>
+                <button onClick={() => onAttendance("absent")}
+                  className={`py-4 rounded-xl border-2 font-medium text-sm ${currentAttStatus === "absent" ? "bg-red-500 border-red-500 text-white shadow-md" : "border-red-200 text-red-700 hover:bg-red-50"}`}>
+                  ❌<br/>결석
+                </button>
+                <button onClick={() => onAttendance("sick")}
+                  className={`py-4 rounded-xl border-2 font-medium text-sm ${currentAttStatus === "sick" ? "bg-orange-500 border-orange-500 text-white shadow-md" : "border-orange-200 text-orange-700 hover:bg-orange-50"}`}>
+                  🤒<br/>병결
+                </button>
+              </div>
+              <div className="text-[11px] text-gray-500 mt-2 p-3 bg-gray-50 rounded-lg">
+                💡 출결 상태를 변경하면 예약 상태도 자동으로 동기화됩니다 (출석→완료 / 결석→취소 / 병결→병결).
+              </div>
+            </div>
+          )}
+
+          {tab === "payment" && (
+            <div className="space-y-4">
+              {/* 등록된 결제 목록 */}
+              <div>
+                <div className="text-xs font-semibold text-gray-600 mb-2">등록된 결제 내역</div>
+                {payments.length === 0 ? (
+                  <div className="text-xs text-gray-400 py-3 text-center bg-gray-50 rounded-lg">아직 결제 내역이 없습니다</div>
+                ) : (
+                  <div className="space-y-2">
+                    {payments.map((p: any) => (
+                      <div key={p.id} className="flex items-center justify-between p-3 bg-pink-50 border border-pink-100 rounded-lg">
+                        <div>
+                          <div className="text-sm font-bold text-pink-900">₩{(p.amount || 0).toLocaleString()}</div>
+                          <div className="text-[10px] text-gray-600">
+                            {p.method || "미지정"} · {p.lesson_name || "-"} · {new Date(p.paid_at).toLocaleDateString("ko-KR")}
+                          </div>
+                        </div>
+                        <button onClick={() => onDeletePayment(p.id)}
+                          className="text-xs text-red-500 hover:text-red-700">삭제</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* 새 결제 등록 */}
+              <div className="border-t border-gray-100 pt-4">
+                <div className="text-xs font-semibold text-gray-600 mb-2">💰 새 결제 등록</div>
+                <div className="space-y-2">
+                  <input type="text" value={payLesson} onChange={e => setPayLesson(e.target.value)}
+                    placeholder="프로그램명 (예: 수중프로그램 10회권)"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                  <input type="number" value={payAmount || ""} onChange={e => setPayAmount(parseInt(e.target.value) || 0)}
+                    placeholder="금액 (원)"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                  <select value={payMethod} onChange={e => setPayMethod(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                    <option value="card">💳 카드</option>
+                    <option value="cash">💵 현금</option>
+                    <option value="transfer">🏦 계좌이체</option>
+                    <option value="other">📝 기타</option>
+                  </select>
+                  <button onClick={() => {
+                    if (!payAmount) { alert("금액을 입력하세요"); return; }
+                    onAddPayment(payAmount, payMethod, payLesson);
+                    setPayAmount(0); setPayLesson("");
+                  }}
+                    className="w-full py-2.5 bg-gradient-to-r from-pink-500 to-rose-500 text-white text-sm font-medium rounded-lg hover:from-pink-600 hover:to-rose-600">
+                    ➕ 결제 등록
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InfoLine({ label, value }: any) {
+  return (
+    <div className="flex">
+      <span className="w-20 text-xs text-gray-500">{label}</span>
+      <span className="flex-1 text-sm text-gray-800">{value}</span>
+    </div>
+  );
+}
+
+// 회원 검색 가능한 드롭다운 (이름 타이핑으로 필터링)
+function MemberSearchSelect({ members, value, onChange }: any) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+
+  // 종결/대기종료 제외하고 모든 회원 표시
+  const filtered = members
+    .filter((m: any) => !(["closed", "ended"].includes(m.status)))
+    .filter((m: any) => !query || (m.name || "").toLowerCase().includes(query.toLowerCase())
+                       || (m.phone || "").includes(query));
+
+  const selected = members.find((m: any) => m.id === value);
+
+  return (
+    <div className="relative">
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={selected ? `${selected.name} (${selected.member_type === "child" ? "아동" : "성인"})` : query}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); if (selected) onChange(""); }}
+          onFocus={() => setOpen(true)}
+          placeholder="🔍 회원 이름이나 전화번호로 검색..."
+          className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none"
+        />
+        {value && (
+          <button type="button" onClick={() => { onChange(""); setQuery(""); }}
+            className="px-2 text-gray-400 hover:text-red-500 text-sm">×</button>
+        )}
+      </div>
+
+      {open && (
+        <div className="absolute z-50 top-full left-0 right-0 mt-1 max-h-56 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg">
+          {filtered.length === 0 ? (
+            <div className="p-3 text-xs text-gray-500 text-center">검색 결과 없음</div>
+          ) : (
+            filtered.slice(0, 50).map((m: any) => {
+              const statusMap: any = {
+                regular: { icon: "🎯", color: "text-green-600" },
+                waiting: { icon: "⏳", color: "text-yellow-600" },
+                trial_scheduled: { icon: "📅", color: "text-blue-600" },
+                trial_done: { icon: "✅", color: "text-purple-600" },
+                paused: { icon: "⏸️", color: "text-gray-500" },
+              };
+              const st = statusMap[m.status] || statusMap.regular;
+              return (
+                <button key={m.id} type="button"
+                  onClick={() => { onChange(m.id); setQuery(""); setOpen(false); }}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-aqu-50 flex items-center gap-2 ${value === m.id ? "bg-aqu-50" : ""}`}>
+                  <span className={st.color}>{st.icon}</span>
+                  <span className="font-medium">{m.name}</span>
+                  <span className="text-xs text-gray-400">
+                    {m.member_type === "child" ? "🧒 아동" : "👤 성인"}
+                    {m.phone && " · " + m.phone.slice(-4)}
+                  </span>
+                </button>
+              );
+            })
+          )}
+          {filtered.length > 50 && (
+            <div className="p-2 text-[10px] text-gray-400 text-center border-t">+{filtered.length - 50}명 더 있음. 검색을 좁혀보세요.</div>
+          )}
+        </div>
+      )}
+
+      {open && <div className="fixed inset-0 z-40" onClick={() => setOpen(false)}></div>}
     </div>
   );
 }

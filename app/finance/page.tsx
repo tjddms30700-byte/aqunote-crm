@@ -4,10 +4,15 @@ import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import { Waves, Plus, X, Save, TrendingUp, TrendingDown, DollarSign } from "lucide-react";
+import DirectorOnly from "@/components/DirectorOnly";
 
 const CATEGORIES = ["임대료", "수도광열", "소모품", "장비", "홍보", "세금·보험", "잡비"];
 
-export default function FinancePage() {
+export default function FinancePageWrapper() {
+  return <DirectorOnly><FinancePage /></DirectorOnly>;
+}
+
+function FinancePage() {
   const [expenses, setExpenses] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [payroll, setPayroll] = useState<any[]>([]);

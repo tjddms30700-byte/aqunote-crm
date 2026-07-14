@@ -464,10 +464,10 @@ function ThankYou({ name }: { name: string }) {
             <span>문의: 010-XXXX-XXXX</span>
           </div>
         </div>
-        <button onClick={() => window.location.href = "/"}
-          className="text-sm text-purple-600 hover:underline">
-          센터 소개 페이지로 →
-        </button>
+        <a href="https://aqua-rehab.jungleweb.link/" target="_blank" rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-sm text-purple-600 hover:underline">
+          🌊 아쿠수중운동센터 소개 페이지 바로가기 →
+        </a>
       </div>
     </div>
   );

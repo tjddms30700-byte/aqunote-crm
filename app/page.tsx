@@ -98,6 +98,7 @@ const GROUPS = [
 export default function Home() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
+  const [isDirector, setIsDirector] = useState(false);
   const [expandedGroup, setExpandedGroup] = useState<string | null>("members");
   const [badges, setBadges] = useState<Record<string, number>>({});
 
@@ -105,6 +106,16 @@ export default function Home() {
     (async () => {
       const { data } = await supabase.auth.getUser();
       setUser(data.user);
+
+      // 원장 권한 체크
+      if (data.user?.email) {
+        const { data: staffRow } = await supabase
+          .from("staff")
+          .select("role")
+          .eq("email", data.user.email)
+          .maybeSingle();
+        setIsDirector(staffRow?.role === "director");
+      }
 
       // 신규 유입 미처리 건수 조회
       const { count } = await supabase
@@ -114,6 +125,18 @@ export default function Home() {
       setBadges({ inbox_pending: count || 0 });
     })();
   }, []);
+
+  // 권한에 따라 보이는 그룹 필터링
+  const visibleGroups = GROUPS.map(g => {
+    if (g.key === "finance" && !isDirector) {
+      // 원장이 아니면 finance 그룹에서 매출 통계/재무 관리 숨김
+      return {
+        ...g,
+        items: g.items.filter(i => !(["/finance", "/dashboard/revenue"].includes(i.href))),
+      };
+    }
+    return g;
+  }).filter(g => g.items.length > 0);
 
   async function logout() {
     await supabase.auth.signOut();
@@ -158,7 +181,7 @@ export default function Home() {
 
       {/* ═══ 6개 그룹 카드 ═══ */}
       <div className="space-y-6">
-        {GROUPS.map((group) => {
+        {visibleGroups.map((group) => {
           const isExpanded = expandedGroup === group.key;
           const GroupIcon = group.icon;
 

@@ -27,6 +27,7 @@ const STATUS_OPTIONS = [
   { key: "trial_done", label: "✅ 체험완료", bgColor: "bg-purple-100", textColor: "text-purple-700" },
   { key: "regular", label: "🎯 정규등록", bgColor: "bg-green-100", textColor: "text-green-700" },
   { key: "paused", label: "⏸️ 보류", bgColor: "bg-gray-100", textColor: "text-gray-700" },
+  { key: "closed", label: "🏳️ 종결", bgColor: "bg-slate-200", textColor: "text-slate-700" },
   { key: "ended", label: "🛑 대기종료", bgColor: "bg-red-100", textColor: "text-red-700" },
 ];
 

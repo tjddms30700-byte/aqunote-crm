@@ -9,6 +9,7 @@ import {
   DollarSign, TrendingUp, Calendar, Home, Users,
   BarChart3, ArrowUpRight, ArrowDownRight, AlertTriangle, Clock
 } from "lucide-react";
+import DirectorOnly from "@/components/DirectorOnly";
 
 type Payment = {
   id: string;
@@ -55,7 +56,11 @@ function weekKey(d: Date) {
   return `${d.getFullYear()}-W${String(wk).padStart(2, "0")}`;
 }
 
-export default function RevenueDashboardPage() {
+export default function RevenueDashboardPageWrapper() {
+  return <DirectorOnly><RevenueDashboardPage /></DirectorOnly>;
+}
+
+function RevenueDashboardPage() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [slots, setSlots]       = useState<Slot[]>([]);
   const [members, setMembers]   = useState<any[]>([]);

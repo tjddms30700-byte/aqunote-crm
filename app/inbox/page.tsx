@@ -31,34 +31,8 @@ export default function InboxPage() {
   const [filter, setFilter] = useState<"pending" | "processed" | "all">("pending");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [processing, setProcessing] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [lastSync, setLastSync] = useState<any>(null);
 
   useEffect(() => { loadAll(); }, []);
-
-  async function syncNow() {
-    setSyncing(true);
-    try {
-      const res = await fetch("/api/sync-sheets", { cache: "no-store" });
-      const j = await res.json();
-      setLastSync(j);
-      if (j.success) {
-        alert(
-          `✅ 동기화 완료!\n\n` +
-          `신규: ${j.summary?.total_new || 0}건\n` +
-          `업데이트: ${j.summary?.total_updated || 0}건\n` +
-          `스킵: ${j.summary?.total_skipped || 0}건\n` +
-          `오류: ${j.summary?.total_error || 0}건`
-        );
-        await loadAll();
-      } else {
-        alert("❌ 동기화 실패: " + JSON.stringify(j).slice(0, 200));
-      }
-    } catch (e: any) {
-      alert("❌ 오류: " + e.message);
-    }
-    setSyncing(false);
-  }
 
   async function loadAll() {
     setLoading(true);
@@ -96,6 +70,58 @@ export default function InboxPage() {
     }
   }
 
+  // raw_payload에서 members 테이블 실제 컬럼으로 매핑
+  function buildMemberPayload(lead: InboxLead, orgId: string) {
+    const raw = lead.raw_payload || {};
+    const isChild = lead.member_type === "child";
+
+    // 기본 필드
+    const payload: any = {
+      org_id: orgId,
+      name: lead.name,
+      phone: lead.phone,
+      member_type: lead.member_type || "adult",
+      status: "waiting",
+      source: lead.source || "웹신청",
+      wish_days: lead.wish_days,
+      wish_time_slots: lead.wish_time_slots,
+      wish_start_date: lead.wish_start_date,
+    };
+
+    // 날짜 필드
+    if (raw.birth) payload.birth = raw.birth;
+
+    // 상세 의학 정보 (v2.8에서 추가된 컬럼에 직접 저장)
+    if (raw.diagnosis) payload.diagnosis = raw.diagnosis;
+    if (raw.main_symptom) payload.main_symptom = raw.main_symptom;
+    if (raw.medication) payload.medication = raw.medication;
+    if (raw.treatment_history) payload.treatment_history = raw.treatment_history;
+    if (raw.expected_change) payload.expected_change = raw.expected_change;
+
+    // 현재 상태 = 주 증상 (동일 필드)
+    if (raw.current_status) payload.current_status = raw.current_status;
+    else if (raw.main_symptom) payload.current_status = raw.main_symptom;
+
+    // 특이사항
+    const specialParts: string[] = [];
+    if (raw.special_notes) specialParts.push(raw.special_notes);
+    if (raw.pain_area) specialParts.push(`[통증부위] ${raw.pain_area}`);
+    if (raw.surgery_history) specialParts.push(`[수술이력]\n${raw.surgery_history}`);
+    if (isChild) {
+      if (raw.height_weight) specialParts.push(`[키/체중] ${raw.height_weight}`);
+      if (raw.guardian_name) specialParts.push(`[보호자] ${raw.guardian_name} (${raw.guardian_relation || "?"})`);
+      if (raw.institution) specialParts.push(`[이용기관] ${raw.institution}`);
+    }
+    if (raw.address) specialParts.push(`[주소] ${raw.address}`);
+    if (raw.gender) specialParts.push(`[성별] ${raw.gender}`);
+    if (specialParts.length > 0) payload.special_notes = specialParts.join("\n");
+
+    // 메모는 간단한 요약만 (긴 원본 메모는 생략)
+    payload.memo = `🌐 온라인 신청서 접수 (${new Date(lead.created_at).toLocaleDateString("ko-KR")})`;
+
+    return payload;
+  }
+
   async function promoteOne(lead: InboxLead) {
     setProcessing(true);
     try {
@@ -110,25 +136,18 @@ export default function InboxPage() {
 
       if (existing && existing.length > 0) {
         if (!confirm(`⚠️ 동일 회원 발견: ${existing[0].name}\n\n그래도 신규 회원으로 추가하시겠습니까?\n(취소 시 유입 데이터만 처리됨 표시)`)) {
-          // 처리됨 표시만
           await supabase.from("leads_inbox").update({ processed: true, member_id: existing[0].id }).eq("id", lead.id);
           await loadAll();
           return;
         }
       }
 
-      const { data: newMember, error } = await supabase.from("members").insert({
-        org_id: orgId,
-        name: lead.name,
-        phone: lead.phone,
-        member_type: lead.member_type || "adult",
-        status: "waiting",
-        source: lead.source || "구글시트",
-        memo: lead.memo,
-        wish_days: lead.wish_days,
-        wish_time_slots: lead.wish_time_slots,
-        wish_start_date: lead.wish_start_date,
-      }).select().single();
+      const memberPayload = buildMemberPayload(lead, orgId);
+      const { data: newMember, error } = await supabase
+        .from("members")
+        .insert(memberPayload)
+        .select()
+        .single();
 
       if (error) {
         alert("❌ 회원 등록 실패: " + error.message);
@@ -153,26 +172,27 @@ export default function InboxPage() {
     if (!confirm(`선택한 ${selectedIds.size}건을 회원 목록으로 승격하시겠습니까?`)) return;
     setProcessing(true);
     let success = 0, fail = 0;
+    const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
     for (const id of Array.from(selectedIds)) {
       const lead = leads.find(l => l.id === id);
       if (!lead || lead.processed) continue;
       try {
-        const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
-        const { data: newMember, error } = await supabase.from("members").insert({
-          org_id: orgId,
-          name: lead.name, phone: lead.phone,
-          member_type: lead.member_type || "adult",
-          status: "waiting", source: lead.source || "구글시트",
-          memo: lead.memo,
-          wish_days: lead.wish_days, wish_time_slots: lead.wish_time_slots,
-          wish_start_date: lead.wish_start_date,
-        }).select().single();
-        if (error) { fail++; continue; }
+        const memberPayload = buildMemberPayload(lead, orgId);
+        const { data: newMember, error } = await supabase
+          .from("members")
+          .insert(memberPayload)
+          .select()
+          .single();
+        if (error) {
+          console.error(`[${lead.name}] 실패:`, error.message);
+          fail++;
+          continue;
+        }
         await supabase.from("leads_inbox").update({
           processed: true, member_id: newMember.id,
         }).eq("id", lead.id);
         success++;
-      } catch { fail++; }
+      } catch (e) { fail++; }
     }
     setProcessing(false);
     alert(`✅ 승격 완료: ${success}건\n❌ 실패: ${fail}건`);
@@ -197,10 +217,10 @@ export default function InboxPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
-              📥 신규 유입 (구글시트 자동 연동)
+              📥 신규 유입
             </h1>
             <p className="text-xs text-gray-500 mt-0.5">
-              구글 폼 → 시트 → Apps Script → Supabase leads_inbox → 이 화면
+              자체 상담 신청폼으로 들어온 신규 유입 관리
             </p>
           </div>
         </div>
@@ -209,16 +229,6 @@ export default function InboxPage() {
           <button onClick={loadAll} className="px-3 py-2 text-sm text-aqu-700 hover:bg-aqu-50 rounded-lg flex items-center gap-1">
             <RefreshCw className="w-4 h-4" /> 새로고침
           </button>
-          <button onClick={syncNow} disabled={syncing}
-            className="px-4 py-2 text-sm bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-lg hover:from-emerald-600 hover:to-teal-600 disabled:opacity-50 flex items-center gap-1 shadow-md font-medium">
-            <RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} />
-            {syncing ? "동기화 중..." : "🔄 지금 구글시트 동기화"}
-          </button>
-          <a href="https://docs.google.com/spreadsheets/d/1lzSXvmClip7LXign9mqmRIE9CHyY2oqXApQhd-g6JKg/edit"
-            target="_blank"
-            className="px-3 py-2 text-sm bg-green-50 border border-green-200 text-green-700 rounded-lg hover:bg-green-100 flex items-center gap-1">
-            <ExternalLink className="w-4 h-4" /> AQU LAB 시트
-          </a>
         </div>
       </div>
 
@@ -391,37 +401,18 @@ export default function InboxPage() {
       </div>
 
       {/* 하단 안내 */}
-      <div className="max-w-7xl mx-auto mt-6 space-y-3">
-        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-          <h3 className="font-medium text-emerald-900 flex items-center gap-2 mb-2">
-            ✅ 현재 동기화 방식
+      <div className="max-w-7xl mx-auto mt-6">
+        <div className="bg-purple-50 border border-purple-200 rounded-xl p-4">
+          <h3 className="font-medium text-purple-900 flex items-center gap-2 mb-2">
+            💡 사용 방법
           </h3>
-          <ol className="text-xs text-emerald-800 space-y-1 list-decimal list-inside">
-            <li>AQUNOTE 서버가 구글 시트 CSV를 직접 읽어옴 (Apps Script 불필요, API 키 불필요)</li>
-            <li>시트에 새로운 상담자가 추가되면 이 페이지에 자동 등장</li>
-            <li>상단의 <strong>지금 구글시트 동기화</strong> 버튼 니를 누르면 즉시 가져옴</li>
-            <li>Vercel Cron이 설정되어 있으면 자동으로 주기적 실행</li>
+          <ol className="text-xs text-purple-800 space-y-1 list-decimal list-inside">
+            <li>상담 신청 URL(<code className="bg-purple-100 px-1 rounded">/apply-child</code>, <code className="bg-purple-100 px-1 rounded">/apply-adult</code>)을 공유해 주세요</li>
+            <li>부모님/회원이 작성한 신청서가 이 페이지에 자동으로 쌓입니다</li>
+            <li>내용 확인 후 적절한 항목을 <strong>승격</strong> 버튼으로 정식 회원으로 이동시키세요</li>
+            <li>승격 시 진단명/증상/복용약 등 상세정보가 회원 카드의 각 필드로 자동 분리됩니다</li>
           </ol>
         </div>
-
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-          <h3 className="font-medium text-blue-900 flex items-center gap-2 mb-2">
-            💡 자동 동기화가 안 될 때
-          </h3>
-          <ol className="text-xs text-blue-800 space-y-1 list-decimal list-inside">
-            <li>구글 시트가 <strong>"링크가 있는 모든 사용자 - 뷰어"</strong>로 공유되어 있어야 함</li>
-            <li>종종 구글 시트 gid가 바뀌면 API에 등록된 gid도 수정 필요 (현재 아동=527581212, 성인=미등록)</li>
-            <li>문제 시 상단 <strong>지금 동기화</strong> 버튼 후 판업 메시지에 오류 내용 확인</li>
-            <li>Vercel Free 플랜은 Cron이 하루 1회만 동작. 5분마다 자동화는 Pro 플랜 필요</li>
-          </ol>
-        </div>
-
-        {lastSync && (
-          <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
-            <h3 className="text-xs font-medium text-gray-600 mb-2">마지막 동기화 결과</h3>
-            <pre className="text-[10px] text-gray-700 overflow-x-auto">{JSON.stringify(lastSync, null, 2)}</pre>
-          </div>
-        )}
       </div>
     </div>
   );
