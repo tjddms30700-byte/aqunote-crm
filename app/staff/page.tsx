@@ -5,8 +5,22 @@ import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import {
   Waves, Plus, X, Save, Users, DollarSign, Clock, UserMinus,
-  Edit2, Trash2, Calendar, TrendingUp, AlertTriangle, Check
+  Edit2, Trash2, Calendar, TrendingUp, AlertTriangle, Check,
+  FolderOpen, Upload, FileText, Download, Paperclip
 } from "lucide-react";
+
+const STAFF_DOC_CATEGORIES = [
+  { k: "contract",    label: "📝 근로계약서",       color: "bg-blue-50 text-blue-700" },
+  { k: "id_card",     label: "🪪 신분증",           color: "bg-yellow-50 text-yellow-700" },
+  { k: "bank",        label: "🏦 통장사본",         color: "bg-green-50 text-green-700" },
+  { k: "certificate", label: "🎓 이수증/수료증",    color: "bg-purple-50 text-purple-700" },
+  { k: "license",     label: "🆔 자격증/면허증",    color: "bg-red-50 text-red-700" },
+  { k: "photo",       label: "📷 본인사진",         color: "bg-pink-50 text-pink-700" },
+  { k: "resume",      label: "📄 이력서",           color: "bg-teal-50 text-teal-700" },
+  { k: "other",       label: "📎 기타",             color: "bg-gray-50 text-gray-700" },
+];
+function docCategoryLabel(k: string) { return STAFF_DOC_CATEGORIES.find(x => x.k === k)?.label || k; }
+function docCategoryColor(k: string) { return STAFF_DOC_CATEGORIES.find(x => x.k === k)?.color || "bg-gray-50 text-gray-700"; }
 
 const ROLES = [
   { k: "director",  label: "👑 원장" },
@@ -35,6 +49,7 @@ export default function StaffPage() {
   const [showPayrollModal, setShowPayrollModal] = useState(false);
   const [showAttendanceModal, setShowAttendanceModal] = useState(false);
   const [showResignModal, setShowResignModal] = useState(false);
+  const [docsStaff, setDocsStaff] = useState<any>(null);  // 문서 관리 모달 대상 직원
 
   const [newStaff, setNewStaff] = useState<any>({
     name: "", email: "", phone: "", role: "therapist",
@@ -330,6 +345,9 @@ export default function StaffPage() {
                     <div className="text-xs text-gray-500">{roleLabel(s.role)}</div>
                   </div>
                   <div className="flex gap-1">
+                    <button onClick={() => setDocsStaff(s)} className="p-1 text-gray-400 hover:text-purple-600" title="문서 관리">
+                      <FolderOpen className="w-3.5 h-3.5" />
+                    </button>
                     <button onClick={() => openEditStaff(s)} className="p-1 text-gray-400 hover:text-aqu-600">
                       <Edit2 className="w-3.5 h-3.5" />
                     </button>
@@ -703,6 +721,11 @@ export default function StaffPage() {
           </div>
         </Modal>
       )}
+
+      {/* ─── 직원 문서 관리 모달 ─── */}
+      {docsStaff && (
+        <StaffDocumentsModal staff={docsStaff} orgId={docsStaff.org_id} onClose={() => setDocsStaff(null)} />
+      )}
     </main>
   );
 }
@@ -768,5 +791,208 @@ function ResignModal({ staff, onClose, onConfirm }: any) {
         </div>
       </div>
     </Modal>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 📁 직원 문서 관리 모달
+// ═══════════════════════════════════════════════════════════════
+function StaffDocumentsModal({ staff, orgId, onClose }: any) {
+  const [docs, setDocs] = useState<any[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<string>("contract");
+  const [docTitle, setDocTitle] = useState<string>("");
+  const [docMemo, setDocMemo] = useState<string>("");
+  const [filterCat, setFilterCat] = useState<string>("all");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => { loadDocs(); }, [staff.id]);
+
+  async function loadDocs() {
+    setLoading(true);
+    const { data } = await supabase.from("staff_documents")
+      .select("*")
+      .eq("staff_id", staff.id)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false });
+    setDocs(data || []);
+    setLoading(false);
+  }
+
+  async function uploadDoc(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 20 * 1024 * 1024) { alert("20MB 이하만 업로드 가능합니다"); return; }
+
+    setUploading(true);
+    try {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const filePath = `staff-docs/${staff.id}/${selectedCategory}_${Date.now()}_${safeName}`;
+
+      const { error: upErr } = await supabase.storage.from("documents").upload(filePath, file, { upsert: false });
+      if (upErr) throw upErr;
+
+      const { data: pub } = supabase.storage.from("documents").getPublicUrl(filePath);
+
+      const { error: dbErr } = await supabase.from("staff_documents").insert({
+        staff_id: staff.id,
+        org_id: orgId,
+        category: selectedCategory,
+        title: docTitle.trim() || file.name,
+        file_url: pub.publicUrl,
+        file_path: filePath,
+        file_name: file.name,
+        file_size: file.size,
+        mime_type: file.type,
+        memo: docMemo.trim() || null,
+      });
+      if (dbErr) throw dbErr;
+
+      alert("✅ 업로드 완료");
+      setDocTitle(""); setDocMemo("");
+      loadDocs();
+    } catch (err: any) {
+      alert("업로드 실패: " + err.message);
+    } finally {
+      setUploading(false);
+      (e.target as HTMLInputElement).value = "";
+    }
+  }
+
+  async function deleteDoc(d: any) {
+    if (!confirm(`"${d.title || d.file_name}" 문서를 삭제할까요?`)) return;
+    if (d.file_path) {
+      try { await supabase.storage.from("documents").remove([d.file_path]); } catch {}
+    }
+    await supabase.from("staff_documents").update({ deleted_at: new Date().toISOString() }).eq("id", d.id);
+    loadDocs();
+  }
+
+  const filteredDocs = filterCat === "all" ? docs : docs.filter(d => d.category === filterCat);
+  const catCounts = STAFF_DOC_CATEGORIES.map(c => ({ ...c, count: docs.filter(d => d.category === c.k).length }));
+
+  function humanSize(bytes: number) {
+    if (!bytes) return "-";
+    if (bytes < 1024) return bytes + "B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + "KB";
+    return (bytes / 1024 / 1024).toFixed(1) + "MB";
+  }
+  function isImage(m: string) { return m?.startsWith("image/"); }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+        {/* 헤더 */}
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-purple-50 to-blue-50">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-purple-500 to-blue-600 flex items-center justify-center shadow">
+              <FolderOpen className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <div className="font-bold text-slate-900">{staff.name} 님의 문서 관리</div>
+              <div className="text-xs text-gray-500">총 {docs.length}개 저장됨</div>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg"><X className="w-5 h-5" /></button>
+        </div>
+
+        {/* 업로드 영역 */}
+        <div className="p-5 border-b border-gray-100 bg-slate-50">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+            <div>
+              <label className="text-xs text-gray-600 block mb-1">문서 종류 <span className="text-red-500">*</span></label>
+              <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                {STAFF_DOC_CATEGORIES.map(c => (
+                  <option key={c.k} value={c.k}>{c.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-600 block mb-1">문서 제목 (선택)</label>
+              <input value={docTitle} onChange={e => setDocTitle(e.target.value)}
+                placeholder="예: 2024 근로계약서"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="text-xs text-gray-600 block mb-1">메모 (선택)</label>
+              <input value={docMemo} onChange={e => setDocMemo(e.target.value)}
+                placeholder="추가 설명"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+            </div>
+          </div>
+          <label className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-br from-purple-600 to-blue-600 text-white rounded-xl shadow font-semibold hover:opacity-90 cursor-pointer">
+            <Upload className="w-4 h-4" />
+            {uploading ? "업로드 중..." : "파일 선택 (20MB 이하 · PDF/이미지/DOC/HWP)"}
+            <input type="file" accept="image/*,application/pdf,.doc,.docx,.hwp" onChange={uploadDoc} disabled={uploading} className="hidden" />
+          </label>
+        </div>
+
+        {/* 필터 */}
+        <div className="px-5 py-3 border-b border-gray-100 flex flex-wrap gap-2">
+          <button onClick={() => setFilterCat("all")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${filterCat === "all" ? "bg-slate-800 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+            전체 ({docs.length})
+          </button>
+          {catCounts.map(c => (
+            <button key={c.k} onClick={() => setFilterCat(c.k)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${filterCat === c.k ? "bg-slate-800 text-white" : c.color + " hover:opacity-80"}`}>
+              {c.label} ({c.count})
+            </button>
+          ))}
+        </div>
+
+        {/* 목록 */}
+        <div className="flex-1 overflow-y-auto p-5">
+          {loading ? (
+            <div className="text-center py-10 text-gray-400 text-sm">로딩 중...</div>
+          ) : filteredDocs.length === 0 ? (
+            <div className="text-center py-10 text-gray-400">
+              <Paperclip className="w-10 h-10 mx-auto mb-2 opacity-30" />
+              <div className="text-sm">업로드된 문서가 없습니다</div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {filteredDocs.map(d => (
+                <div key={d.id} className="flex gap-3 p-3 border border-gray-200 rounded-xl hover:border-purple-300 hover:shadow-sm transition bg-white">
+                  <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 bg-gray-100 flex items-center justify-center">
+                    {isImage(d.mime_type) ? (
+                      <img src={d.file_url} alt="" className="w-full h-full object-cover"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                    ) : (
+                      <FileText className="w-7 h-7 text-gray-400" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-1">
+                      <div className="flex-1 min-w-0">
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${docCategoryColor(d.category)} font-semibold`}>
+                          {docCategoryLabel(d.category)}
+                        </span>
+                        <div className="font-bold text-sm text-slate-900 mt-1 truncate">{d.title || d.file_name}</div>
+                      </div>
+                      <div className="flex gap-1">
+                        <a href={d.file_url} target="_blank" rel="noopener noreferrer"
+                          className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg" title="열기">
+                          <Download className="w-3.5 h-3.5" />
+                        </a>
+                        <button onClick={() => deleteDoc(d)}
+                          className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg" title="삭제">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="text-[10px] text-gray-500 mt-1">
+                      {humanSize(d.file_size)} · {new Date(d.created_at).toLocaleDateString("ko-KR")}
+                    </div>
+                    {d.memo && <div className="text-xs text-gray-600 mt-1 line-clamp-1">{d.memo}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
