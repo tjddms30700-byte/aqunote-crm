@@ -28,9 +28,42 @@ const STATUS_OPTIONS = [
   { value: "noshow",    label: "노쇼",  color: "bg-red-100 text-red-800 border-red-300",         dot: "bg-red-500",    textColor: "text-red-700" },
   { value: "carryover", label: "이월",  color: "bg-purple-100 text-purple-800 border-purple-300", dot: "bg-purple-500", textColor: "text-purple-700" },
 ];
-function statusMeta(s: string) {
-  return STATUS_OPTIONS.find(x => x.value === s) || STATUS_OPTIONS[0];
+// 구버전 호환: completed / cancelled 등을 통일 이름으로 매핑
+const STATUS_ALIAS: Record<string, string> = {
+  completed: "done",
+  complete: "done",
+  attended: "done",
+  present: "done",
+  cancelled: "cancel",
+  canceled: "cancel",
+  absent: "cancel",
+  no_show: "noshow",
+  "no-show": "noshow",
+};
+function normStatus(s: string | null | undefined): string {
+  if (!s) return "scheduled";
+  const k = String(s).toLowerCase().trim();
+  return STATUS_ALIAS[k] || k;
 }
+function statusMeta(s: string) {
+  const n = normStatus(s);
+  return STATUS_OPTIONS.find(x => x.value === n) || STATUS_OPTIONS[0];
+}
+
+// 이벤트 유형 라벨
+const EVENT_TYPE_LABEL: Record<string, string> = {
+  lesson: "📚 수업",
+  trial: "🌟 체험수업",
+  revenue: "💰 매출 등록",
+  staff_work: "👥 직원 근무",
+  staff_off: "🏖️ 직원 휴무",
+  other: "📌 기타",
+};
+function eventTypeLabel(t: string) { return EVENT_TYPE_LABEL[t] || t || "-"; }
+
+// 회원권 1회 차감 대상 상태
+const COUNTS_AS_USED = new Set(["done", "noshow"]);   // 완료 / 노쇼면 차감
+// 병결 / 이월 / 취소 / 예약은 차감하지 않음
 
 /* ═════ 유틸 ═════ */
 function ymd(d: Date) {
@@ -112,50 +145,50 @@ export default function SchedulePage() {
     setQuickAction(slot);
   }
 
-  // 출결 상태 변경
-  async function setAttendanceStatus(slot: any, status: "present" | "absent" | "sick") {
+  // 출결 상태 변경 (5가지: done/noshow/sick/carryover/cancel)
+  async function setAttendanceStatus(slot: any, status: "done" | "noshow" | "sick" | "carryover" | "cancel") {
     if (!slot.member_id || !slot.event_date) {
       alert("회원/날짜 정보가 없는 예약입니다.");
       return;
     }
     const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
-    // 컬럼명 자동 감지 (date / attendance_date / session_date)
-    const dateCol = attendance[0]?.date !== undefined ? "date"
-      : attendance[0]?.attendance_date !== undefined ? "attendance_date"
-      : attendance[0]?.session_date !== undefined ? "session_date"
-      : "date";
-    // upsert
-    const existing = attendance.find((a: any) => a.member_id === slot.member_id && (a.date === slot.event_date || a.attendance_date === slot.event_date || a.session_date === slot.event_date));
-    if (existing) {
-      const { error } = await supabase.from("attendance").update({ status, slot_id: slot.id }).eq("id", existing.id).select();
-      if (error) return alert("오류: " + error.message + "\n\n💡 AQUNOTE_V37_FIX2.sql 을 Supabase에 실행해 주세요.");
-    } else {
-      const payload: any = { org_id: orgId, member_id: slot.member_id, status, slot_id: slot.id };
-      payload[dateCol] = slot.event_date;
-      let { error } = await supabase.from("attendance").insert(payload).select();
-      // date 컬럼이 없는 경우 대체 컬럼명 자동 시도
-      if (error && /Could not find the '(date|attendance_date|session_date)' column/.test(error.message)) {
-        for (const alt of ["date", "attendance_date", "session_date"]) {
-          const p: any = { org_id: orgId, member_id: slot.member_id, status, slot_id: slot.id };
-          p[alt] = slot.event_date;
-          const res = await supabase.from("attendance").insert(p).select();
-          if (!res.error) { error = null as any; break; }
-          error = res.error;
+
+    // attendance 기록은 done/cancel이 명확한 경우에만 저장 (선택적 보조 로그)
+    if (status === "done" || status === "noshow" || status === "sick") {
+      // 컬럼명 자동 감지 (date / attendance_date / session_date)
+      const dateCol = attendance[0]?.date !== undefined ? "date"
+        : attendance[0]?.attendance_date !== undefined ? "attendance_date"
+        : attendance[0]?.session_date !== undefined ? "session_date"
+        : "date";
+      const attStatus = status === "done" ? "present" : status === "noshow" ? "absent" : "sick";
+      const existing = attendance.find((a: any) => a.member_id === slot.member_id && (a.date === slot.event_date || a.attendance_date === slot.event_date || a.session_date === slot.event_date));
+      if (existing) {
+        await supabase.from("attendance").update({ status: attStatus, slot_id: slot.id }).eq("id", existing.id);
+      } else {
+        const payload: any = { org_id: orgId, member_id: slot.member_id, status: attStatus, slot_id: slot.id };
+        payload[dateCol] = slot.event_date;
+        let { error } = await supabase.from("attendance").insert(payload);
+        if (error && /Could not find the '(date|attendance_date|session_date)' column/.test(error.message)) {
+          for (const alt of ["date", "attendance_date", "session_date"]) {
+            const p: any = { org_id: orgId, member_id: slot.member_id, status: attStatus, slot_id: slot.id };
+            p[alt] = slot.event_date;
+            const res = await supabase.from("attendance").insert(p);
+            if (!res.error) break;
+          }
         }
       }
-      if (error) return alert("오류: " + error.message + "\n\n💡 AQUNOTE_V37_FIX2.sql 을 Supabase에 실행해 주세요.");
     }
-    // schedule_slots의 status도 동기화
-    const prevStatus = slot.status;
-    const scheduleStatus = status === "present" ? "completed" : status === "absent" ? "cancelled" : "sick";
-    await supabase.from("schedule_slots").update({ status: scheduleStatus }).eq("id", slot.id);
 
-    // 회원권 자동 차감 로직
-    //  - 이전이 completed가 아니고 이번이 completed → used_sessions++
-    //  - 이전이 completed였는데 이번이 completed 아닐 → used_sessions-- (복원)
+    // schedule_slots의 status 동기화 (대이렉트 값 저장)
+    const prevStatus = normStatus(slot.status);
+    await supabase.from("schedule_slots").update({ status }).eq("id", slot.id);
+
+    // 회원권 자동 차감/복원 로직
+    //  - 이전이 차감대상(done/noshow) 아니고 이번이 차감대상 → used_sessions++
+    //  - 이전이 차감대상였는데 이번이 차감대상 아닐 → used_sessions-- (복원)
+    let sessionMsg = "";
     try {
       if (slot.member_id) {
-        // 유효한 회원권 찾기 (명시적 membership_id 우선, 없으면 최근 활성 회원권)
         let target: any = null;
         if (slot.membership_id) {
           const { data } = await supabase.from("memberships").select("*").eq("id", slot.membership_id).maybeSingle();
@@ -173,30 +206,33 @@ export default function SchedulePage() {
         }
 
         if (target) {
-          const wasCompleted = prevStatus === "completed";
-          const isCompleted = scheduleStatus === "completed";
-          if (!wasCompleted && isCompleted) {
-            // 차감
+          const wasUsed = COUNTS_AS_USED.has(prevStatus);
+          const isUsed = COUNTS_AS_USED.has(status);
+          if (!wasUsed && isUsed) {
             await supabase.from("memberships").update({
               used_sessions: (target.used_sessions || 0) + 1,
               updated_at: new Date().toISOString(),
             }).eq("id", target.id);
-            // slot에 사용된 회원권 링크 저장 (추후 복원 가능)
             await supabase.from("schedule_slots").update({ membership_id: target.id }).eq("id", slot.id);
-          } else if (wasCompleted && !isCompleted) {
-            // 복원
+            sessionMsg = " (회원권 1회 차감)";
+          } else if (wasUsed && !isUsed) {
             const used = Math.max(0, (target.used_sessions || 0) - 1);
             await supabase.from("memberships").update({
               used_sessions: used,
               updated_at: new Date().toISOString(),
             }).eq("id", target.id);
+            sessionMsg = " (회원권 1회 복원)";
           }
         }
       }
     } catch (e) { console.warn("회원권 자동 차감 실패:", e); }
 
     await loadAll();
-    alert(status === "present" ? "✅ 출석 (회원권 1회 자동 차감)" : status === "absent" ? "⚠️ 결석" : "🤒 병결");
+    const labels: Record<string, string> = {
+      done: "✅ 완료", noshow: "🚩 노쇼", sick: "🤒 병결",
+      carryover: "📅 이월", cancel: "❌ 취소"
+    };
+    alert((labels[status] || status) + sessionMsg);
   }
 
   // 결제 추가 (회원권 자동 생성 포함)
@@ -242,8 +278,21 @@ export default function SchedulePage() {
       if (!msErr && newMs) membershipId = newMs.id;
     }
 
-    // 2) 결제 로그 저장
-    const { error } = await supabase.from("payments").insert({
+    // 재결제 자동 연결: 같은 slot에 취소된 결제가 있으면 replaces 필드에 기록
+    let replacesId: string | null = null;
+    try {
+      const { data: prevCancelled } = await supabase.from("payments")
+        .select("id")
+        .eq("slot_id", slot.id)
+        .eq("status", "cancelled")
+        .is("replaced_by", null)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (prevCancelled && prevCancelled.length > 0) replacesId = prevCancelled[0].id;
+    } catch {}
+
+    // 2) 결제 로그 저장 (스키마 불일치 컬럼 자동 제거)
+    const paymentPayload: any = {
       org_id: orgId,
       member_id: slot.member_id,
       membership_id: membershipId,
@@ -258,8 +307,35 @@ export default function SchedulePage() {
       paid_at: paidAt,
       event_date: slot.event_date,
       slot_id: slot.id,
-    }).select();
-    if (error) return alert("결제 등록 실패: " + error.message);
+      status: "active",
+      replaces: replacesId,
+    };
+    // 반복적으로 시도 → 없는 컬럼 자동 제거
+    let lastErr: any = null;
+    let ok = false;
+    for (let attempt = 0; attempt < 15; attempt++) {
+      const { error } = await supabase.from("payments").insert(paymentPayload).select();
+      if (!error) { ok = true; break; }
+      lastErr = error;
+      const m = error.message.match(/'([^']+)' column|column "([^"]+)"/);
+      const missing = m?.[1] || m?.[2];
+      if (missing && missing in paymentPayload) { delete paymentPayload[missing]; continue; }
+      break;
+    }
+    if (!ok) return alert("결제 등록 실패: " + (lastErr?.message || "알수 없는 오류") + "\n\n💡 AQUNOTE_V37_FIX5.sql + FIX6.sql을 Supabase에 실행해 주세요.");
+
+    // 재결제 링크: 이전 취소 결제에 replaced_by 기록
+    if (replacesId) {
+      try {
+        // 새 삽입된 결제 ID 가져오기
+        const { data: newPay } = await supabase.from("payments")
+          .select("id").eq("slot_id", slot.id).eq("status", "active")
+          .order("created_at", { ascending: false }).limit(1);
+        if (newPay && newPay.length > 0) {
+          await supabase.from("payments").update({ replaced_by: newPay[0].id }).eq("id", replacesId);
+        }
+      } catch {}
+    }
 
     // 3) 예약 slot에 membership_id 연결 (이후 자동 차감용)
     if (membershipId) {
@@ -274,11 +350,48 @@ export default function SchedulePage() {
       : "✅ 결제 등록되었습니다");
   }
 
-  // 결제 삭제
+  // 결제 취소 (이력 보존 → status='cancelled')
   async function deletePayment(id: string) {
-    if (!confirm("이 결제 내역을 삭제하시겠습니까?")) return;
-    await supabase.from("payments").delete().eq("id", id);
+    const { data: pay } = await supabase.from("payments").select("*, memberships(id, plan_name, total_sessions, used_sessions, status)").eq("id", id).maybeSingle();
+    if (!pay) { alert("결제 정보를 찾을 수 없습니다"); return; }
+
+    if (pay.status === "cancelled") { alert("이미 취소된 결제입니다"); return; }
+
+    let msg = `이 결제를 취소하시겠습니까?\n\n· 금액: ₩${(pay.amount || 0).toLocaleString()}\n· 날짜: ${pay.paid_at}\n· 결제수단: ${pay.method}`;
+    if (pay.memberships?.id) {
+      msg += `\n\n연결 회원권: ${pay.memberships.plan_name} (${pay.memberships.total_sessions}회, 사용 ${pay.memberships.used_sessions}회)\n→ 회원권도 함께 취소됩니다 (이력 보존)`;
+    }
+    msg += `\n\n💡 이력은 삭제되지 않고 “취소” 상태로 남습니다.\n   재결제 시 새 결제와 자동 연결됩니다.`;
+    if (!confirm(msg)) return;
+
+    const reason = prompt("취소 사유를 입력해 주세요 (선택)", "고객 요청·재결제");
+    if (reason === null) return; // 취소
+
+    const now = new Date().toISOString();
+
+    // 1) 회원권을 cancelled로 변경 (삭제 아님 - 이력 보존)
+    if (pay.memberships?.id) {
+      const { error: msErr } = await supabase.from("memberships").update({
+        status: "cancelled",
+        cancelled_at: now,
+        cancelled_reason: reason || "결제 취소",
+        updated_at: now,
+      }).eq("id", pay.memberships.id);
+      if (msErr) { alert("회원권 상태 변경 실패: " + msErr.message); return; }
+      // slot의 membership_id 링크는 재결제에서 갱신되도록 임시 해제
+      try { await supabase.from("schedule_slots").update({ membership_id: null }).eq("membership_id", pay.memberships.id); } catch {}
+    }
+
+    // 2) 결제를 cancelled로 변경
+    const { error } = await supabase.from("payments").update({
+      status: "cancelled",
+      cancelled_at: now,
+      cancelled_reason: reason || "결제 취소",
+    }).eq("id", id);
+    if (error) { alert("결제 취소 실패: " + error.message + "\n\n💡 AQUNOTE_V37_FIX6.sql 을 Supabase에 실행해 주세요."); return; }
+
     await loadAll();
+    alert("✅ 결제가 취소되었습니다 (이력 보존됨)");
   }
 
   function prevMonth() {
@@ -1437,6 +1550,9 @@ function QuickActionSheet({ slot, members, staff, plans, payments, attendance, o
     return payCardNo;
   }
 
+  // 예약의 status를 기준으로 하되, attendance가 있으면 보조적으로 표시
+  const currentSlotStatus = normStatus(slot.status);
+  const currentSlotMeta = statusMeta(currentSlotStatus);
   const currentAttStatus = attendance?.status;
 
   return (
@@ -1474,18 +1590,24 @@ function QuickActionSheet({ slot, members, staff, plans, payments, attendance, o
           </button>
           <button onClick={() => setTab("attend")}
             className={`flex-1 py-3 text-sm font-medium ${tab === "attend" ? "text-purple-700 border-b-2 border-purple-500 bg-purple-50/50" : "text-gray-500"}`}>
-            ✅ 출결 {currentAttStatus && (
-              <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] ${
-                currentAttStatus === "present" ? "bg-emerald-100 text-emerald-700" :
-                currentAttStatus === "absent" ? "bg-red-100 text-red-700" :
-                "bg-orange-100 text-orange-700"}`}>
-                {currentAttStatus === "present" ? "출석" : currentAttStatus === "absent" ? "결석" : "병결"}
+            ✅ 출결 {currentSlotStatus !== "scheduled" && (
+              <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] ${currentSlotMeta.color}`}>
+                {currentSlotMeta.label}
               </span>
             )}
           </button>
           <button onClick={() => setTab("payment")}
             className={`flex-1 py-3 text-sm font-medium ${tab === "payment" ? "text-pink-700 border-b-2 border-pink-500 bg-pink-50/50" : "text-gray-500"}`}>
-            💰 결제 {payments.length > 0 && <span className="ml-1 px-1.5 bg-pink-100 text-pink-700 text-[10px] rounded-full">{payments.length}</span>}
+            💰 결제 {payments.length > 0 && (() => {
+              const activeCount = payments.filter((p: any) => p.status !== "cancelled").length;
+              const cancelCount = payments.length - activeCount;
+              return (
+                <>
+                  {activeCount > 0 && <span className="ml-1 px-1.5 bg-pink-100 text-pink-700 text-[10px] rounded-full">{activeCount}</span>}
+                  {cancelCount > 0 && <span className="ml-1 px-1.5 bg-gray-200 text-gray-500 text-[10px] rounded-full line-through">{cancelCount}</span>}
+                </>
+              );
+            })()}
           </button>
         </div>
 
@@ -1495,8 +1617,15 @@ function QuickActionSheet({ slot, members, staff, plans, payments, attendance, o
             <div className="space-y-3">
               <InfoLine label="날짜" value={slot.event_date} />
               <InfoLine label="시간" value={slot.time_slot} />
-              <InfoLine label="유형" value={slot.event_type} />
-              <InfoLine label="상태" value={slot.status || "예약"} />
+              <InfoLine label="유형" value={eventTypeLabel(slot.event_type)} />
+              <div className="flex items-start gap-3">
+                <span className="text-xs text-gray-500 min-w-[60px] pt-1">상태</span>
+                <span className={`px-2.5 py-1 rounded-lg text-xs font-semibold border ${currentSlotMeta.color}`}>
+                  {currentSlotMeta.label}
+                </span>
+              </div>
+              {slot.lesson_name && <InfoLine label="수업명" value={slot.lesson_name} />}
+              {slot.amount > 0 && <InfoLine label="금액" value={`₩${slot.amount.toLocaleString()}`} />}
               {slot.note && <InfoLine label="메모" value={slot.note} />}
               {slot.recurring_id && (
                 <div className="p-2 bg-purple-50 border border-purple-200 rounded-lg text-xs text-purple-800">
@@ -1512,23 +1641,45 @@ function QuickActionSheet({ slot, members, staff, plans, payments, attendance, o
 
           {tab === "attend" && (
             <div className="space-y-3">
-              <div className="text-xs text-gray-600">이 회원의 <b>{slot.event_date}</b> 출석 상태를 입력하세요.</div>
+              <div className="text-xs text-gray-600">
+                <b>{slot.event_date}</b> 상태를 선택하세요.
+                <span className="ml-1 text-gray-500">완료/노쇼만 회원권 1회 차감</span>
+              </div>
               <div className="grid grid-cols-3 gap-2">
-                <button onClick={() => onAttendance("present")}
-                  className={`py-4 rounded-xl border-2 font-medium text-sm ${currentAttStatus === "present" ? "bg-emerald-500 border-emerald-500 text-white shadow-md" : "border-emerald-200 text-emerald-700 hover:bg-emerald-50"}`}>
-                  ✅<br/>출석
+                <button onClick={() => onAttendance("done")}
+                  className={`py-4 rounded-xl border-2 font-medium text-sm ${currentSlotStatus === "done" ? "bg-green-500 border-green-500 text-white shadow-md" : "border-green-200 text-green-700 hover:bg-green-50"}`}>
+                  ✅<br/>완료
+                  <div className="text-[9px] mt-1 opacity-80">− 1회 차감</div>
                 </button>
-                <button onClick={() => onAttendance("absent")}
-                  className={`py-4 rounded-xl border-2 font-medium text-sm ${currentAttStatus === "absent" ? "bg-red-500 border-red-500 text-white shadow-md" : "border-red-200 text-red-700 hover:bg-red-50"}`}>
-                  ❌<br/>결석
+                <button onClick={() => onAttendance("noshow")}
+                  className={`py-4 rounded-xl border-2 font-medium text-sm ${currentSlotStatus === "noshow" ? "bg-red-500 border-red-500 text-white shadow-md" : "border-red-200 text-red-700 hover:bg-red-50"}`}>
+                  🚩<br/>노쇼
+                  <div className="text-[9px] mt-1 opacity-80">− 1회 차감</div>
                 </button>
                 <button onClick={() => onAttendance("sick")}
-                  className={`py-4 rounded-xl border-2 font-medium text-sm ${currentAttStatus === "sick" ? "bg-orange-500 border-orange-500 text-white shadow-md" : "border-orange-200 text-orange-700 hover:bg-orange-50"}`}>
+                  className={`py-4 rounded-xl border-2 font-medium text-sm ${currentSlotStatus === "sick" ? "bg-orange-500 border-orange-500 text-white shadow-md" : "border-orange-200 text-orange-700 hover:bg-orange-50"}`}>
                   🤒<br/>병결
+                  <div className="text-[9px] mt-1 opacity-80">차감 없음</div>
+                </button>
+                <button onClick={() => onAttendance("carryover")}
+                  className={`py-4 rounded-xl border-2 font-medium text-sm ${currentSlotStatus === "carryover" ? "bg-purple-500 border-purple-500 text-white shadow-md" : "border-purple-200 text-purple-700 hover:bg-purple-50"}`}>
+                  📅<br/>이월
+                  <div className="text-[9px] mt-1 opacity-80">차감 없음</div>
+                </button>
+                <button onClick={() => onAttendance("cancel")}
+                  className={`py-4 rounded-xl border-2 font-medium text-sm ${currentSlotStatus === "cancel" ? "bg-gray-500 border-gray-500 text-white shadow-md" : "border-gray-200 text-gray-700 hover:bg-gray-50"}`}>
+                  ❌<br/>취소
+                  <div className="text-[9px] mt-1 opacity-80">차감 없음</div>
+                </button>
+                <button onClick={() => onAttendance("scheduled" as any)}
+                  className={`py-4 rounded-xl border-2 font-medium text-sm ${currentSlotStatus === "scheduled" ? "bg-blue-500 border-blue-500 text-white shadow-md" : "border-blue-200 text-blue-700 hover:bg-blue-50"}`}>
+                  🔵<br/>예약으로
+                  <div className="text-[9px] mt-1 opacity-80">초기화</div>
                 </button>
               </div>
               <div className="text-[11px] text-gray-500 mt-2 p-3 bg-gray-50 rounded-lg">
-                💡 출결 상태를 변경하면 예약 상태도 자동으로 동기화됩니다 (출석→완료 / 결석→취소 / 병결→병결).
+                💡 <b>완료</b>·<b>노쇼</b>만 회원권을 1회 차감합니다.
+                <b>병결</b>·<b>이월</b>·<b>취소</b>는 예약 이력만 남기고 회차는 차감하지 않음으로 로직이 변경되었습니다.
               </div>
             </div>
           )}
@@ -1542,14 +1693,32 @@ function QuickActionSheet({ slot, members, staff, plans, payments, attendance, o
                   <div className="text-xs text-gray-400 py-3 text-center bg-gray-50 rounded-lg">아직 결제 내역이 없습니다</div>
                 ) : (
                   <div className="space-y-2">
-                    {payments.map((p: any) => (
-                      <div key={p.id} className="p-3 bg-pink-50 border border-pink-100 rounded-lg">
+                    {payments.map((p: any) => {
+                      const isCancelled = p.status === "cancelled";
+                      const isReplaced = !!p.replaced_by;
+                      return (
+                      <div key={p.id} className={`p-3 border rounded-lg ${isCancelled ? "bg-gray-100 border-gray-300 opacity-70" : "bg-pink-50 border-pink-100"}`}>
                         <div className="flex items-center justify-between mb-1">
-                          <div className="text-sm font-bold text-pink-900">₩{(p.amount || 0).toLocaleString()}</div>
-                          <button onClick={() => onDeletePayment(p.id)}
-                            className="text-xs text-red-500 hover:text-red-700">삭제</button>
+                          <div className="flex items-center gap-2">
+                            {isCancelled && (
+                              <span className="text-[9px] px-1.5 py-0.5 bg-red-500 text-white rounded font-bold">❌ 취소됨</span>
+                            )}
+                            {isReplaced && (
+                              <span className="text-[9px] px-1.5 py-0.5 bg-blue-500 text-white rounded font-bold">🔄 재결제됨</span>
+                            )}
+                            {p.replaces && !isCancelled && (
+                              <span className="text-[9px] px-1.5 py-0.5 bg-green-500 text-white rounded font-bold">🆕 재결제</span>
+                            )}
+                            <div className={`text-sm font-bold ${isCancelled ? "text-gray-500 line-through" : "text-pink-900"}`}>
+                              ₩{(p.amount || 0).toLocaleString()}
+                            </div>
+                          </div>
+                          {!isCancelled && (
+                            <button onClick={() => onDeletePayment(p.id)}
+                              className="text-xs text-red-500 hover:text-red-700">취소</button>
+                          )}
                         </div>
-                        <div className="text-[10px] text-gray-700 space-y-0.5">
+                        <div className={`text-[10px] space-y-0.5 ${isCancelled ? "text-gray-500" : "text-gray-700"}`}>
                           <div>
                             <span className="font-medium">
                               {p.method === "card" ? "💳 카드" :
@@ -1562,9 +1731,15 @@ function QuickActionSheet({ slot, members, staff, plans, payments, attendance, o
                           {p.card_number && <div className="font-mono">💳 {p.card_number}</div>}
                           {p.approval_no && <div>승인: {p.approval_no}</div>}
                           <div className="text-gray-400">{new Date(p.paid_at).toLocaleDateString("ko-KR")}</div>
+                          {isCancelled && p.cancelled_reason && (
+                            <div className="mt-1 pt-1 border-t border-gray-300 text-red-600">
+                              ❌ 취소사유: {p.cancelled_reason}
+                              {p.cancelled_at && <span className="text-gray-400 ml-1">({new Date(p.cancelled_at).toLocaleDateString("ko-KR")})</span>}
+                            </div>
+                          )}
                         </div>
                       </div>
-                    ))}
+                    );})}
                   </div>
                 )}
               </div>

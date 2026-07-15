@@ -78,8 +78,17 @@ export default function PaymentsPage() {
   async function loadAll() {
     setLoading(true);
     const [p, m, mem, pl] = await Promise.all([
-      supabase.from("payments").select("*, members(name, member_type), memberships(plan_name, total_sessions, used_sessions, adjustment, end_date)").order("paid_at", { ascending: false }),
-      supabase.from("memberships").select("*, members(name, member_type)").order("end_date", { ascending: false }),
+      // 이중 조인 실패에 대비해 fallback 해봄
+      (async () => {
+        const first = await supabase.from("payments").select("*, members(name, member_type), memberships(plan_name, total_sessions, used_sessions, adjustment, end_date)").order("paid_at", { ascending: false });
+        if (first.error) {
+          // 조인 실패 → memberships 조인 제거하고 재시도
+          console.warn("payments 조인 실패, fallback", first.error);
+          return await supabase.from("payments").select("*, members(name, member_type)").order("created_at", { ascending: false });
+        }
+        return first;
+      })(),
+      supabase.from("memberships").select("*, members(name, member_type)").order("created_at", { ascending: false }),
       supabase.from("members").select("id, name, member_type").is("deleted_at", null).order("name"),
       supabase.from("membership_plans").select("*").eq("is_active", true).order("sort_order"),
     ]);
@@ -222,16 +231,49 @@ export default function PaymentsPage() {
   }
 
   async function deletePayment(id: string) {
-    if (!confirm("결제 이력을 삭제할까요?")) return;
-    await supabase.from("payments").delete().eq("id", id);
+    const pay = payments.find(p => p.id === id);
+    if (!pay) return;
+    if (pay.status === "cancelled") {
+      // 이미 취소된 결제는 완전 삭제 옵션
+      if (!confirm("이미 취소된 결제입니다. 이력에서 완전히 제거하시겠습니까?\n\n⚠️ 이 작업은 되돌릴 수 없습니다.")) return;
+      await supabase.from("payments").delete().eq("id", id);
+      loadAll();
+      return;
+    }
+
+    let msg = `이 결제를 취소하시겠습니까?\n\n· 금액: ₩${(pay.amount || 0).toLocaleString()}\n· 날짜: ${pay.paid_at}`;
+    if (pay.memberships) {
+      msg += `\n\n연결 회원권: ${pay.memberships.plan_name} (${pay.memberships.total_sessions}회, 사용 ${pay.memberships.used_sessions}회)\n→ 회원권도 함께 취소됩니다`;
+    }
+    msg += `\n\n💡 이력은 삭제되지 않고 “취소” 상태로 남습니다.`;
+    if (!confirm(msg)) return;
+
+    const reason = prompt("취소 사유를 입력해 주세요 (선택)", "고객 요청·재결제");
+    if (reason === null) return;
+    const now = new Date().toISOString();
+
+    // 회원권 취소
+    if (pay.membership_id) {
+      await supabase.from("memberships").update({
+        status: "cancelled", cancelled_at: now, cancelled_reason: reason || "결제 취소",
+      }).eq("id", pay.membership_id);
+      try { await supabase.from("schedule_slots").update({ membership_id: null }).eq("membership_id", pay.membership_id); } catch {}
+    }
+
+    const { error } = await supabase.from("payments").update({
+      status: "cancelled", cancelled_at: now, cancelled_reason: reason || "결제 취소",
+    }).eq("id", id);
+    if (error) { alert("상태 변경 실패: " + error.message + "\n\n💡 AQUNOTE_V37_FIX6.sql을 실행해 주세요."); return; }
+    alert("✅ 결제가 취소되었습니다 (이력 보존)");
     loadAll();
   }
 
-  const totalRevenue = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+  // 유효 결제만 매출에 포함 (취소된 것 제외)
+  const totalRevenue = payments.filter(p => p.status !== "cancelled").reduce((sum, p) => sum + (p.amount || 0), 0);
   const thisMonthRevenue = payments
-    .filter((p) => (p.paid_at || "").startsWith(new Date().toISOString().slice(0, 7)))
+    .filter((p) => p.status !== "cancelled" && (p.paid_at || "").startsWith(new Date().toISOString().slice(0, 7)))
     .reduce((sum, p) => sum + (p.amount || 0), 0);
-  const activeMemberships = memberships.filter((m) => m.end_date && new Date(m.end_date) > new Date()).length;
+  const activeMemberships = memberships.filter((m) => m.status !== "cancelled" && m.end_date && new Date(m.end_date) > new Date()).length;
 
   return (
     <main className="max-w-6xl mx-auto px-3 md:px-6 py-6 md:py-10">
@@ -296,14 +338,23 @@ export default function PaymentsPage() {
                 {memberships.map(m => {
                   const remaining = (m.total_sessions || 0) - (m.used_sessions || 0);
                   const expired = m.end_date && new Date(m.end_date) < new Date();
+                  const isCancelled = m.status === "cancelled";
                   return (
-                    <tr key={m.id} className={`border-b border-gray-100 ${expired ? "opacity-50" : ""} hover:bg-aqu-50/30`}>
+                    <tr key={m.id} className={`border-b border-gray-100 ${isCancelled ? "bg-gray-50 opacity-60" : expired ? "opacity-50" : ""} hover:bg-aqu-50/30`}>
                       <td className="p-2 md:p-3">
                         <Link href={`/members/${m.member_id}`} className="text-aqu-700 hover:underline font-medium">
                           {m.members?.name || "-"}
                         </Link>
+                        {isCancelled && (
+                          <div className="mt-1 inline-block px-1.5 py-0.5 bg-red-500 text-white text-[9px] rounded font-bold">❌ 취소됨</div>
+                        )}
                       </td>
-                      <td className="p-2 md:p-3">{m.plan_name}</td>
+                      <td className="p-2 md:p-3">
+                        <div className={isCancelled ? "text-gray-500 line-through" : ""}>{m.plan_name}</div>
+                        {isCancelled && m.cancelled_reason && (
+                          <div className="text-[10px] text-red-600 mt-0.5">{m.cancelled_reason}</div>
+                        )}
+                      </td>
                       <td className="p-2 md:p-3 text-center">
                         <div className="flex items-center justify-center gap-1">
                           <button onClick={() => adjustSessions(m, -1)}
@@ -353,19 +404,33 @@ export default function PaymentsPage() {
                 </tr>
               </thead>
               <tbody>
-                {payments.map(p => (
-                  <tr key={p.id} className="border-b border-gray-100 hover:bg-aqu-50/30">
+                {payments.map(p => {
+                  const isCancelled = p.status === "cancelled";
+                  return (
+                  <tr key={p.id} className={`border-b border-gray-100 ${isCancelled ? "bg-gray-50 opacity-70" : "hover:bg-aqu-50/30"}`}>
                     <td className="p-2 md:p-3 text-gray-600 text-[11px] whitespace-nowrap">
                       {p.paid_at}
                       {p.paid_time && <div className="text-gray-400">{p.paid_time}</div>}
+                      {isCancelled && (
+                        <div className="mt-1 inline-block px-1.5 py-0.5 bg-red-500 text-white text-[9px] rounded font-bold">❌ 취소됨</div>
+                      )}
+                      {p.replaced_by && (
+                        <div className="mt-1 inline-block px-1.5 py-0.5 bg-blue-500 text-white text-[9px] rounded font-bold">🔄 재결제됨</div>
+                      )}
+                      {p.replaces && !isCancelled && (
+                        <div className="mt-1 inline-block px-1.5 py-0.5 bg-green-500 text-white text-[9px] rounded font-bold">🆕 재결제</div>
+                      )}
                     </td>
                     <td className="p-2 md:p-3">
-                      <Link href={`/members/${p.member_id}`} className="text-aqu-700 hover:underline font-medium">
+                      <Link href={`/members/${p.member_id}`} className={`hover:underline font-medium ${isCancelled ? "text-gray-500" : "text-aqu-700"}`}>
                         {p.members?.name || "-"}
                       </Link>
                     </td>
                     <td className="p-2 md:p-3">
-                      <div className="font-semibold text-slate-800">{p.memberships?.plan_name || p.description || "-"}</div>
+                      <div className={`font-semibold ${isCancelled ? "text-gray-500 line-through" : "text-slate-800"}`}>{p.memberships?.plan_name || p.description || "-"}</div>
+                      {isCancelled && p.cancelled_reason && (
+                        <div className="text-[10px] text-red-600 mt-0.5">취소사유: {p.cancelled_reason}</div>
+                      )}
                       {p.memberships && (
                         <div className="text-[10px] text-gray-500 mt-0.5">
                           {p.memberships.total_sessions}회권
@@ -394,17 +459,18 @@ export default function PaymentsPage() {
                       {p.method === "cash" && p.receipt_no && <div>영수증 {p.receipt_no}</div>}
                       {p.memo && <div className="text-gray-400">{p.memo}</div>}
                     </td>
-                    <td className="p-2 md:p-3 text-right font-bold text-aqu-900">
+                    <td className={`p-2 md:p-3 text-right font-bold ${isCancelled ? "text-gray-400 line-through" : "text-aqu-900"}`}>
                       ₩{(p.amount || 0).toLocaleString()}
                     </td>
                     <td className="p-2 md:p-3">
                       <button onClick={() => deletePayment(p.id)}
-                        className="p-1.5 text-red-400 hover:bg-red-50 rounded">
+                        className="p-1.5 text-red-400 hover:bg-red-50 rounded"
+                        title={isCancelled ? "이력에서 완전 삭제" : "결제 취소 (이력 유지)"}>
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </td>
                   </tr>
-                ))}
+                );})}
               </tbody>
             </table>
           </div>
