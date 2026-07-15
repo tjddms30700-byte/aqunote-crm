@@ -86,20 +86,24 @@ export default function SchedulePage() {
 
   useEffect(() => { loadAll(); }, []);
 
+  const [plans, setPlans] = useState<any[]>([]);
+
   async function loadAll() {
     setLoading(true);
-    const [sRes, mRes, stRes, pRes, aRes] = await Promise.all([
+    const [sRes, mRes, stRes, pRes, aRes, plRes] = await Promise.all([
       supabase.from("schedule_slots").select("*").order("event_date").order("time_slot"),
       supabase.from("members").select("id, name, member_type, status, phone").is("deleted_at", null).order("name"),
       supabase.from("staff").select("id, name, role").order("name"),
       supabase.from("payments").select("*").order("paid_at", { ascending: false }),
       supabase.from("attendance").select("*"),
+      supabase.from("membership_plans").select("*").eq("is_active", true).order("sort_order"),
     ]);
     setSlots(sRes.data || []);
     setMembers(mRes.data || []);
     setStaff(stRes.data || []);
     setPayments(pRes.data || []);
     setAttendance(aRes.data || []);
+    setPlans(plRes.data || []);
     setLoading(false);
   }
 
@@ -133,14 +137,20 @@ export default function SchedulePage() {
     alert(status === "present" ? "✅ 출석" : status === "absent" ? "⚠️ 결석" : "🤒 병결");
   }
 
-  // 결제 간단 추가
-  async function addPaymentFromSlot(slot: any, amount: number, method: string, lessonName: string) {
+  // 결제 추가 (상세 필드 포함)
+  async function addPaymentFromSlot(slot: any, payment: any) {
     if (!slot.member_id) { alert("회원 정보가 없습니다."); return; }
     const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
     const { error } = await supabase.from("payments").insert({
       org_id: orgId,
       member_id: slot.member_id,
-      amount, method, lesson_name: lessonName,
+      amount: payment.amount,
+      method: payment.method,
+      lesson_name: payment.lesson_name,
+      plan_id: payment.plan_id || null,
+      card_number: payment.card_number || null,
+      approval_no: payment.approval_no || null,
+      paid_time: payment.paid_time || null,
       paid_at: new Date().toISOString(),
       event_date: slot.event_date,
       slot_id: slot.id,
@@ -613,7 +623,7 @@ export default function SchedulePage() {
         <SlotModal
           f={f} setF={setF}
           modal={modal}
-          members={members} staff={staff}
+          members={members} staff={staff} plans={plans}
           onClose={() => setModal(null)}
           onSave={saveSlot}
           onDelete={f.id ? (opts?: any) => { deleteSlot(f.id, opts); setModal(null); } : undefined}
@@ -627,12 +637,13 @@ export default function SchedulePage() {
           slot={quickAction}
           members={members}
           staff={staff}
+          plans={plans}
           payments={payments.filter((p: any) => p.slot_id === quickAction.id || (p.member_id === quickAction.member_id && p.event_date === quickAction.event_date))}
           attendance={attendance.find((a: any) => a.member_id === quickAction.member_id && a.date === quickAction.event_date)}
           onClose={() => setQuickAction(null)}
           onEdit={() => { openEditModal(quickAction); setQuickAction(null); }}
           onAttendance={(status: any) => setAttendanceStatus(quickAction, status)}
-          onAddPayment={(amount: number, method: string, lessonName: string) => addPaymentFromSlot(quickAction, amount, method, lessonName)}
+          onAddPayment={(payment: any) => addPaymentFromSlot(quickAction, payment)}
           onDeletePayment={deletePayment}
         />
       )}
@@ -1044,7 +1055,7 @@ function DayView({ date, setDate, slots, members, staff, onCellClick, onEdit, me
 }
 
 /* ═════ 등록/수정 모달 (반복예약 옵션 포함) ═════ */
-function SlotModal({ f, setF, modal, members, staff, onClose, onSave, onDelete, saving }: any) {
+function SlotModal({ f, setF, modal, members, staff, plans, onClose, onSave, onDelete, saving }: any) {
   const isEditing = !!f.id;
   const isRecurring = !!f.recurring_id;
 
@@ -1113,11 +1124,34 @@ function SlotModal({ f, setF, modal, members, staff, onClose, onSave, onDelete, 
             </select>
           </Field>
 
-          <Field label="수업명 / 제목">
-            <input type="text" value={f.lesson_name}
-              onChange={e => setF({ ...f, lesson_name: e.target.value })}
-              placeholder="예: 수중프로그램 30회권"
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none" />
+          <Field label="수업명 / 회원권 졌택">
+            {plans && plans.length > 0 ? (
+              <div className="space-y-1">
+                <select value={f.lesson_name || ""} onChange={e => setF({ ...f, lesson_name: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none">
+                  <option value="">-- 회원권 선택 --</option>
+                  {plans.map((p: any) => (
+                    <option key={p.id} value={p.name}>
+                      {p.name} {p.sessions > 0 ? `(${p.sessions}회)` : "(무제한)"} ‧ ₩{(p.price || 0).toLocaleString()}
+                    </option>
+                  ))}
+                  <option value="__custom__">📝 직접 입력...</option>
+                </select>
+                {(f.lesson_name === "__custom__" || (f.lesson_name && !plans.find((p: any) => p.name === f.lesson_name))) && (
+                  <input type="text"
+                    value={f.lesson_name === "__custom__" ? "" : f.lesson_name}
+                    onChange={e => setF({ ...f, lesson_name: e.target.value })}
+                    placeholder="자유 입력 (예: 체험, 개인지도)"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none" />
+                )}
+                <div className="text-[10px] text-gray-500">💡 회원권은 <a href="/plans" className="text-aqu-600 underline">횟원권 관리 페이지</a>에서 추가하세요</div>
+              </div>
+            ) : (
+              <input type="text" value={f.lesson_name || ""}
+                onChange={e => setF({ ...f, lesson_name: e.target.value })}
+                placeholder="예: 수중프로그램 30회권"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none" />
+            )}
           </Field>
 
           {f.event_type === "revenue" && (
@@ -1230,15 +1264,44 @@ function Field({ label, children }: any) {
 }
 
 // 예약 셀 클릭 시 떨어지는 빠른 액션 시트 (출결 + 결제 + 수정)
-function QuickActionSheet({ slot, members, staff, payments, attendance, onClose, onEdit, onAttendance, onAddPayment, onDeletePayment }: any) {
+function QuickActionSheet({ slot, members, staff, plans, payments, attendance, onClose, onEdit, onAttendance, onAddPayment, onDeletePayment }: any) {
   const member = members.find((m: any) => m.id === slot.member_id);
   const staffP = staff.find((s: any) => s.id === slot.staff_id);
   const [tab, setTab] = useState<"info" | "attend" | "payment">("info");
 
   // 새 결제 폼
+  const [payPlanId, setPayPlanId] = useState("");
+  const [payLesson, setPayLesson] = useState(slot.lesson_name || "");
   const [payAmount, setPayAmount] = useState(0);
   const [payMethod, setPayMethod] = useState("card");
-  const [payLesson, setPayLesson] = useState(slot.lesson_name || "");
+  const [payTime, setPayTime] = useState(() => {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  });
+  const [payCardNo, setPayCardNo] = useState("");
+  const [payApprovalNo, setPayApprovalNo] = useState("");
+
+  function handlePlanChange(planId: string) {
+    setPayPlanId(planId);
+    const p = plans?.find((x: any) => x.id === planId);
+    if (p) {
+      setPayLesson(p.name);
+      setPayAmount(p.price || 0);
+    }
+  }
+
+  function maskCardNo(v: string) {
+    // 입력 중에는 그대로 보여주고, 저장 시에만 마스킹
+    return v.replace(/[^\d-]/g, "");
+  }
+  function finalMaskedCardNo() {
+    const digits = payCardNo.replace(/\D/g, "");
+    if (digits.length < 8) return payCardNo || null;
+    if (digits.length >= 12) {
+      return `${digits.slice(0, 4)}-${digits.slice(4, 8)}-****-${digits.slice(-4)}`;
+    }
+    return payCardNo;
+  }
 
   const currentAttStatus = attendance?.status;
 
@@ -1346,15 +1409,26 @@ function QuickActionSheet({ slot, members, staff, payments, attendance, onClose,
                 ) : (
                   <div className="space-y-2">
                     {payments.map((p: any) => (
-                      <div key={p.id} className="flex items-center justify-between p-3 bg-pink-50 border border-pink-100 rounded-lg">
-                        <div>
+                      <div key={p.id} className="p-3 bg-pink-50 border border-pink-100 rounded-lg">
+                        <div className="flex items-center justify-between mb-1">
                           <div className="text-sm font-bold text-pink-900">₩{(p.amount || 0).toLocaleString()}</div>
-                          <div className="text-[10px] text-gray-600">
-                            {p.method || "미지정"} · {p.lesson_name || "-"} · {new Date(p.paid_at).toLocaleDateString("ko-KR")}
-                          </div>
+                          <button onClick={() => onDeletePayment(p.id)}
+                            className="text-xs text-red-500 hover:text-red-700">삭제</button>
                         </div>
-                        <button onClick={() => onDeletePayment(p.id)}
-                          className="text-xs text-red-500 hover:text-red-700">삭제</button>
+                        <div className="text-[10px] text-gray-700 space-y-0.5">
+                          <div>
+                            <span className="font-medium">
+                              {p.method === "card" ? "💳 카드" :
+                               p.method === "cash" ? "💵 현금" :
+                               p.method === "transfer" ? "🏦 계좌이체" : "📝 기타"}
+                            </span>
+                            {p.paid_time && ` · ${p.paid_time}`}
+                          </div>
+                          {p.lesson_name && <div>📚 {p.lesson_name}</div>}
+                          {p.card_number && <div className="font-mono">💳 {p.card_number}</div>}
+                          {p.approval_no && <div>승인: {p.approval_no}</div>}
+                          <div className="text-gray-400">{new Date(p.paid_at).toLocaleDateString("ko-KR")}</div>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1365,23 +1439,87 @@ function QuickActionSheet({ slot, members, staff, payments, attendance, onClose,
               <div className="border-t border-gray-100 pt-4">
                 <div className="text-xs font-semibold text-gray-600 mb-2">💰 새 결제 등록</div>
                 <div className="space-y-2">
-                  <input type="text" value={payLesson} onChange={e => setPayLesson(e.target.value)}
-                    placeholder="프로그램명 (예: 수중프로그램 10회권)"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-                  <input type="number" value={payAmount || ""} onChange={e => setPayAmount(parseInt(e.target.value) || 0)}
-                    placeholder="금액 (원)"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-                  <select value={payMethod} onChange={e => setPayMethod(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
-                    <option value="card">💳 카드</option>
-                    <option value="cash">💵 현금</option>
-                    <option value="transfer">🏦 계좌이체</option>
-                    <option value="other">📝 기타</option>
-                  </select>
+                  {/* 회원권 드롭다운 */}
+                  {plans && plans.length > 0 && (
+                    <div>
+                      <label className="text-[10px] text-gray-500">회원권 선택</label>
+                      <select value={payPlanId} onChange={e => handlePlanChange(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                        <option value="">-- 직접 입력 --</option>
+                        {plans.map((p: any) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} {p.sessions > 0 ? `(${p.sessions}회)` : ""} ‧ ₩{(p.price || 0).toLocaleString()}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="text-[10px] text-gray-500">프로그램명</label>
+                    <input type="text" value={payLesson} onChange={e => setPayLesson(e.target.value)}
+                      placeholder="예: 수중프로그램 10회권"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] text-gray-500">금액 (원)</label>
+                      <input type="number" value={payAmount || ""} onChange={e => setPayAmount(parseInt(e.target.value) || 0)}
+                        placeholder="0"
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-gray-500">결제 시간</label>
+                      <input type="time" value={payTime} onChange={e => setPayTime(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] text-gray-500">결제 수단</label>
+                    <select value={payMethod} onChange={e => setPayMethod(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                      <option value="card">💳 카드</option>
+                      <option value="cash">💵 현금</option>
+                      <option value="transfer">🏦 계좌이체</option>
+                      <option value="other">📝 기타</option>
+                    </select>
+                  </div>
+
+                  {payMethod === "card" && (
+                    <div className="space-y-2 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+                      <div>
+                        <label className="text-[10px] text-blue-700">카드 번호 (자동 마스킹)</label>
+                        <input type="text" value={payCardNo} onChange={e => setPayCardNo(maskCardNo(e.target.value))}
+                          placeholder="1234-5678-9012-3456"
+                          maxLength={19}
+                          className="w-full px-3 py-2 border border-blue-200 rounded-lg text-sm bg-white" />
+                        {payCardNo.replace(/\D/g, "").length >= 12 && (
+                          <div className="text-[10px] text-blue-600 mt-1">저장 시: <span className="font-mono">{finalMaskedCardNo()}</span></div>
+                        )}
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-blue-700">승인번호</label>
+                        <input type="text" value={payApprovalNo} onChange={e => setPayApprovalNo(e.target.value)}
+                          placeholder="예: 12345678"
+                          className="w-full px-3 py-2 border border-blue-200 rounded-lg text-sm bg-white" />
+                      </div>
+                    </div>
+                  )}
+
                   <button onClick={() => {
                     if (!payAmount) { alert("금액을 입력하세요"); return; }
-                    onAddPayment(payAmount, payMethod, payLesson);
-                    setPayAmount(0); setPayLesson("");
+                    onAddPayment({
+                      plan_id: payPlanId || null,
+                      lesson_name: payLesson,
+                      amount: payAmount,
+                      method: payMethod,
+                      paid_time: payTime,
+                      card_number: payMethod === "card" ? finalMaskedCardNo() : null,
+                      approval_no: payMethod === "card" ? (payApprovalNo || null) : null,
+                    });
+                    setPayAmount(0); setPayLesson(""); setPayCardNo(""); setPayApprovalNo(""); setPayPlanId("");
                   }}
                     className="w-full py-2.5 bg-gradient-to-r from-pink-500 to-rose-500 text-white text-sm font-medium rounded-lg hover:from-pink-600 hover:to-rose-600">
                     ➕ 결제 등록
