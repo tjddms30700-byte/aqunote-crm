@@ -161,8 +161,13 @@ export default function StaffPage() {
     loadAll();
   }
   async function reinstate(s: any) {
-    if (!confirm(`${s.name} 님을 재직 상태로 되돌리시겠습니까?`)) return;
-    await supabase.from("staff").update({ is_resigned: false, resign_date: null }).eq("id", s.id);
+    const msg = `${s.name} 님의 퇴사를 취소하시겠습니까?\n\n• 재직 목록으로 이동됩니다\n• 시간표 등 모든 기능에 다시 선택될 수 있게 됩니다\n• 기존 급여/출퇴근 기록은 그대로 유지됩니다`;
+    if (!confirm(msg)) return;
+    const { error } = await supabase.from("staff")
+      .update({ is_resigned: false, resign_date: null, resign_reason: null })
+      .eq("id", s.id);
+    if (error) return alert("퇴사취소 실패: " + error.message);
+    alert(`✅ ${s.name} 님이 재직 상태로 복원되었습니다`);
     loadAll();
   }
   async function deleteStaff(s: any) {
@@ -388,16 +393,22 @@ export default function StaffPage() {
                       <div className="font-bold text-gray-700">{s.name}</div>
                       <div className="text-xs text-gray-500">{roleLabel(s.role)}</div>
                     </div>
-                    {isDirector && (
-                      <div className="flex gap-1">
-                        <button onClick={() => reinstate(s)} className="text-xs text-emerald-600 hover:underline" title="재입사">
-                          🔄 복귀
-                        </button>
-                        <button onClick={() => deleteStaff(s)} className="text-xs text-red-500 hover:underline">
-                          삭제
-                        </button>
-                      </div>
-                    )}
+                    <div className="flex items-center gap-1">
+                      {/* 문서관리는 퇴사자도 열웅 (보관목적) */}
+                      <button onClick={() => setDocsStaff(s)} className="p-1 text-gray-400 hover:text-purple-600" title="문서 보관">
+                        <FolderOpen className="w-3.5 h-3.5" />
+                      </button>
+                      {isDirector && (
+                        <>
+                          <button onClick={() => reinstate(s)} className="text-xs px-2 py-1 rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-semibold" title="퇴사 취소 · 재입사">
+                            🔄 퇴사취소
+                          </button>
+                          <button onClick={() => deleteStaff(s)} className="p-1 text-gray-400 hover:text-red-500" title="완전 삭제">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                   <div className="text-xs text-gray-600 space-y-0.5">
                     {s.hire_date && <div>📅 입사: {s.hire_date}</div>}

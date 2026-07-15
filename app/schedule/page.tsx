@@ -957,7 +957,12 @@ function WeekView({ slots, members, staff, onCellClick, onEdit, memberName }: an
 /* ═════ 일간 뷰 (강사별 컬럼) ═════ */
 function DayView({ date, setDate, slots, members, staff, onCellClick, onEdit, memberName }: any) {
   const dayDate = new Date(date);
-  const activeStaff = staff && staff.length > 0 ? staff : [{ id: null, name: "미배정", color: "#94a3b8", role: "" }];
+  // 해당 날짜에 재직 중인 직원만 표시 (퇴사일 이후엔 숨김)
+  const workingStaff = (staff || []).filter((s: any) => {
+    if (s.is_resigned && s.resign_date && s.resign_date < date) return false;
+    return true;
+  });
+  const activeStaff = workingStaff.length > 0 ? workingStaff : [{ id: null, name: "미배정", color: "#94a3b8", role: "" }];
 
   function shift(delta: number) {
     const d = new Date(dayDate);
@@ -1073,6 +1078,15 @@ function DayView({ date, setDate, slots, members, staff, onCellClick, onEdit, me
 function SlotModal({ f, setF, modal, members, staff, plans, onClose, onSave, onDelete, saving }: any) {
   const isEditing = !!f.id;
   const isRecurring = !!f.recurring_id;
+  // 예약 날짜 기준 재직 중인 직원만 노출 (퇴사일 이후엔 선택 불가)
+  const targetDate = f.event_date || modal?.date || new Date().toISOString().split("T")[0];
+  const availableStaff = (staff || []).filter((s: any) => {
+    if (!s.is_resigned) return true;
+    if (s.resign_date && s.resign_date >= targetDate) return true; // 퇴사일 당일까지는 선택 가능
+    // 현재 수정 중인 예약에 이미 해당 직원이 배정되어 있으면 표시
+    if (f.staff_id === s.id) return true;
+    return false;
+  });
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3"
@@ -1129,14 +1143,20 @@ function SlotModal({ f, setF, modal, members, staff, plans, onClose, onSave, onD
             </Field>
           )}
 
-          <Field label="담당 강사">
+          <Field label={`담당 강사 ${availableStaff.length < staff.length ? `(해당 날짜 재직: ${availableStaff.length}명)` : `(${availableStaff.length}명)`}`}>
             <select value={f.staff_id} onChange={e => setF({ ...f, staff_id: e.target.value })}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none">
               <option value="">-- 강사 선택 --</option>
-              {staff.map((s: any) => (
-                <option key={s.id} value={s.id}>{s.name} ({s.role || "직원"})</option>
+              {availableStaff.map((s: any) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({s.role || "직원"})
+                  {s.is_resigned && s.resign_date ? ` ⚠️ ${s.resign_date} 퇴사예정` : ""}
+                </option>
               ))}
             </select>
+            {availableStaff.length === 0 && (
+              <p className="text-xs text-red-500 mt-1">⚠️ 해당 날짜에 재직 중인 강사가 없습니다</p>
+            )}
           </Field>
 
           <Field label="수업명 / 회원권 졌택">
