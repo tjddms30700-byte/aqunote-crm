@@ -252,29 +252,17 @@ export default function Home() {
         })}
       </div>
 
-      {/* Quick tips (footer) */}
-      <div className="mt-10 md:mt-14 grid grid-cols-2 md:grid-cols-4 gap-3">
-        <QuickTip icon="🎯" title="IEP 목표" desc="영역별 커리큘럼으로" href="/iep" />
-        <QuickTip icon="🧭" title="ABC 관찰" desc="행동 패턴 자동 분석" href="/behavior" />
-        <QuickTip icon="🌊" title="시간표" desc="드래그로 이월" href="/schedule" />
-        <QuickTip icon="📄" title="보고서" desc="원클릭 자동 생성" href="/reports" />
-      </div>
-
-      <div className="mt-14 md:mt-20 text-center">
-        <div className="text-xs text-gray-400">
-          v3.0.0 · Powered by Supabase + Next.js · © 2026 AQUNOTE
+      {/* 미니멀 푸터 */}
+      <footer className="mt-16 md:mt-20 pt-6 border-t border-gray-200">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-gray-400">
+          <div className="flex items-center gap-2">
+            <Waves className="w-3.5 h-3.5" />
+            <span className="font-semibold">AQUNOTE</span>
+            <span>v3.7</span>
+          </div>
+          <div className="text-[11px]">© 2026 아쿠수중운동센터 · All rights reserved</div>
         </div>
-      </div>
+      </footer>
     </main>
-  );
-}
-
-function QuickTip({ icon, title, desc, href }: any) {
-  return (
-    <Link href={href} className="p-3 bg-white rounded-xl border border-gray-100 hover:border-aqu-300 hover:shadow-sm transition text-center">
-      <div className="text-2xl mb-1">{icon}</div>
-      <div className="text-xs font-bold text-aqu-900">{title}</div>
-      <div className="text-[10px] text-gray-500 mt-0.5">{desc}</div>
-    </Link>
   );
 }

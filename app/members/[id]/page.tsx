@@ -7,8 +7,10 @@ import HomeButton from "@/components/HomeButton";
 import {
   Waves, ArrowLeft, User, Phone, MapPin, Calendar, AlertCircle,
   Activity, Award, MessageCircle, Save, Plus, Star, Trash2, Edit,
-  Sparkles, Send, X, Copy, Check, Trash, FileText, Upload, Download, Eye, ExternalLink, RefreshCw
+  Sparkles, Send, X, Copy, Check, Trash, FileText, Upload, Download, Eye, ExternalLink, RefreshCw,
+  Stethoscope, TrendingUp, Target as TargetIcon, BookOpen
 } from "lucide-react";
+import { computeAquaGrade, LEVEL_INFO, type AssessmentInput } from "@/lib/aqua-grading";
 
 const DOC_CATEGORIES = [
   { value: "receipt",   label: "🧾 영수증" },
@@ -660,28 +662,7 @@ export default function MemberDetail() {
         )}
 
         {tab === "assessment" && (
-          <div>
-            <h3 className="text-lg font-bold text-aqu-900 mb-4">🩺 수중기능평가 (0-5점)</h3>
-            <div className="space-y-3 mb-4">
-              {WATER_SKILLS.map((s) => (
-                <div key={s.key} className="flex items-center gap-3">
-                  <span className="w-28 text-sm text-gray-700">{s.label}</span>
-                  <div className="flex gap-1">
-                    {[1, 2, 3, 4, 5].map((n) => (
-                      <button key={n} onClick={() => setSkills((prev) => ({ ...prev, [s.key]: n }))}
-                        className={`w-8 h-8 rounded-lg text-sm ${(skills[s.key] || 0) >= n ? "bg-aqu-500 text-white" : "bg-gray-100 text-gray-400 hover:bg-aqu-100"}`}>
-                        {n}
-                      </button>
-                    ))}
-                  </div>
-                  <span className="text-xs text-gray-500 ml-auto">{skills[s.key] || 0}/5</span>
-                </div>
-              ))}
-            </div>
-            <button onClick={saveAssessment} className="px-4 py-2 bg-aqu-600 text-white rounded-lg text-sm hover:bg-aqu-700 flex items-center gap-1">
-              <Save className="w-4 h-4" /> 평가 저장
-            </button>
-          </div>
+          <AquaAssessmentPanel memberId={id as string} skills={skills} setSkills={setSkills} onSaveBasic={saveAssessment} />
         )}
 
         {tab === "bodymap" && (
@@ -1201,6 +1182,336 @@ function InfoRow({ label, value, highlight }: { label: string; value: string; hi
     <div className="flex items-start gap-3">
       <span className="text-xs text-gray-500 min-w-[80px]">{label}</span>
       <span className={`text-sm ${highlight ? "font-medium text-green-600" : "text-gray-800"}`}>{value}</span>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 🩺 수중기능평가 패널 (특허 기반 4등급 자동 산정)
+// ═══════════════════════════════════════════════════════════════
+function AquaAssessmentPanel({ memberId, skills, setSkills, onSaveBasic }: any) {
+  const [subtab, setSubtab] = useState<"basic" | "pro" | "history" | "content">("pro");
+  const [assess, setAssess] = useState<any>({});
+  const [history, setHistory] = useState<any[]>([]);
+  const [contentLib, setContentLib] = useState<any[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    // 최근 평가 불러오기
+    (async () => {
+      const { data } = await supabase.from("aqua_assessments")
+        .select("*")
+        .eq("member_id", memberId)
+        .order("assessed_at", { ascending: false })
+        .limit(20);
+      if (data && data.length > 0) {
+        setAssess(data[0]);
+        setHistory(data);
+      }
+    })();
+    // 콘텐츠 라이브러리
+    (async () => {
+      const { data } = await supabase.from("aqua_content_library")
+        .select("*").eq("is_active", true).order("level").order("code");
+      setContentLib(data || []);
+    })();
+  }, [memberId]);
+
+  const grade = computeAquaGrade(assess as AssessmentInput);
+  const levelInfo = LEVEL_INFO[grade.level];
+  const recommendedContents = contentLib.filter(c => c.level === grade.level);
+
+  async function saveProAssessment() {
+    setSaving(true);
+    const payload = {
+      ...assess,
+      member_id: memberId,
+      assessed_at: assess.assessed_at || new Date().toISOString().split("T")[0],
+      computed_level: grade.level,
+      level_confidence: grade.confidence,
+      level_rationale: grade.rationale.join("\n"),
+      recommended_content: recommendedContents.map(c => ({ code: c.code, title: c.title })),
+      updated_at: new Date().toISOString(),
+    };
+    delete payload.id; delete payload.created_at;
+
+    let error;
+    if (assess.id) {
+      ({ error } = await supabase.from("aqua_assessments").update(payload).eq("id", assess.id));
+    } else {
+      const { data: memberData } = await supabase.from("members").select("org_id").eq("id", memberId).single();
+      const { data, error: e } = await supabase.from("aqua_assessments").insert({ ...payload, org_id: memberData?.org_id }).select().single();
+      if (data) setAssess(data);
+      error = e;
+    }
+    setSaving(false);
+    if (error) { alert("저장 실패: " + error.message); return; }
+    alert(`✅ 저장 완료! 자동 산정 등급: ${levelInfo.label} (${grade.confidence})`);
+    // 히스토리 갱신
+    const { data } = await supabase.from("aqua_assessments").select("*").eq("member_id", memberId).order("assessed_at", { ascending: false });
+    if (data) setHistory(data);
+  }
+
+  return (
+    <div>
+      {/* 서브탭 */}
+      <div className="flex flex-wrap gap-2 mb-5">
+        {[
+          { k: "pro",     label: "🩺 전문 평가",    icon: Stethoscope },
+          { k: "basic",   label: "🌊 기본 8항목",   icon: Waves },
+          { k: "content", label: "📚 콘텐츠 추천",  icon: BookOpen },
+          { k: "history", label: "📈 평가 이력",    icon: TrendingUp },
+        ].map(t => (
+          <button key={t.k} onClick={() => setSubtab(t.k as any)}
+            className={`px-3 py-2 rounded-lg text-sm font-semibold flex items-center gap-1.5 ${
+              subtab === t.k ? "bg-aqu-600 text-white shadow" : "bg-white border border-aqu-200 text-aqu-700 hover:bg-aqu-50"
+            }`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── [1] 전문 평가 ── */}
+      {subtab === "pro" && (
+        <div className="space-y-5">
+          {/* 등급 결과 카드 */}
+          <div className={`rounded-2xl p-5 border-2 ${levelInfo.ring} ${levelInfo.bg}`}>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-3">
+                <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${levelInfo.color} flex items-center justify-center shadow-lg`}>
+                  <span className="text-2xl font-black text-white">{grade.level}</span>
+                </div>
+                <div>
+                  <div className={`text-lg font-bold ${levelInfo.text}`}>{levelInfo.label} · {levelInfo.subtitle}</div>
+                  <div className="text-xs text-gray-500 mt-0.5">자동 산정 · 신뢰도 <b>{grade.confidence}</b> · 점수 <b>{grade.score.toFixed(1)}/100</b></div>
+                </div>
+              </div>
+              <button onClick={saveProAssessment} disabled={saving}
+                className="px-4 py-2.5 bg-gradient-to-br from-aqu-600 to-aqu-700 text-white rounded-xl shadow font-semibold hover:opacity-90 disabled:opacity-50 flex items-center gap-2">
+                <Save className="w-4 h-4" /> {saving ? "저장 중..." : "평가 저장"}
+              </button>
+            </div>
+            <div className={`text-sm ${levelInfo.text} mt-2`}>{levelInfo.description}</div>
+            {grade.rationale.length > 0 && (
+              <details className="mt-3 text-xs text-gray-600">
+                <summary className="cursor-pointer font-semibold hover:text-aqu-700">📋 산정 근거 보기</summary>
+                <ul className="mt-2 space-y-0.5 pl-4 list-disc">
+                  {grade.rationale.map((r, i) => <li key={i}>{r}</li>)}
+                </ul>
+              </details>
+            )}
+          </div>
+
+          {/* 평가일 */}
+          <div className="flex items-center gap-3">
+            <label className="text-sm font-semibold text-gray-700">평가일</label>
+            <input type="date" value={assess.assessed_at || new Date().toISOString().split("T")[0]}
+              onChange={e => setAssess({ ...assess, assessed_at: e.target.value })}
+              className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm" />
+          </div>
+
+          {/* 관절가동범위 */}
+          <SectionCard title="🦴 관절 가동범위 (ROM, 각도°)" color="border-blue-200">
+            <NumField label="어깨 굴곡"     max={180} v={assess.rom_shoulder_flexion}   onC={v => setAssess({ ...assess, rom_shoulder_flexion: v })} />
+            <NumField label="어깨 외전"     max={180} v={assess.rom_shoulder_abduction} onC={v => setAssess({ ...assess, rom_shoulder_abduction: v })} />
+            <NumField label="고관절 굴곡"   max={120} v={assess.rom_hip_flexion}        onC={v => setAssess({ ...assess, rom_hip_flexion: v })} />
+            <NumField label="무릎 굴곡"     max={135} v={assess.rom_knee_flexion}       onC={v => setAssess({ ...assess, rom_knee_flexion: v })} />
+            <NumField label="발목 배측굴곡" max={20}  v={assess.rom_ankle_dorsiflexion} onC={v => setAssess({ ...assess, rom_ankle_dorsiflexion: v })} />
+          </SectionCard>
+
+          {/* 근력 MMT */}
+          <SectionCard title="💪 근력 (MMT 0-5)" color="border-red-200">
+            <ScaleField label="상지 근력" max={5} v={assess.mmt_upper_limb} onC={v => setAssess({ ...assess, mmt_upper_limb: v })} />
+            <ScaleField label="하지 근력" max={5} v={assess.mmt_lower_limb} onC={v => setAssess({ ...assess, mmt_lower_limb: v })} />
+            <ScaleField label="체간 근력" max={5} v={assess.mmt_trunk}      onC={v => setAssess({ ...assess, mmt_trunk: v })} />
+            <ScaleField label="악력"      max={5} v={assess.mmt_grip}       onC={v => setAssess({ ...assess, mmt_grip: v })} />
+          </SectionCard>
+
+          {/* 균형 */}
+          <SectionCard title="⚖️ 균형 (Berg 0-4)" color="border-yellow-200">
+            <ScaleField label="정적 균형"    max={4} v={assess.balance_static}    onC={v => setAssess({ ...assess, balance_static: v })} />
+            <ScaleField label="동적 균형"    max={4} v={assess.balance_dynamic}   onC={v => setAssess({ ...assess, balance_dynamic: v })} />
+            <ScaleField label="반응성 균형"  max={4} v={assess.balance_reactive}  onC={v => setAssess({ ...assess, balance_reactive: v })} />
+          </SectionCard>
+
+          {/* 통증 & 감각 */}
+          <SectionCard title="🌡 통증 & 감각" color="border-orange-200">
+            <ScaleField label="통증 (VAS)" max={10} v={assess.pain_score} onC={v => setAssess({ ...assess, pain_score: v })} />
+            <div className="col-span-2">
+              <label className="text-xs text-gray-600 block mb-1">통증 부위</label>
+              <input value={assess.pain_area || ""} onChange={e => setAssess({ ...assess, pain_area: e.target.value })}
+                placeholder="예: 우측 어깨, 요추" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+            </div>
+            <ScaleField label="촉각"       max={4} v={assess.sensory_touch}          onC={v => setAssess({ ...assess, sensory_touch: v })} />
+            <ScaleField label="온도감각"   max={4} v={assess.sensory_temperature}    onC={v => setAssess({ ...assess, sensory_temperature: v })} />
+            <ScaleField label="고유감각"   max={4} v={assess.sensory_proprioception} onC={v => setAssess({ ...assess, sensory_proprioception: v })} />
+            <label className="flex items-center gap-2 col-span-full">
+              <input type="checkbox" checked={!!assess.sensory_hypersensitive}
+                onChange={e => setAssess({ ...assess, sensory_hypersensitive: e.target.checked })} />
+              <span className="text-sm">🚨 감각 과민 있음 (등급 하향 요인)</span>
+            </label>
+          </SectionCard>
+
+          {/* 수중 기본 기능 */}
+          <SectionCard title="🌊 수중 기본 기능 (0-5)" color="border-cyan-200">
+            <ScaleField label="부력 적응"  max={5} v={assess.buoyancy_adaptation} onC={v => setAssess({ ...assess, buoyancy_adaptation: v })} />
+            <ScaleField label="호흡 조절"  max={5} v={assess.breath_control}      onC={v => setAssess({ ...assess, breath_control: v })} />
+            <ScaleField label="신체 조절"  max={5} v={assess.body_control}        onC={v => setAssess({ ...assess, body_control: v })} />
+            <ScaleField label="수중 보행"  max={5} v={assess.aquatic_gait}        onC={v => setAssess({ ...assess, aquatic_gait: v })} />
+            <ScaleField label="협응력"     max={5} v={assess.coordination}        onC={v => setAssess({ ...assess, coordination: v })} />
+            <ScaleField label="지구력"     max={5} v={assess.endurance}           onC={v => setAssess({ ...assess, endurance: v })} />
+          </SectionCard>
+
+          {/* 인지 / 행동 */}
+          <SectionCard title="🧠 인지 · 행동 (0-4)" color="border-purple-200">
+            <ScaleField label="주의력"     max={4} v={assess.cognition_attention}    onC={v => setAssess({ ...assess, cognition_attention: v })} />
+            <ScaleField label="지시 수행"  max={4} v={assess.cognition_instruction}  onC={v => setAssess({ ...assess, cognition_instruction: v })} />
+            <ScaleField label="순응도"     max={4} v={assess.behavior_compliance}    onC={v => setAssess({ ...assess, behavior_compliance: v })} />
+          </SectionCard>
+
+          {/* 종합 메모 */}
+          <div>
+            <label className="text-sm font-semibold text-gray-700 block mb-1">📝 종합 소견</label>
+            <textarea rows={3} value={assess.overall_notes || ""}
+              onChange={e => setAssess({ ...assess, overall_notes: e.target.value })}
+              placeholder="특이사항, 재평가 시점, 치료 방향성 등"
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+          </div>
+
+          <button onClick={saveProAssessment} disabled={saving}
+            className="w-full px-5 py-3 bg-gradient-to-br from-aqu-600 to-aqu-700 text-white rounded-xl shadow font-bold hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2">
+            <Save className="w-5 h-5" /> {saving ? "저장 중..." : `전문 평가 저장 (${levelInfo.label} 자동 산정)`}
+          </button>
+        </div>
+      )}
+
+      {/* ── [2] 기본 8항목 (기존) ── */}
+      {subtab === "basic" && (
+        <div>
+          <h3 className="text-lg font-bold text-aqu-900 mb-4">🌊 기본 수중 기능 (0-5점)</h3>
+          <div className="space-y-3 mb-4">
+            {WATER_SKILLS.map((s: any) => (
+              <div key={s.key} className="flex items-center gap-3">
+                <span className="w-28 text-sm text-gray-700">{s.label}</span>
+                <div className="flex gap-1">
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <button key={n} onClick={() => setSkills((prev: any) => ({ ...prev, [s.key]: n }))}
+                      className={`w-8 h-8 rounded-lg text-sm ${(skills[s.key] || 0) >= n ? "bg-aqu-500 text-white" : "bg-gray-100 text-gray-400 hover:bg-aqu-100"}`}>
+                      {n}
+                    </button>
+                  ))}
+                </div>
+                <span className="text-xs text-gray-500 ml-auto">{skills[s.key] || 0}/5</span>
+              </div>
+            ))}
+          </div>
+          <button onClick={onSaveBasic} className="px-4 py-2 bg-aqu-600 text-white rounded-lg text-sm hover:bg-aqu-700 flex items-center gap-1">
+            <Save className="w-4 h-4" /> 평가 저장
+          </button>
+        </div>
+      )}
+
+      {/* ── [3] 콘텐츠 추천 ── */}
+      {subtab === "content" && (
+        <div>
+          <div className={`p-4 rounded-xl mb-4 ${levelInfo.bg}`}>
+            <div className={`text-sm font-bold ${levelInfo.text}`}>
+              📚 현재 회원 등급 <span className="text-lg">{levelInfo.label}</span> 맞춤 콘텐츠 {recommendedContents.length}개
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {recommendedContents.map(c => (
+              <div key={c.id} className="p-4 border border-gray-200 rounded-xl hover:border-aqu-300 hover:shadow-sm transition bg-white">
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">{c.code}</span>
+                    <div className="font-bold text-slate-900 mt-1">{c.title}</div>
+                  </div>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full ${levelInfo.bg} ${levelInfo.text} font-semibold`}>{c.category}</span>
+                </div>
+                <div className="text-xs text-gray-600 mb-2">{c.description}</div>
+                <div className="flex flex-wrap gap-1.5 text-[10px]">
+                  <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded">⏱ {c.duration_min}분</span>
+                  <span className="px-1.5 py-0.5 bg-orange-50 text-orange-700 rounded">💪 {c.intensity}</span>
+                  {c.equipment && c.equipment !== "없음" && <span className="px-1.5 py-0.5 bg-purple-50 text-purple-700 rounded">🛠 {c.equipment}</span>}
+                  {c.target_area && <span className="px-1.5 py-0.5 bg-teal-50 text-teal-700 rounded">🎯 {c.target_area}</span>}
+                </div>
+              </div>
+            ))}
+            {recommendedContents.length === 0 && (
+              <div className="col-span-full text-sm text-gray-400 text-center py-8">
+                이 등급에 등록된 콘텐츠가 없습니다
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── [4] 평가 이력 ── */}
+      {subtab === "history" && (
+        <div>
+          {history.length === 0 ? (
+            <div className="text-center py-10 text-gray-400 text-sm">아직 저장된 평가가 없습니다</div>
+          ) : (
+            <div className="space-y-2">
+              {history.map(h => {
+                const li = LEVEL_INFO[h.computed_level as 1|2|3|4] || LEVEL_INFO[2];
+                return (
+                  <div key={h.id} className="flex items-center gap-4 p-3 border border-gray-100 rounded-xl hover:border-aqu-200 transition cursor-pointer"
+                    onClick={() => setAssess(h)}>
+                    <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${li.color} flex items-center justify-center shadow`}>
+                      <span className="text-white font-black">{h.computed_level || "?"}</span>
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-sm font-bold text-slate-900">{h.assessed_at}</div>
+                      <div className="text-xs text-gray-500">{li.subtitle} · 신뢰도 {h.level_confidence || "-"}</div>
+                    </div>
+                    <div className="text-xs text-aqu-700">불러오기 →</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SectionCard({ title, color, children }: any) {
+  return (
+    <div className={`border ${color} rounded-xl p-4`}>
+      <h4 className="font-bold text-sm text-slate-800 mb-3">{title}</h4>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">{children}</div>
+    </div>
+  );
+}
+
+function NumField({ label, max, v, onC }: any) {
+  return (
+    <div>
+      <label className="text-xs text-gray-600 block mb-1">{label} <span className="text-gray-400">(0-{max})</span></label>
+      <input type="number" min={0} max={max} value={v ?? ""}
+        onChange={e => onC(e.target.value === "" ? null : Math.min(max, Math.max(0, Number(e.target.value))))}
+        className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm" />
+    </div>
+  );
+}
+
+function ScaleField({ label, max, v, onC }: any) {
+  return (
+    <div>
+      <label className="text-xs text-gray-600 block mb-1">{label} <span className="text-gray-400">(0-{max})</span></label>
+      <div className="flex gap-1">
+        {Array.from({ length: max + 1 }, (_, i) => i).map(n => (
+          <button key={n} type="button" onClick={() => onC(n)}
+            className={`flex-1 h-7 rounded text-xs font-bold transition ${
+              (v ?? -1) === n ? "bg-aqu-600 text-white shadow" : "bg-gray-100 text-gray-500 hover:bg-aqu-100"
+            }`}>
+            {n}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

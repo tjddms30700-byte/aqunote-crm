@@ -20,11 +20,23 @@ const SIZE_MAP = {
 export default function Logo({ size = "md", showText = false, className = "" }: LogoProps) {
   const [logoUrl, setLogoUrl] = useState<string>(DEFAULT_LOGO);
 
+  async function loadLogo() {
+    const { data } = await supabase.from("organizations").select("logo_url").limit(1).single();
+    if (data?.logo_url) {
+      // 캐시 버스팅 파라미터 추가 (즉시 반영)
+      const sep = data.logo_url.includes("?") ? "&" : "?";
+      setLogoUrl(`${data.logo_url}${sep}v=${Date.now()}`);
+    } else {
+      setLogoUrl(DEFAULT_LOGO);
+    }
+  }
+
   useEffect(() => {
-    (async () => {
-      const { data } = await supabase.from("organizations").select("logo_url").limit(1).single();
-      if (data?.logo_url) setLogoUrl(data.logo_url);
-    })();
+    loadLogo();
+    // 로고 업데이트 이벤트 감지 → 즉시 새로고침
+    const handler = () => loadLogo();
+    window.addEventListener("logo-updated", handler);
+    return () => window.removeEventListener("logo-updated", handler);
   }, []);
 
   return (
