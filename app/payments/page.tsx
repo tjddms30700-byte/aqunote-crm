@@ -78,7 +78,7 @@ export default function PaymentsPage() {
   async function loadAll() {
     setLoading(true);
     const [p, m, mem, pl] = await Promise.all([
-      supabase.from("payments").select("*, members(name, member_type)").order("paid_at", { ascending: false }),
+      supabase.from("payments").select("*, members(name, member_type), memberships(plan_name, total_sessions, used_sessions, adjustment, end_date)").order("paid_at", { ascending: false }),
       supabase.from("memberships").select("*, members(name, member_type)").order("end_date", { ascending: false }),
       supabase.from("members").select("id, name, member_type").is("deleted_at", null).order("name"),
       supabase.from("membership_plans").select("*").eq("is_active", true).order("sort_order"),
@@ -192,6 +192,35 @@ export default function PaymentsPage() {
     loadAll();
   }
 
+  // 회원권 회차 조정 (+/-)
+  async function adjustSessions(m: any, delta: number) {
+    const reason = prompt(
+      `${m.members?.name || "회원"} 님의 "${m.plan_name}" ${delta > 0 ? "회차 추가" : "회차 차감"} 사유를 입력해 주세요 (선택)`,
+      delta > 0 ? "이벤트 / 서비스" : "노쇼"
+    );
+    if (reason === null) return; // 취소
+
+    const newAdjustment = (m.adjustment || 0) + delta;
+    const { error } = await supabase.from("memberships").update({
+      adjustment: newAdjustment,
+      updated_at: new Date().toISOString(),
+    }).eq("id", m.id);
+    if (error) { alert("조정 실패: " + error.message + "\n\n💡 memberships 테이블에 adjustment 컬럼이 필요합니다. AQUNOTE_V37_FIX5.sql 실행 요량."); return; }
+
+    // 조정 로그 저장
+    try {
+      const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
+      await supabase.from("session_adjustments").insert({
+        org_id: orgId,
+        membership_id: m.id,
+        member_id: m.member_id,
+        delta,
+        reason: reason || null,
+      });
+    } catch {}
+    loadAll();
+  }
+
   async function deletePayment(id: string) {
     if (!confirm("결제 이력을 삭제할까요?")) return;
     await supabase.from("payments").delete().eq("id", id);
@@ -276,9 +305,22 @@ export default function PaymentsPage() {
                       </td>
                       <td className="p-2 md:p-3">{m.plan_name}</td>
                       <td className="p-2 md:p-3 text-center">
-                        <span className={`font-bold ${remaining <= 2 ? "text-red-500" : "text-aqu-700"}`}>
-                          {remaining}/{m.total_sessions}
-                        </span>
+                        <div className="flex items-center justify-center gap-1">
+                          <button onClick={() => adjustSessions(m, -1)}
+                            className="w-6 h-6 rounded bg-red-50 text-red-600 hover:bg-red-100 flex items-center justify-center font-bold"
+                            title="회차 차감">−</button>
+                          <span className={`font-bold min-w-[70px] ${(remaining + (m.adjustment || 0)) <= 2 ? "text-red-500" : "text-aqu-700"}`}>
+                            {remaining + (m.adjustment || 0)}/{(m.total_sessions || 0) + (m.adjustment || 0)}
+                            {(m.adjustment || 0) !== 0 && (
+                              <span className={`ml-1 text-[10px] ${(m.adjustment || 0) > 0 ? "text-green-600" : "text-orange-600"}`}>
+                                ({(m.adjustment || 0) > 0 ? "+" : ""}{m.adjustment})
+                              </span>
+                            )}
+                          </span>
+                          <button onClick={() => adjustSessions(m, +1)}
+                            className="w-6 h-6 rounded bg-green-50 text-green-600 hover:bg-green-100 flex items-center justify-center font-bold"
+                            title="회차 추가">+</button>
+                        </div>
                       </td>
                       <td className="p-2 md:p-3 hidden md:table-cell text-gray-500 text-[11px]">
                         {m.start_date} ~ {m.end_date}
@@ -322,7 +364,19 @@ export default function PaymentsPage() {
                         {p.members?.name || "-"}
                       </Link>
                     </td>
-                    <td className="p-2 md:p-3">{p.description}</td>
+                    <td className="p-2 md:p-3">
+                      <div className="font-semibold text-slate-800">{p.memberships?.plan_name || p.description || "-"}</div>
+                      {p.memberships && (
+                        <div className="text-[10px] text-gray-500 mt-0.5">
+                          {p.memberships.total_sessions}회권
+                          {typeof p.memberships.used_sessions === "number" && (
+                            <span className="ml-1 text-green-600">
+                              (잔여 {Math.max(0, (p.memberships.total_sessions || 0) + (p.memberships.adjustment || 0) - (p.memberships.used_sessions || 0))}회)
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </td>
                     <td className="p-2 md:p-3">
                       <span className={`px-2 py-0.5 rounded-md text-[10px] border ${methodColor(p.method || "cash")}`}>
                         {methodLabel(p.method || "cash")}

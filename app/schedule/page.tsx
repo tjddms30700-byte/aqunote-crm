@@ -146,33 +146,132 @@ export default function SchedulePage() {
       if (error) return alert("오류: " + error.message + "\n\n💡 AQUNOTE_V37_FIX2.sql 을 Supabase에 실행해 주세요.");
     }
     // schedule_slots의 status도 동기화
+    const prevStatus = slot.status;
     const scheduleStatus = status === "present" ? "completed" : status === "absent" ? "cancelled" : "sick";
     await supabase.from("schedule_slots").update({ status: scheduleStatus }).eq("id", slot.id);
+
+    // 회원권 자동 차감 로직
+    //  - 이전이 completed가 아니고 이번이 completed → used_sessions++
+    //  - 이전이 completed였는데 이번이 completed 아닐 → used_sessions-- (복원)
+    try {
+      if (slot.member_id) {
+        // 유효한 회원권 찾기 (명시적 membership_id 우선, 없으면 최근 활성 회원권)
+        let target: any = null;
+        if (slot.membership_id) {
+          const { data } = await supabase.from("memberships").select("*").eq("id", slot.membership_id).maybeSingle();
+          target = data;
+        }
+        if (!target) {
+          const today = new Date().toISOString().slice(0, 10);
+          const { data } = await supabase.from("memberships")
+            .select("*")
+            .eq("member_id", slot.member_id)
+            .gte("end_date", today)
+            .order("end_date", { ascending: true })
+            .limit(1);
+          target = data?.[0] || null;
+        }
+
+        if (target) {
+          const wasCompleted = prevStatus === "completed";
+          const isCompleted = scheduleStatus === "completed";
+          if (!wasCompleted && isCompleted) {
+            // 차감
+            await supabase.from("memberships").update({
+              used_sessions: (target.used_sessions || 0) + 1,
+              updated_at: new Date().toISOString(),
+            }).eq("id", target.id);
+            // slot에 사용된 회원권 링크 저장 (추후 복원 가능)
+            await supabase.from("schedule_slots").update({ membership_id: target.id }).eq("id", slot.id);
+          } else if (wasCompleted && !isCompleted) {
+            // 복원
+            const used = Math.max(0, (target.used_sessions || 0) - 1);
+            await supabase.from("memberships").update({
+              used_sessions: used,
+              updated_at: new Date().toISOString(),
+            }).eq("id", target.id);
+          }
+        }
+      }
+    } catch (e) { console.warn("회원권 자동 차감 실패:", e); }
+
     await loadAll();
-    alert(status === "present" ? "✅ 출석" : status === "absent" ? "⚠️ 결석" : "🤒 병결");
+    alert(status === "present" ? "✅ 출석 (회원권 1회 자동 차감)" : status === "absent" ? "⚠️ 결석" : "🤒 병결");
   }
 
-  // 결제 추가 (상세 필드 포함)
+  // 결제 추가 (회원권 자동 생성 포함)
   async function addPaymentFromSlot(slot: any, payment: any) {
     if (!slot.member_id) { alert("회원 정보가 없습니다."); return; }
     const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
+
+    // 결제 일시는 예약 날짜 기준으로 저장
+    const paidAt = slot.event_date || new Date().toISOString().split("T")[0];
+
+    // 1) 회원권 자동 생성 (회차/기간 정보가 있을 때)
+    let membershipId: string | null = null;
+    let planName = payment.lesson_name || payment.plan_name || "수업";
+    let totalSessions = Number(payment.sessions) || 0;
+    let validDays = Number(payment.valid_days) || 90;
+
+    // 명시적 plan_id가 있으면 membership_plans에서 정보 보강
+    if (payment.plan_id) {
+      try {
+        const { data: planData } = await supabase.from("membership_plans").select("*").eq("id", payment.plan_id).maybeSingle();
+        if (planData) {
+          planName = planData.name;
+          totalSessions = planData.sessions || totalSessions;
+          validDays = planData.valid_days || validDays;
+        }
+      } catch {}
+    }
+
+    // 회원권 레코드 생성 (회차 > 0이면)
+    if (totalSessions > 0) {
+      const endDate = new Date(paidAt);
+      endDate.setDate(endDate.getDate() + validDays);
+      const { data: newMs, error: msErr } = await supabase.from("memberships").insert({
+        org_id: orgId,
+        member_id: slot.member_id,
+        plan_name: planName,
+        total_sessions: totalSessions,
+        used_sessions: 0,
+        start_date: paidAt,
+        end_date: endDate.toISOString().slice(0, 10),
+        price: payment.amount,
+      }).select().single();
+      if (!msErr && newMs) membershipId = newMs.id;
+    }
+
+    // 2) 결제 로그 저장
     const { error } = await supabase.from("payments").insert({
       org_id: orgId,
       member_id: slot.member_id,
+      membership_id: membershipId,
       amount: payment.amount,
       method: payment.method,
-      lesson_name: payment.lesson_name,
+      lesson_name: planName,
+      description: planName,
       plan_id: payment.plan_id || null,
       card_number: payment.card_number || null,
       approval_no: payment.approval_no || null,
       paid_time: payment.paid_time || null,
-      paid_at: new Date().toISOString(),
+      paid_at: paidAt,
       event_date: slot.event_date,
       slot_id: slot.id,
     }).select();
     if (error) return alert("결제 등록 실패: " + error.message);
+
+    // 3) 예약 slot에 membership_id 연결 (이후 자동 차감용)
+    if (membershipId) {
+      try {
+        await supabase.from("schedule_slots").update({ membership_id: membershipId }).eq("id", slot.id);
+      } catch {}
+    }
+
     await loadAll();
-    alert("✅ 결제 등록되었습니다");
+    alert(totalSessions > 0
+      ? `✅ 결제 등록 + 회원권 ${totalSessions}회 자동 추가되었습니다`
+      : "✅ 결제 등록되었습니다");
   }
 
   // 결제 삭제
@@ -1545,9 +1644,14 @@ function QuickActionSheet({ slot, members, staff, plans, payments, attendance, o
 
                   <button onClick={() => {
                     if (!payAmount) { alert("금액을 입력하세요"); return; }
+                    // 선택된 회원권의 sessions/valid_days를 함께 전송 (회원권 자동 생성용)
+                    const selPlan = plans?.find((x: any) => x.id === payPlanId);
                     onAddPayment({
                       plan_id: payPlanId || null,
                       lesson_name: payLesson,
+                      plan_name: selPlan?.name || payLesson,
+                      sessions: selPlan?.sessions || 0,
+                      valid_days: selPlan?.valid_days || 90,
                       amount: payAmount,
                       method: payMethod,
                       paid_time: payTime,
