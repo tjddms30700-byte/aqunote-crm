@@ -1,7 +1,7 @@
 "use client";
 export const dynamic = "force-dynamic";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
@@ -54,6 +54,7 @@ export default function PaymentsPage() {
   const [tab, setTab]               = useState<"memberships" | "payments">("memberships");
   const [showModal, setShowModal]   = useState(false);
   const [saving, setSaving]         = useState(false);
+  const [refundModal, setRefundModal] = useState<any>(null);  // 환불 모달 대상 회원권
 
   const [f, setF] = useState<any>({
     member_id: "",
@@ -193,6 +194,11 @@ export default function PaymentsPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  // 환불 모달 열기 (자동 계산)
+  function openRefundModal(membership: any) {
+    setRefundModal(membership);
   }
 
   async function deleteMembership(id: string) {
@@ -376,12 +382,28 @@ export default function PaymentsPage() {
                       <td className="p-2 md:p-3 hidden md:table-cell text-gray-500 text-[11px]">
                         {m.start_date} ~ {m.end_date}
                       </td>
-                      <td className="p-2 md:p-3 text-right font-medium">₩{(m.price || 0).toLocaleString()}</td>
+                      <td className="p-2 md:p-3 text-right font-medium">
+                        <div className={isCancelled ? "line-through text-gray-400" : ""}>₩{(m.price || 0).toLocaleString()}</div>
+                        {m.refund_status && m.refund_status !== "none" && (
+                          <div className="text-[10px] text-orange-600 mt-0.5">
+                            환불 {m.refund_status === "partial" ? "부분" : "전액"}
+                          </div>
+                        )}
+                      </td>
                       <td className="p-2 md:p-3">
-                        <button onClick={() => deleteMembership(m.id)}
-                          className="p-1.5 text-red-400 hover:bg-red-50 rounded">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center gap-1 justify-end">
+                          {!isCancelled && m.refund_status !== "full" && (
+                            <button onClick={() => openRefundModal(m)}
+                              className="px-2 py-1 text-[10px] bg-orange-50 text-orange-700 hover:bg-orange-100 rounded font-semibold"
+                              title="부분/전액 환불">
+                              💵 환불
+                            </button>
+                          )}
+                          <button onClick={() => deleteMembership(m.id)}
+                            className="p-1.5 text-red-400 hover:bg-red-50 rounded">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -642,6 +664,16 @@ export default function PaymentsPage() {
           </div>
         </div>
       )}
+
+      {/* ─── 환불 처리 모달 ─── */}
+      {refundModal && (
+        <RefundModal
+          membership={refundModal}
+          payments={payments}
+          onClose={() => setRefundModal(null)}
+          onDone={() => { setRefundModal(null); loadAll(); }}
+        />
+      )}
     </main>
   );
 }
@@ -660,6 +692,240 @@ function Field({ label, children }: any) {
     <div className="mt-2">
       <label className="block text-xs font-semibold text-gray-600 mb-1">{label}</label>
       {children}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 💵 환불 처리 모달 (부분/전액 환불)
+// ═══════════════════════════════════════════════════════════════
+function RefundModal({ membership, payments, onClose, onDone }: any) {
+  // 이 회원권과 연결된 결제 찾기
+  const linkedPayment = useMemo(() => {
+    return payments.find((p: any) => p.membership_id === membership.id && p.status !== "cancelled");
+  }, [payments, membership.id]);
+
+  const totalPrice   = membership.price || linkedPayment?.amount || 0;
+  const totalSess    = (membership.total_sessions || 0) + (membership.adjustment || 0);
+  const usedSess     = membership.used_sessions || 0;
+  const remainingSess = Math.max(0, totalSess - usedSess);
+  const alreadyRefunded = linkedPayment?.refunded_amount || 0;
+
+  // 자동 계산: 잔여 회차 비율만큼 환불액 제안
+  const perSession = totalSess > 0 ? Math.floor(totalPrice / totalSess) : 0;
+  const suggestedRefund = Math.max(0, perSession * remainingSess - alreadyRefunded);
+
+  const [mode, setMode] = useState<"partial" | "full">("partial");
+  const [refundAmount, setRefundAmount] = useState<number>(suggestedRefund);
+  const [refundMethod, setRefundMethod] = useState<string>("transfer");
+  const [reason, setReason] = useState<string>("");
+  const [terminate, setTerminate] = useState<boolean>(true);  // 회원권 종결 여부
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (mode === "full") {
+      setRefundAmount(Math.max(0, totalPrice - alreadyRefunded));
+      setTerminate(true);
+    } else {
+      setRefundAmount(suggestedRefund);
+    }
+  }, [mode, totalPrice, alreadyRefunded, suggestedRefund]);
+
+  async function processRefund() {
+    if (!refundAmount || refundAmount <= 0) { alert("환불액을 입력하세요"); return; }
+    const maxRefundable = totalPrice - alreadyRefunded;
+    if (refundAmount > maxRefundable) {
+      alert(`환불 가능한 최대 금액은 ₩${maxRefundable.toLocaleString()}입니다 (이미 환불: ₩${alreadyRefunded.toLocaleString()})`);
+      return;
+    }
+
+    if (!confirm(`환불을 진행하시겠습니까?\n\n· 회원: ${membership.members?.name}\n· 회원권: ${membership.plan_name}\n· 환불액: ₩${refundAmount.toLocaleString()}\n· 환불 방법: ${refundMethod === "transfer" ? "계좌이체" : refundMethod === "card" ? "카드취소" : "현금"}\n${terminate ? "\n⚠️ 회원권이 종결됩니다 (더 이상 사용 불가)" : ""}`)) return;
+
+    setSaving(true);
+    try {
+      const now = new Date().toISOString();
+      const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
+
+      // 1) refunds 로그 저장
+      const { error: refErr } = await supabase.from("refunds").insert({
+        org_id: orgId,
+        payment_id: linkedPayment?.id || null,
+        membership_id: membership.id,
+        member_id: membership.member_id,
+        refund_amount: refundAmount,
+        refund_method: refundMethod,
+        used_sessions: usedSess,
+        remaining_sessions: remainingSess,
+        reason: reason || null,
+        refunded_at: new Date().toISOString().slice(0, 10),
+      });
+      if (refErr) throw refErr;
+
+      // 2) payments의 refunded_amount 누적
+      if (linkedPayment) {
+        const newRefunded = alreadyRefunded + refundAmount;
+        const isFullRefund = newRefunded >= totalPrice;
+        await supabase.from("payments").update({
+          refunded_amount: newRefunded,
+          refund_note: reason || null,
+          // 전액 환불이면 결제도 cancelled로 (매출 통계에서 완전 제외)
+          ...(isFullRefund ? { status: "cancelled", cancelled_at: now, cancelled_reason: `환불 완료: ${reason || "고객 요청"}` } : {}),
+        }).eq("id", linkedPayment.id);
+      }
+
+      // 3) memberships 상태 업데이트
+      const newRefundedTotal = alreadyRefunded + refundAmount;
+      const isFull = newRefundedTotal >= totalPrice;
+      const membershipUpdate: any = {
+        refund_status: isFull ? "full" : "partial",
+        updated_at: now,
+      };
+      if (terminate || isFull) {
+        membershipUpdate.status = "cancelled";
+        membershipUpdate.terminated_at = now;
+        membershipUpdate.cancelled_at = now;
+        membershipUpdate.cancelled_reason = `환불 종결: ${reason || "고객 요청"}`;
+        // 종결 시점의 잔여 회차만큼 회원권 유효기간을 오늘까지로
+        membershipUpdate.end_date = new Date().toISOString().slice(0, 10);
+      }
+      await supabase.from("memberships").update(membershipUpdate).eq("id", membership.id);
+
+      // 4) slot 링크 해제 (종결 시)
+      if (terminate || isFull) {
+        try { await supabase.from("schedule_slots").update({ membership_id: null }).eq("membership_id", membership.id); } catch {}
+      }
+
+      alert(`✅ 환불 처리 완료\n\n· 환불액: ₩${refundAmount.toLocaleString()}\n· 방법: ${refundMethod === "transfer" ? "계좌이체" : refundMethod === "card" ? "카드취소" : "현금"}${terminate || isFull ? "\n· 회원권 종결됨" : ""}`);
+      onDone();
+    } catch (err: any) {
+      alert("환불 처리 실패: " + err.message + "\n\n💡 AQUNOTE_V37_FIX7.sql을 Supabase에 실행해 주세요.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        {/* 헤더 */}
+        <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-orange-50 to-yellow-50 flex items-center justify-between sticky top-0 z-10">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center shadow">
+              <span className="text-2xl">💵</span>
+            </div>
+            <div>
+              <div className="font-bold text-slate-900">환불 처리</div>
+              <div className="text-xs text-gray-500">{membership.members?.name} · {membership.plan_name}</div>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg"><X className="w-5 h-5" /></button>
+        </div>
+
+        {/* 현재 상태 */}
+        <div className="p-5 space-y-3">
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="p-2.5 bg-blue-50 rounded-lg">
+              <div className="text-[10px] text-gray-500">결제액</div>
+              <div className="font-bold text-blue-700 text-sm">₩{totalPrice.toLocaleString()}</div>
+            </div>
+            <div className="p-2.5 bg-green-50 rounded-lg">
+              <div className="text-[10px] text-gray-500">사용 회차</div>
+              <div className="font-bold text-green-700 text-sm">{usedSess}회</div>
+            </div>
+            <div className="p-2.5 bg-orange-50 rounded-lg">
+              <div className="text-[10px] text-gray-500">잔여 회차</div>
+              <div className="font-bold text-orange-700 text-sm">{remainingSess}회</div>
+            </div>
+          </div>
+          {alreadyRefunded > 0 && (
+            <div className="p-2.5 bg-red-50 border border-red-100 rounded-lg text-xs text-red-700">
+              ⚠️ 이미 환불된 금액: ₩{alreadyRefunded.toLocaleString()}
+            </div>
+          )}
+          <div className="p-3 bg-slate-50 rounded-lg text-xs text-slate-700">
+            💡 회차당 단가: <b>₩{perSession.toLocaleString()}</b> ({totalPrice.toLocaleString()} ÷ {totalSess}회)
+            <br/>💡 계약상 잔여 가치: <b>₩{(perSession * remainingSess).toLocaleString()}</b> ({remainingSess}회 × 회차 단가)
+          </div>
+
+          {/* 환불 방식 */}
+          <div>
+            <label className="text-xs font-semibold text-gray-700 block mb-2">환불 방식 <span className="text-red-500">*</span></label>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setMode("partial")}
+                className={`py-3 rounded-xl border-2 text-sm font-medium ${mode === "partial" ? "bg-orange-500 border-orange-500 text-white shadow" : "border-orange-200 text-orange-700 hover:bg-orange-50"}`}>
+                💰 부분 환불
+                <div className="text-[10px] mt-1 opacity-90">{remainingSess}회분만 환불</div>
+              </button>
+              <button type="button" onClick={() => setMode("full")}
+                className={`py-3 rounded-xl border-2 text-sm font-medium ${mode === "full" ? "bg-red-500 border-red-500 text-white shadow" : "border-red-200 text-red-700 hover:bg-red-50"}`}>
+                💸 전액 환불
+                <div className="text-[10px] mt-1 opacity-90">결제액 전체 환불</div>
+              </button>
+            </div>
+          </div>
+
+          {/* 환불액 (수정 가능) */}
+          <div>
+            <label className="text-xs font-semibold text-gray-700 block mb-1">환불 금액 (원) <span className="text-red-500">*</span></label>
+            <input type="number" value={refundAmount || ""} onChange={e => setRefundAmount(parseInt(e.target.value) || 0)}
+              className="w-full px-3 py-2.5 border-2 border-orange-200 rounded-lg text-lg font-bold text-orange-700 focus:border-orange-400 focus:outline-none" />
+            <div className="text-[10px] text-gray-500 mt-1">
+              계약상 잔여가치는 ₩{(perSession * remainingSess).toLocaleString()}이지만, 협상에 따라 자유롭게 조정 가능
+            </div>
+          </div>
+
+          {/* 환불 방법 */}
+          <div>
+            <label className="text-xs font-semibold text-gray-700 block mb-1">환불 처리 방법 <span className="text-red-500">*</span></label>
+            <div className="grid grid-cols-3 gap-2">
+              <button type="button" onClick={() => setRefundMethod("transfer")}
+                className={`py-2 rounded-lg border text-xs font-medium ${refundMethod === "transfer" ? "bg-blue-500 border-blue-500 text-white" : "border-gray-200 text-gray-700 hover:bg-gray-50"}`}>
+                🏦 계좌이체
+              </button>
+              <button type="button" onClick={() => setRefundMethod("card")}
+                className={`py-2 rounded-lg border text-xs font-medium ${refundMethod === "card" ? "bg-purple-500 border-purple-500 text-white" : "border-gray-200 text-gray-700 hover:bg-gray-50"}`}>
+                💳 카드취소
+              </button>
+              <button type="button" onClick={() => setRefundMethod("cash")}
+                className={`py-2 rounded-lg border text-xs font-medium ${refundMethod === "cash" ? "bg-green-500 border-green-500 text-white" : "border-gray-200 text-gray-700 hover:bg-gray-50"}`}>
+                💵 현금
+              </button>
+            </div>
+          </div>
+
+          {/* 환불 사유 */}
+          <div>
+            <label className="text-xs font-semibold text-gray-700 block mb-1">환불 사유</label>
+            <textarea rows={2} value={reason} onChange={e => setReason(e.target.value)}
+              placeholder="예: 이사·건강 문제 등"
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+          </div>
+
+          {/* 회원권 종결 옵션 */}
+          <label className={`flex items-start gap-2 p-3 rounded-lg border cursor-pointer ${terminate ? "bg-red-50 border-red-200" : "bg-gray-50 border-gray-200"}`}>
+            <input type="checkbox" checked={terminate} onChange={e => setTerminate(e.target.checked)}
+              disabled={mode === "full"} className="mt-0.5" />
+            <div className="flex-1 text-xs">
+              <div className="font-semibold text-slate-800">회원권 종결 처리</div>
+              <div className="text-gray-600 mt-0.5">
+                {terminate
+                  ? "⚠️ 회원권이 더 이상 사용되지 않으며, 시간표에서도 자동 차감되지 않습니다."
+                  : "부분 환불만 하고 남은 회차는 계속 사용할 수 있게 유지"}
+                {mode === "full" && <div className="text-red-600 mt-1">전액 환불 시 자동 종결됩니다</div>}
+              </div>
+            </div>
+          </label>
+        </div>
+
+        {/* 하단 액션 */}
+        <div className="px-5 py-3 border-t border-gray-100 bg-white flex gap-2 sticky bottom-0">
+          <button onClick={onClose} className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200">취소</button>
+          <button onClick={processRefund} disabled={saving || !refundAmount}
+            className="flex-1 px-4 py-2.5 bg-gradient-to-br from-orange-500 to-red-500 text-white rounded-lg text-sm font-bold shadow hover:opacity-90 disabled:opacity-40">
+            {saving ? "처리 중..." : `💵 ₩${refundAmount.toLocaleString()} 환불 처리`}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

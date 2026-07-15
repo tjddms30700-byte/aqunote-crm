@@ -63,12 +63,12 @@ function FinancePage() {
     loadAll();
   }
 
-  // 월별 필터
-  const monthPayments = payments.filter((p) => p.paid_at?.startsWith(selectedMonth));
+  // 월별 필터 (취소 결제 제외, 부분 환불액 차감)
+  const monthPayments = payments.filter((p) => p.status !== "cancelled" && p.paid_at?.startsWith(selectedMonth));
   const monthExpenses = expenses.filter((e) => e.spent_at?.startsWith(selectedMonth));
   const monthPayroll = payroll.filter((p) => p.pay_month === selectedMonth);
 
-  const revenue = monthPayments.reduce((s, p) => s + p.amount, 0);
+  const revenue = monthPayments.reduce((s, p) => s + Math.max(0, (p.amount || 0) - (p.refunded_amount || 0)), 0);
   const totalExpense = monthExpenses.reduce((s, e) => s + e.amount, 0);
   const totalPayroll = monthPayroll.reduce((s, p) => s + p.net_amount, 0);
   const profit = revenue - totalExpense - totalPayroll;

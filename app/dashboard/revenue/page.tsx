@@ -86,15 +86,18 @@ function RevenueDashboardPage() {
   }, []);
 
   // Combine payments + revenue slots into a unified revenue array
+  // ✅ 취소된 결제(status='cancelled')는 제외, 부분 환불액 차감
   const revenues = useMemo(() => {
-    const paymentRevs = payments.map(p => ({
-      id: p.id,
-      source: "payment" as const,
-      amount: p.amount || 0,
-      date: p.paid_at || p.created_at,
-      member_id: p.member_id,
-      label: p.plan_name || "결제",
-    }));
+    const paymentRevs = payments
+      .filter((p: any) => p.status !== "cancelled")
+      .map((p: any) => ({
+        id: p.id,
+        source: "payment" as const,
+        amount: Math.max(0, (p.amount || 0) - (p.refunded_amount || 0)),  // 부분 환불 차감
+        date: p.paid_at || p.created_at,
+        member_id: p.member_id,
+        label: p.plan_name || p.description || "결제",
+      }));
     const slotRevs = slots.map(s => ({
       id: s.id,
       source: "schedule" as const,
