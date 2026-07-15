@@ -79,7 +79,7 @@ export default function MemberDetail() {
   const id = params?.id as string;
   const [member, setMember] = useState<Member | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"info" | "assessment" | "bodymap" | "sessions" | "documents">("info");
+  const [tab, setTab] = useState<"info" | "history" | "assessment" | "bodymap" | "sessions" | "documents">("info");
 
   // Documents state
   const [docs, setDocs] = useState<any[]>([]);
@@ -522,6 +522,7 @@ export default function MemberDetail() {
       <div className="flex flex-wrap gap-2 mb-4">
         {[
           { k: "info", label: "📌 기본정보" },
+          { k: "history", label: "💰 결제·회원권·출석" },
           { k: "assessment", label: "🩺 수중기능평가" },
           { k: "bodymap", label: "🗺️ Body Map" },
           { k: "sessions", label: "📝 세션기록" },
@@ -659,6 +660,10 @@ export default function MemberDetail() {
               </div>
             </div>
           </div>
+        )}
+
+        {tab === "history" && (
+          <MemberHistoryPanel memberId={id as string} />
         )}
 
         {tab === "assessment" && (
@@ -1512,6 +1517,239 @@ function ScaleField({ label, max, v, onC }: any) {
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 💰 회원 결제·회원권·출석 통합 이력 패널
+// ═══════════════════════════════════════════════════════════════
+function MemberHistoryPanel({ memberId }: { memberId: string }) {
+  const [payments, setPayments] = useState<any[]>([]);
+  const [memberships, setMemberships] = useState<any[]>([]);
+  const [attendance, setAttendance] = useState<any[]>([]);
+  const [slots, setSlots] = useState<any[]>([]);
+  const [refunds, setRefunds] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => { loadAll(); }, [memberId]);
+
+  async function loadAll() {
+    setLoading(true);
+    const [p, ms, at, sl, rf] = await Promise.all([
+      supabase.from("payments").select("*").eq("member_id", memberId).order("paid_at", { ascending: false }),
+      supabase.from("memberships").select("*").eq("member_id", memberId).order("start_date", { ascending: false }),
+      supabase.from("attendance").select("*").eq("member_id", memberId),
+      supabase.from("schedule_slots").select("*").eq("member_id", memberId).is("deleted_at", null).order("event_date", { ascending: false }),
+      supabase.from("refunds").select("*").eq("member_id", memberId).order("refunded_at", { ascending: false }),
+    ]);
+    setPayments(p.data || []);
+    setMemberships(ms.data || []);
+    setAttendance(at.data || []);
+    setSlots(sl.data || []);
+    setRefunds(rf.data || []);
+    setLoading(false);
+  }
+
+  // 통계 계산
+  const totalPaid = payments.filter(p => p.status !== "cancelled").reduce((s, p) => s + (p.amount || 0), 0);
+  const totalRefunded = payments.reduce((s, p) => s + (p.refunded_amount || 0), 0);
+  const netPaid = totalPaid - totalRefunded;
+
+  const activeMemberships = memberships.filter(m => m.status !== "cancelled");
+  const totalSessions = activeMemberships.reduce((s, m) => s + (m.total_sessions || 0) + (m.adjustment || 0), 0);
+  const usedSessions = activeMemberships.reduce((s, m) => s + (m.used_sessions || 0), 0);
+  const remainingSessions = totalSessions - usedSessions;
+
+  const doneSlots = slots.filter(s => ["done", "completed"].includes((s.status || "").toLowerCase())).length;
+  const noshowSlots = slots.filter(s => (s.status || "").toLowerCase() === "noshow").length;
+  const sickSlots = slots.filter(s => (s.status || "").toLowerCase() === "sick").length;
+  const cancelSlots = slots.filter(s => ["cancel", "cancelled"].includes((s.status || "").toLowerCase())).length;
+  const carryoverSlots = slots.filter(s => (s.status || "").toLowerCase() === "carryover").length;
+
+  if (loading) return <div className="text-center py-10 text-gray-400">로딩 중...</div>;
+
+  return (
+    <div className="space-y-5">
+      {/* 요약 카드 */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatCard icon="💰" label="누적 결제" val={`₩${netPaid.toLocaleString()}`}
+          sub={totalRefunded > 0 ? `환불 ₩${totalRefunded.toLocaleString()}` : ""} color="from-blue-500 to-cyan-500" />
+        <StatCard icon="🎫" label="회원권 잔여" val={`${remainingSessions}회`}
+          sub={`총 ${totalSessions}회 · 사용 ${usedSessions}회`} color="from-purple-500 to-pink-500" />
+        <StatCard icon="✅" label="완료 수업" val={`${doneSlots}회`}
+          sub={`노쇼 ${noshowSlots}회 · 병결 ${sickSlots}회`} color="from-green-500 to-emerald-500" />
+        <StatCard icon="📅" label="예약 이력" val={`${slots.length}건`}
+          sub={`취소 ${cancelSlots} · 이월 ${carryoverSlots}`} color="from-orange-500 to-red-500" />
+      </div>
+
+      {/* 회원권 목록 */}
+      <div>
+        <h4 className="font-bold text-slate-900 mb-2 flex items-center gap-1">🎫 회원권 이력 ({memberships.length}건)</h4>
+        {memberships.length === 0 ? (
+          <div className="text-center py-6 text-gray-400 text-sm bg-gray-50 rounded-xl">등록된 회원권이 없습니다</div>
+        ) : (
+          <div className="space-y-2">
+            {memberships.map(m => {
+              const remaining = (m.total_sessions || 0) + (m.adjustment || 0) - (m.used_sessions || 0);
+              const isCancelled = m.status === "cancelled";
+              const isExpired = m.end_date && new Date(m.end_date) < new Date();
+              return (
+                <div key={m.id} className={`p-3 border rounded-xl ${isCancelled ? "bg-gray-50 border-gray-200 opacity-70" : isExpired ? "bg-yellow-50 border-yellow-200" : "bg-purple-50 border-purple-200"}`}>
+                  <div className="flex items-start justify-between mb-1">
+                    <div>
+                      <div className={`font-bold ${isCancelled ? "text-gray-500 line-through" : "text-slate-900"}`}>{m.plan_name}</div>
+                      <div className="text-xs text-gray-600 mt-0.5">
+                        {m.start_date} ~ {m.end_date} · ₩{(m.price || 0).toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      {isCancelled && <span className="text-[10px] px-2 py-0.5 bg-red-500 text-white rounded font-bold">❌ 종결</span>}
+                      {!isCancelled && isExpired && <span className="text-[10px] px-2 py-0.5 bg-yellow-500 text-white rounded font-bold">⏰ 만료</span>}
+                      {!isCancelled && !isExpired && <span className="text-[10px] px-2 py-0.5 bg-green-500 text-white rounded font-bold">✓ 활성</span>}
+                      <div className={`text-lg font-black ${remaining <= 2 ? "text-red-500" : "text-purple-700"}`}>
+                        {remaining}/{(m.total_sessions || 0) + (m.adjustment || 0)}
+                      </div>
+                    </div>
+                  </div>
+                  {(m.refund_status && m.refund_status !== "none") && (
+                    <div className="text-[10px] text-orange-600 mt-1 pt-1 border-t border-gray-200">
+                      💵 {m.refund_status === "partial" ? "부분 환불됨" : "전액 환불됨"}
+                      {m.cancelled_reason && ` · ${m.cancelled_reason}`}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* 결제 이력 */}
+      <div>
+        <h4 className="font-bold text-slate-900 mb-2 flex items-center gap-1">💳 결제 이력 ({payments.length}건)</h4>
+        {payments.length === 0 ? (
+          <div className="text-center py-6 text-gray-400 text-sm bg-gray-50 rounded-xl">결제 이력이 없습니다</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="p-2 text-left">일시</th>
+                  <th className="p-2 text-left">상품</th>
+                  <th className="p-2 text-center">수단</th>
+                  <th className="p-2 text-right">금액</th>
+                  <th className="p-2 text-center">상태</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payments.map(p => {
+                  const isCancelled = p.status === "cancelled";
+                  return (
+                    <tr key={p.id} className={`border-b ${isCancelled ? "opacity-60" : ""}`}>
+                      <td className="p-2 text-gray-600">
+                        {p.paid_at}
+                        {p.paid_time && <div className="text-[10px] text-gray-400">{p.paid_time}</div>}
+                      </td>
+                      <td className="p-2">
+                        <div className={isCancelled ? "line-through text-gray-500" : ""}>{p.description || p.lesson_name || "-"}</div>
+                        {p.cancelled_reason && <div className="text-[10px] text-red-600">취소: {p.cancelled_reason}</div>}
+                      </td>
+                      <td className="p-2 text-center">
+                        <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px]">
+                          {p.method === "card" ? "💳" : p.method === "cash" ? "💵" : p.method === "transfer" ? "🏦" : "📝"}
+                        </span>
+                      </td>
+                      <td className={`p-2 text-right font-bold ${isCancelled ? "text-gray-400 line-through" : "text-slate-900"}`}>
+                        ₩{(p.amount || 0).toLocaleString()}
+                        {p.refunded_amount > 0 && (
+                          <div className="text-[10px] text-orange-600 font-normal">-₩{p.refunded_amount.toLocaleString()}</div>
+                        )}
+                      </td>
+                      <td className="p-2 text-center">
+                        {isCancelled ? (
+                          <span className="text-[10px] px-1.5 py-0.5 bg-red-500 text-white rounded">취소</span>
+                        ) : p.refunded_amount > 0 ? (
+                          <span className="text-[10px] px-1.5 py-0.5 bg-orange-500 text-white rounded">부분환불</span>
+                        ) : (
+                          <span className="text-[10px] px-1.5 py-0.5 bg-green-500 text-white rounded">정상</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* 환불 이력 */}
+      {refunds.length > 0 && (
+        <div>
+          <h4 className="font-bold text-slate-900 mb-2 flex items-center gap-1">💵 환불 이력 ({refunds.length}건)</h4>
+          <div className="space-y-1.5">
+            {refunds.map(r => (
+              <div key={r.id} className="flex items-center justify-between p-2.5 bg-orange-50 border border-orange-100 rounded-lg text-xs">
+                <div>
+                  <div className="font-semibold text-orange-800">₩{r.refund_amount.toLocaleString()}</div>
+                  <div className="text-[10px] text-gray-600">
+                    {r.refunded_at} · {r.refund_method === "transfer" ? "🏦 계좌이체" : r.refund_method === "card" ? "💳 카드취소" : "💵 현금"}
+                    {r.used_sessions !== null && ` · 사용 ${r.used_sessions}회 시점`}
+                  </div>
+                </div>
+                {r.reason && <div className="text-[10px] text-gray-500 max-w-[50%] text-right">{r.reason}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 출석·수업 이력 */}
+      <div>
+        <h4 className="font-bold text-slate-900 mb-2 flex items-center gap-1">📅 수업·출결 이력 ({slots.length}건)</h4>
+        {slots.length === 0 ? (
+          <div className="text-center py-6 text-gray-400 text-sm bg-gray-50 rounded-xl">수업 이력이 없습니다</div>
+        ) : (
+          <div className="max-h-96 overflow-y-auto space-y-1">
+            {slots.map(s => {
+              const st = (s.status || "").toLowerCase();
+              const isDone = ["done", "completed"].includes(st);
+              const isNoshow = st === "noshow";
+              const isSick = st === "sick";
+              const isCancel = ["cancel", "cancelled"].includes(st);
+              const isCarry = st === "carryover";
+              const label = isDone ? "✅ 완료" : isNoshow ? "🚩 노쇼" : isSick ? "🤒 병결" :
+                            isCancel ? "❌ 취소" : isCarry ? "📅 이월" : "🔵 예약";
+              const bg = isDone ? "bg-green-50 border-green-200" :
+                        isNoshow ? "bg-red-50 border-red-200" :
+                        isSick ? "bg-orange-50 border-orange-200" :
+                        isCancel ? "bg-gray-50 border-gray-200" :
+                        isCarry ? "bg-purple-50 border-purple-200" : "bg-blue-50 border-blue-200";
+              const chargesSession = isDone || isNoshow;
+              return (
+                <div key={s.id} className={`flex items-center gap-2 p-2 border rounded-lg text-xs ${bg}`}>
+                  <div className="w-20 text-gray-700 font-mono text-[11px]">{s.event_date}</div>
+                  <div className="w-14 text-gray-500 text-[11px]">{s.time_slot || "-"}</div>
+                  <div className="flex-1 text-slate-700">{s.lesson_name || (s.event_type === "trial" ? "🌟 체험" : "수업")}</div>
+                  <div className="text-[11px] font-semibold">{label}</div>
+                  {chargesSession && <span className="text-[9px] px-1.5 py-0.5 bg-red-500 text-white rounded font-bold">-1회</span>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StatCard({ icon, label, val, sub, color }: any) {
+  return (
+    <div className={`p-3 rounded-xl bg-gradient-to-br ${color} text-white shadow-sm`}>
+      <div className="text-xs opacity-90">{icon} {label}</div>
+      <div className="text-lg md:text-xl font-black mt-1">{val}</div>
+      {sub && <div className="text-[10px] opacity-80 mt-0.5">{sub}</div>}
     </div>
   );
 }

@@ -201,6 +201,54 @@ export default function PaymentsPage() {
     setRefundModal(membership);
   }
 
+  // 결제를 회원권으로 변환 (회원권이 생성되지 않은 결제)
+  async function openCreateMembershipModal(payment: any) {
+    // 회원권 명 입력
+    const planName = prompt("회원권 이름을 입력하세요", payment.description || payment.lesson_name || "10회권");
+    if (!planName) return;
+
+    const sessStr = prompt(`총 회차를 입력하세요 (숫자만)\n\n예: 10회권이면 10, 30회권이면 30`, "10");
+    if (!sessStr) return;
+    const sessions = parseInt(sessStr);
+    if (!sessions || sessions < 1) { alert("올바른 회차를 입력하세요"); return; }
+
+    const validStr = prompt("유효기간을 일 단위로 입력하세요", "90");
+    if (!validStr) return;
+    const validDays = parseInt(validStr) || 90;
+
+    // 사용 회차 (이미 수업 진행 중이면 미리 차감)
+    const usedStr = prompt(`이미 사용한 회차가 있다면 입력하세요 (없으면 0)`, "0");
+    const usedSessions = parseInt(usedStr || "0") || 0;
+
+    try {
+      const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
+      const paidAt = payment.paid_at || new Date().toISOString().slice(0, 10);
+      const endDate = new Date(paidAt);
+      endDate.setDate(endDate.getDate() + validDays);
+
+      const { data: newMs, error: msErr } = await supabase.from("memberships").insert({
+        org_id: orgId,
+        member_id: payment.member_id,
+        plan_name: planName,
+        total_sessions: sessions,
+        used_sessions: usedSessions,
+        start_date: paidAt,
+        end_date: endDate.toISOString().slice(0, 10),
+        price: payment.amount,
+        status: "active",
+      }).select().single();
+      if (msErr) throw msErr;
+
+      // 결제에 membership_id 연결
+      await supabase.from("payments").update({ membership_id: newMs.id }).eq("id", payment.id);
+
+      alert(`✅ 회원권이 생성되었습니다\n\n· ${planName} ${sessions}회\n· 사용 ${usedSessions}회 / 잔여 ${sessions - usedSessions}회\n· 유효기간: ${paidAt} ~ ${endDate.toISOString().slice(0, 10)}`);
+      loadAll();
+    } catch (err: any) {
+      alert("회원권 생성 실패: " + err.message);
+    }
+  }
+
   async function deleteMembership(id: string) {
     if (!confirm("회원권을 삭제할까요?")) return;
     await supabase.from("memberships").delete().eq("id", id);
@@ -483,13 +531,36 @@ export default function PaymentsPage() {
                     </td>
                     <td className={`p-2 md:p-3 text-right font-bold ${isCancelled ? "text-gray-400 line-through" : "text-aqu-900"}`}>
                       ₩{(p.amount || 0).toLocaleString()}
+                      {p.refunded_amount > 0 && (
+                        <div className="text-[10px] text-orange-600 font-normal">-₩{p.refunded_amount.toLocaleString()} 환불</div>
+                      )}
                     </td>
                     <td className="p-2 md:p-3">
+                      <div className="flex items-center gap-1 justify-end">
+                        {!isCancelled && !p.membership_id && (
+                          <button onClick={() => openCreateMembershipModal(p)}
+                            className="px-2 py-1 text-[10px] bg-purple-50 text-purple-700 hover:bg-purple-100 rounded font-semibold"
+                            title="이 결제를 회원권으로 등록">
+                            🎫 회원권화
+                          </button>
+                        )}
+                        {!isCancelled && p.membership_id && p.memberships?.status !== "cancelled" && (
+                          <button onClick={() => {
+                            const m = memberships.find(x => x.id === p.membership_id);
+                            if (m) openRefundModal(m);
+                            else alert("회원권 정보를 찾을 수 없습니다");
+                          }}
+                            className="px-2 py-1 text-[10px] bg-orange-50 text-orange-700 hover:bg-orange-100 rounded font-semibold"
+                            title="부분/전액 환불">
+                            💵 환불
+                          </button>
+                        )}
                       <button onClick={() => deletePayment(p.id)}
                         className="p-1.5 text-red-400 hover:bg-red-50 rounded"
                         title={isCancelled ? "이력에서 완전 삭제" : "결제 취소 (이력 유지)"}>
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
+                      </div>
                     </td>
                   </tr>
                 );})}
