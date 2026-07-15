@@ -119,16 +119,31 @@ export default function SchedulePage() {
       return;
     }
     const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
+    // 컬럼명 자동 감지 (date / attendance_date / session_date)
+    const dateCol = attendance[0]?.date !== undefined ? "date"
+      : attendance[0]?.attendance_date !== undefined ? "attendance_date"
+      : attendance[0]?.session_date !== undefined ? "session_date"
+      : "date";
     // upsert
-    const existing = attendance.find((a: any) => a.member_id === slot.member_id && a.date === slot.event_date);
+    const existing = attendance.find((a: any) => a.member_id === slot.member_id && (a.date === slot.event_date || a.attendance_date === slot.event_date || a.session_date === slot.event_date));
     if (existing) {
       const { error } = await supabase.from("attendance").update({ status, slot_id: slot.id }).eq("id", existing.id).select();
-      if (error) return alert("오류: " + error.message);
+      if (error) return alert("오류: " + error.message + "\n\n💡 AQUNOTE_V37_FIX2.sql 을 Supabase에 실행해 주세요.");
     } else {
-      const { error } = await supabase.from("attendance").insert({
-        org_id: orgId, member_id: slot.member_id, date: slot.event_date, status, slot_id: slot.id,
-      }).select();
-      if (error) return alert("오류: " + error.message);
+      const payload: any = { org_id: orgId, member_id: slot.member_id, status, slot_id: slot.id };
+      payload[dateCol] = slot.event_date;
+      let { error } = await supabase.from("attendance").insert(payload).select();
+      // date 컬럼이 없는 경우 대체 컬럼명 자동 시도
+      if (error && /Could not find the '(date|attendance_date|session_date)' column/.test(error.message)) {
+        for (const alt of ["date", "attendance_date", "session_date"]) {
+          const p: any = { org_id: orgId, member_id: slot.member_id, status, slot_id: slot.id };
+          p[alt] = slot.event_date;
+          const res = await supabase.from("attendance").insert(p).select();
+          if (!res.error) { error = null as any; break; }
+          error = res.error;
+        }
+      }
+      if (error) return alert("오류: " + error.message + "\n\n💡 AQUNOTE_V37_FIX2.sql 을 Supabase에 실행해 주세요.");
     }
     // schedule_slots의 status도 동기화
     const scheduleStatus = status === "present" ? "completed" : status === "absent" ? "cancelled" : "sick";

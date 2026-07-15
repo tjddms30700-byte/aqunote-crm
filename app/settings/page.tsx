@@ -84,8 +84,11 @@ export default function SettingsPage() {
 
   // ═══ 센터 정보 저장 ═══
   async function saveOrg() {
+    if (!org?.id) { alert("센터 정보를 불러오지 못했습니다"); return; }
     setSaving(true);
-    const { error } = await supabase.from("organizations").update({
+
+    // 이미 존재하는 컬럼만 업데이트하도록 방어적으로 처리 (스키마에 없는 컬럼은 자동 스킵)
+    const candidateFields: Record<string, any> = {
       name: orgForm.name,
       business_no: orgForm.business_no,
       address: orgForm.address,
@@ -97,9 +100,47 @@ export default function SettingsPage() {
       ceo_name: orgForm.ceo_name,
       ceo_birth: orgForm.ceo_birth || null,
       ceo_phone: orgForm.ceo_phone,
-    }).eq("id", org.id);
+    };
+
+    // 유효성 필터링 (undefined 제거)
+    const payload: Record<string, any> = {};
+    for (const [k, v] of Object.entries(candidateFields)) {
+      if (v !== undefined) payload[k] = v;
+    }
+
+    // 순차적으로 시도 → 실패 컬럼 자동 제거 후 재시도 (최대 12번)
+    let attempt = 0;
+    let lastErr: any = null;
+    let selectRes: any = null;
+    while (attempt < 12) {
+      attempt++;
+      const { data, error } = await supabase.from("organizations").update(payload).eq("id", org.id).select();
+      if (!error) {
+        selectRes = data;
+        lastErr = null;
+        break;
+      }
+      lastErr = error;
+      // 'column X does not exist' 또는 'Could not find the X column' 패턴 자동 제거
+      const m = error.message.match(/'([^']+)' column|column "([^"]+)"/);
+      const missing = m?.[1] || m?.[2];
+      if (missing && missing in payload) {
+        delete payload[missing];
+        continue;
+      }
+      break;
+    }
+
     setSaving(false);
-    if (error) { alert("저장 실패: " + error.message); return; }
+    if (lastErr) {
+      alert("저장 실패: " + lastErr.message + "\n\n💡 AQUNOTE_V37_FIX2.sql을 Supabase에 실행해 주세요.");
+      return;
+    }
+    // 업데이트된 행이 0개면 RLS 문제 가능성
+    if (Array.isArray(selectRes) && selectRes.length === 0) {
+      alert("⚠️ 저장이 무시되었습니다 (0행 업데이트).\n\nRLS(보안 정책) 때문입니다. AQUNOTE_V37_FIX2.sql을 실행하면 UPDATE 정책이 자동 생성됩니다.");
+      return;
+    }
     alert("✅ 저장되었습니다");
     loadAll();
   }
