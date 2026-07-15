@@ -1,11 +1,11 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import {
-  Search, Waves, ChevronRight, Plus, X, Save, UserPlus, MessageSquare
+  Search, Waves, ChevronRight, Plus, X, Save, UserPlus, MessageSquare, Copy, Trash2, AlertTriangle, CheckSquare, Square
 } from "lucide-react";
 
 type Member = {
@@ -43,6 +43,7 @@ export default function MembersPage() {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showDedupeModal, setShowDedupeModal] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // 메모 편집 모달
@@ -199,6 +200,11 @@ export default function MembersPage() {
               📥 신규 유입 <span className="bg-white text-red-600 px-1.5 rounded font-bold">{inboxPending}</span>
             </Link>
           )}
+          <button onClick={() => setShowDedupeModal(true)}
+            className="px-3 py-1.5 bg-gradient-to-br from-amber-500 to-orange-500 text-white rounded-lg text-sm flex items-center gap-1 hover:opacity-90 shadow-sm"
+            title="이름 + 전화번호 기준으로 중복 회원 감지">
+            <Copy className="w-4 h-4" /> 중복 정리
+          </button>
           <button onClick={() => setShowAddModal(true)}
             className="px-3 py-1.5 bg-aqu-600 text-white rounded-lg text-sm flex items-center gap-1 hover:bg-aqu-700">
             <UserPlus className="w-4 h-4" /> 신규 회원
@@ -525,6 +531,11 @@ export default function MembersPage() {
           </div>
         </div>
       )}
+
+      {/* ─── 중복 회원 정리 모달 ─── */}
+      {showDedupeModal && (
+        <DedupeModal members={members} onClose={() => setShowDedupeModal(false)} onDone={() => { setShowDedupeModal(false); loadMembers(); }} />
+      )}
     </main>
   );
 }
@@ -535,6 +546,278 @@ function Field({ label, value, onChange, placeholder, type = "text" }: any) {
       <label className="text-xs text-gray-600">{label}</label>
       <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
         className="w-full mt-1 px-3 py-2 rounded-lg border border-aqu-200 text-sm" />
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 🧹 중복 회원 정리 모달 (이름 + 전화번호 기준)
+// ═══════════════════════════════════════════════════════════════
+function DedupeModal({ members, onClose, onDone }: { members: any[]; onClose: () => void; onDone: () => void }) {
+  const [strategy, setStrategy] = useState<"strict" | "loose">("loose");
+  const [checked, setChecked] = useState<Record<string, boolean>>({});
+  const [deleting, setDeleting] = useState(false);
+
+  // 전화번호 정규화: 숫자만 추출
+  function normPhone(p: string | null): string {
+    if (!p) return "";
+    const digits = p.replace(/\D/g, "");
+    return digits;
+  }
+  // 마지막 4자리 (loose 매칭용)
+  function tail4(p: string | null): string {
+    const d = normPhone(p);
+    return d.length >= 4 ? d.slice(-4) : d;
+  }
+
+  // 중복 그룹 계산
+  const groups = useMemo(() => {
+    const map = new Map<string, any[]>();
+    for (const m of members) {
+      const name = (m.name || "").trim();
+      if (!name) continue;
+      const phone = m.phone || m.guardian_phone || "";
+
+      let key: string;
+      if (strategy === "strict") {
+        // 이름 + 전화번호 완전 일치 (전화 없으면 별개 취급)
+        const p = normPhone(phone);
+        if (!p) continue;
+        key = `${name}|${p}`;
+      } else {
+        // 이름 + 전화 뒤 4자리 (전화 없어도 이름만 같으면 후보)
+        const t = tail4(phone);
+        key = `${name}|${t}`;
+      }
+      const arr = map.get(key) || [];
+      arr.push(m);
+      map.set(key, arr);
+    }
+    // 2건 이상인 그룹만
+    return Array.from(map.entries())
+      .filter(([, arr]) => arr.length >= 2)
+      .map(([key, arr]) => ({
+        key,
+        name: arr[0].name,
+        entries: arr.sort((a, b) => {
+          // 정보가 더 많은 순으로 정렬 (진단명, 보호자 등 있는 쪽 우선)
+          const score = (m: any) => {
+            let s = 0;
+            if (m.extra?.diagnosis) s += 3;
+            if (m.guardian_name) s += 2;
+            if (m.phone || m.guardian_phone) s += 2;
+            if (m.status === "regular") s += 3;
+            if (m.status === "trial_scheduled") s += 2;
+            if (m.memo && m.memo.length > 10) s += 1;
+            if (m.created_at) s += new Date(m.created_at).getTime() / 1e13;
+            return s;
+          };
+          return score(b) - score(a);
+        }),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, "ko"));
+  }, [members, strategy]);
+
+  // 초기 체크: 각 그룹의 2번째~N번째(정보 적은 쪽)만 자동 체크
+  useEffect(() => {
+    const initial: Record<string, boolean> = {};
+    for (const g of groups) {
+      g.entries.forEach((m, idx) => {
+        initial[m.id] = idx > 0; // 첫 번째(가장 정보 많은 회원) 제외
+      });
+    }
+    setChecked(initial);
+  }, [groups]);
+
+  const totalDupMembers = groups.reduce((s, g) => s + g.entries.length, 0);
+  const totalToDelete = Object.values(checked).filter(v => v).length;
+
+  function toggle(id: string) {
+    setChecked(prev => ({ ...prev, [id]: !prev[id] }));
+  }
+  function selectAllInGroup(g: any, val: boolean) {
+    setChecked(prev => {
+      const c = { ...prev };
+      g.entries.forEach((m: any, idx: number) => {
+        // 첫 번째(원본)는 val=false일 때만 명시적으로 해제
+        c[m.id] = val ? idx > 0 : false;
+      });
+      return c;
+    });
+  }
+
+  async function executeDelete() {
+    const ids = Object.entries(checked).filter(([, v]) => v).map(([id]) => id);
+    if (ids.length === 0) { alert("삭제할 회원을 선택하세요"); return; }
+    if (!confirm(`⚠️ 선택된 ${ids.length}명의 회원을 삭제하시겠습니까?\n\n• soft-delete로 처리됩니다 (deleted_at 표시)\n• 관련 결제/출석 기록은 유지됩니다\n• 되돌리려면 Supabase에서 직접 복구 필요`)) return;
+
+    setDeleting(true);
+    // 500명 이상이면 배치로 나눠서 처리
+    const BATCH = 100;
+    let done = 0;
+    let errCount = 0;
+    for (let i = 0; i < ids.length; i += BATCH) {
+      const batch = ids.slice(i, i + BATCH);
+      const { error } = await supabase.from("members")
+        .update({ deleted_at: new Date().toISOString() })
+        .in("id", batch);
+      if (error) { errCount++; console.error(error); }
+      else done += batch.length;
+    }
+    setDeleting(false);
+    if (errCount > 0) {
+      alert(`⚠️ 부분 성공: ${done}명 삭제됨, ${errCount}배치 실패\n\n실패 원인이 UI에 표시되지 않으면 브라우저 콘솔에서 확인하세요.`);
+    } else {
+      alert(`✅ ${done}명이 삭제되었습니다`);
+    }
+    onDone();
+  }
+
+  function fmtPhone(p: string | null) {
+    if (!p) return "-";
+    const d = normPhone(p);
+    if (d.length === 11) return `${d.slice(0,3)}-${d.slice(3,7)}-${d.slice(7)}`;
+    if (d.length === 10) return `${d.slice(0,3)}-${d.slice(3,6)}-${d.slice(6)}`;
+    return p;
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-5xl w-full max-h-[92vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+        {/* 헤더 */}
+        <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-amber-50 to-orange-50 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center shadow">
+              <Copy className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <div className="font-bold text-slate-900">중복 회원 정리</div>
+              <div className="text-xs text-gray-500">
+                {groups.length}개 그룹 · 중복 후보 {totalDupMembers}명 · 삭제 예정 {totalToDelete}명
+              </div>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg"><X className="w-5 h-5" /></button>
+        </div>
+
+        {/* 매칭 방식 선택 */}
+        <div className="px-5 py-3 border-b border-gray-100 bg-slate-50 flex flex-wrap items-center gap-3">
+          <div className="text-xs text-gray-600 font-semibold">매칭 기준:</div>
+          <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+            <input type="radio" checked={strategy === "loose"} onChange={() => setStrategy("loose")} />
+            <span>이름 + 전화 <b>뒤 4자리</b> <span className="text-xs text-gray-500">(권장)</span></span>
+          </label>
+          <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+            <input type="radio" checked={strategy === "strict"} onChange={() => setStrategy("strict")} />
+            <span>이름 + 전화 <b>완전 일치</b> <span className="text-xs text-gray-500">(엄격)</span></span>
+          </label>
+          <div className="ml-auto flex items-center gap-1 text-xs text-orange-700 bg-orange-100 px-2 py-1 rounded-full">
+            <AlertTriangle className="w-3.5 h-3.5" />
+            초기 선택: 첫 번째(정보 많은) 회원 제외
+          </div>
+        </div>
+
+        {/* 그룹 목록 */}
+        <div className="flex-1 overflow-y-auto p-4">
+          {groups.length === 0 ? (
+            <div className="text-center py-16 text-gray-400">
+              <CheckSquare className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <div className="text-sm">✨ 이 기준으로는 중복 회원이 발견되지 않았습니다</div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {groups.map(g => {
+                const keepCount = g.entries.filter((m: any) => !checked[m.id]).length;
+                const delCount = g.entries.filter((m: any) => checked[m.id]).length;
+                return (
+                  <div key={g.key} className="border border-gray-200 rounded-xl overflow-hidden">
+                    <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-gray-100">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-900">{g.name}</span>
+                        <span className="text-xs text-gray-500">({g.entries.length}건 중복)</span>
+                        <span className="text-[10px] px-2 py-0.5 bg-green-100 text-green-700 rounded-full font-semibold">유지 {keepCount}</span>
+                        <span className="text-[10px] px-2 py-0.5 bg-red-100 text-red-700 rounded-full font-semibold">삭제 {delCount}</span>
+                      </div>
+                      <div className="flex gap-1">
+                        <button onClick={() => selectAllInGroup(g, false)}
+                          className="text-[10px] px-2 py-1 bg-white border border-gray-200 rounded hover:bg-green-50 hover:border-green-300">
+                          모두 유지
+                        </button>
+                        <button onClick={() => selectAllInGroup(g, true)}
+                          className="text-[10px] px-2 py-1 bg-white border border-gray-200 rounded hover:bg-red-50 hover:border-red-300">
+                          첫 항목만 유지
+                        </button>
+                      </div>
+                    </div>
+                    <div className="divide-y divide-gray-100">
+                      {g.entries.map((m: any, idx: number) => {
+                        const isChecked = !!checked[m.id];
+                        return (
+                          <div key={m.id}
+                            className={`flex items-center gap-3 px-3 py-2 cursor-pointer transition ${
+                              isChecked ? "bg-red-50 hover:bg-red-100" : idx === 0 ? "bg-green-50/50 hover:bg-green-50" : "hover:bg-slate-50"
+                            }`}
+                            onClick={() => toggle(m.id)}>
+                            <div className="flex-shrink-0">
+                              {isChecked ? <CheckSquare className="w-5 h-5 text-red-500" /> : <Square className="w-5 h-5 text-gray-400" />}
+                            </div>
+                            <div className="flex-1 grid grid-cols-2 md:grid-cols-6 gap-2 text-xs">
+                              <div>
+                                <div className="text-[10px] text-gray-400">구분·상태</div>
+                                <div className="font-semibold">
+                                  <span className={`px-1.5 py-0.5 rounded ${m.member_type === "child" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"}`}>
+                                    {m.member_type === "child" ? "아동" : "성인"}
+                                  </span>
+                                  {idx === 0 && !isChecked && <span className="ml-1 text-[9px] text-green-700 font-bold">✓ 원본</span>}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-[10px] text-gray-400">보호자</div>
+                                <div className="truncate">{m.guardian_name || "-"}</div>
+                              </div>
+                              <div>
+                                <div className="text-[10px] text-gray-400">전화</div>
+                                <div className="font-mono text-[11px]">{fmtPhone(m.phone || m.guardian_phone)}</div>
+                              </div>
+                              <div>
+                                <div className="text-[10px] text-gray-400">진단명</div>
+                                <div className="truncate">{m.extra?.diagnosis || "-"}</div>
+                              </div>
+                              <div>
+                                <div className="text-[10px] text-gray-400">등록일</div>
+                                <div>{m.created_at ? new Date(m.created_at).toLocaleDateString("ko-KR") : "-"}</div>
+                              </div>
+                              <div>
+                                <div className="text-[10px] text-gray-400">상태</div>
+                                <div>{m.status || "-"}</div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* 하단 액션 */}
+        <div className="px-5 py-3 border-t border-gray-100 bg-white flex items-center justify-between">
+          <div className="text-sm">
+            <span className="text-red-600 font-bold">{totalToDelete}명</span>
+            <span className="text-gray-500"> 삭제 예정</span>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200">취소</button>
+            <button onClick={executeDelete} disabled={deleting || totalToDelete === 0}
+              className="px-5 py-2 bg-gradient-to-br from-red-500 to-rose-600 text-white rounded-lg text-sm font-bold shadow hover:opacity-90 disabled:opacity-40 flex items-center gap-2">
+              <Trash2 className="w-4 h-4" /> {deleting ? "삭제 중..." : `${totalToDelete}명 삭제`}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
