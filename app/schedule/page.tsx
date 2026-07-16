@@ -261,21 +261,35 @@ export default function SchedulePage() {
       } catch {}
     }
 
-    // 회원권 레코드 생성 (회차 > 0이면)
-    if (totalSessions > 0) {
+    // 회원권 자동 생성 (모든 결제에 대해 무조건 생성, 캴험/직접입력도 1회권으로)
+    let membershipCreateError: string | null = null;
+    const safeSessions = Math.max(1, totalSessions || 1);
+    {
       const endDate = new Date(paidAt);
       endDate.setDate(endDate.getDate() + validDays);
-      const { data: newMs, error: msErr } = await supabase.from("memberships").insert({
+      const msPayload: any = {
         org_id: orgId,
         member_id: slot.member_id,
         plan_name: planName,
-        total_sessions: totalSessions,
+        total_sessions: safeSessions,
         used_sessions: 0,
         start_date: paidAt,
         end_date: endDate.toISOString().slice(0, 10),
         price: payment.amount,
-      }).select().single();
-      if (!msErr && newMs) membershipId = newMs.id;
+        status: "active",
+      };
+      let lastMsErr: any = null;
+      for (let attempt = 0; attempt < 15; attempt++) {
+        const { data, error } = await supabase.from("memberships").insert(msPayload).select().single();
+        if (!error) { membershipId = data?.id || null; lastMsErr = null; break; }
+        lastMsErr = error;
+        const m = error.message.match(/'([^']+)' column|column "([^"]+)"/);
+        const missing = m?.[1] || m?.[2];
+        if (missing && missing in msPayload) { delete msPayload[missing]; continue; }
+        console.warn("membership insert 실패:", error);
+        break;
+      }
+      if (!membershipId && lastMsErr) membershipCreateError = lastMsErr.message;
     }
 
     // 재결제 자동 연결: 같은 slot에 취소된 결제가 있으면 replaces 필드에 기록
@@ -345,9 +359,11 @@ export default function SchedulePage() {
     }
 
     await loadAll();
-    alert(totalSessions > 0
-      ? `✅ 결제 등록 + 회원권 ${totalSessions}회 자동 추가되었습니다`
-      : "✅ 결제 등록되었습니다");
+    if (membershipCreateError) {
+      alert(`⚠️ 결제는 저장됐지만 회원권 자동 생성에 실패했습니다.\n\n오류: ${membershipCreateError}\n\n💡 AQUNOTE_V37_FIX8.sql 을 Supabase SQL Editor에서 실행해 주세요.\n   실행후 이 결제를 삭제·재등록하면 회원권이 자동 생성됩니다.`);
+    } else {
+      alert(`✅ 결제 등록 + 회원권 ${safeSessions}회 자동 생성되었습니다`);
+    }
   }
 
   // 결제 취소 (이력 보존 → status='cancelled')
@@ -1371,7 +1387,7 @@ function SlotModal({ f, setF, modal, members, staff, plans, onClose, onSave, onD
             )}
           </Field>
 
-          <Field label="수업명 / 회원권 졌택">
+          <Field label="수업명 / 회원권 선택">
             {plans && plans.length > 0 ? (
               <div className="space-y-1">
                 <select value={f.lesson_name || ""} onChange={e => setF({ ...f, lesson_name: e.target.value })}

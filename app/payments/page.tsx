@@ -89,7 +89,15 @@ export default function PaymentsPage() {
         }
         return first;
       })(),
-      supabase.from("memberships").select("*, members(name, member_type)").order("created_at", { ascending: false }),
+      // memberships 조회 — order 실패 시 no-order로 fallback
+      (async () => {
+        const r1 = await supabase.from("memberships").select("*, members(name, member_type)").order("created_at", { ascending: false });
+        if (r1.error) {
+          console.warn("memberships 조회 fallback:", r1.error);
+          return await supabase.from("memberships").select("*, members(name, member_type)");
+        }
+        return r1;
+      })(),
       supabase.from("members").select("id, name, member_type").is("deleted_at", null).order("name"),
       supabase.from("membership_plans").select("*").eq("is_active", true).order("sort_order"),
     ]);
@@ -146,20 +154,34 @@ export default function PaymentsPage() {
     try {
       const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
 
-      // 1) memberships에 회원권 추가
+      // 1) memberships에 회원권 자동 생성 (모든 결제 → 무조건 회원권 레코드 생성)
       const endDate = new Date(f.paid_at);
-      endDate.setDate(endDate.getDate() + Number(f.valid_days || 60));
-      const { data: newMembership, error: mErr } = await supabase.from("memberships").insert({
+      endDate.setDate(endDate.getDate() + Number(f.valid_days || 90));
+      // sessions가 0/음수이면 최소 1회권으로 생성
+      const safeSessions = Math.max(1, Number(f.sessions) || 1);
+      const msPayload: any = {
         org_id: orgId,
         member_id: f.member_id,
         plan_name: f.plan_name,
-        total_sessions: Number(f.sessions),
+        total_sessions: safeSessions,
         used_sessions: 0,
         start_date: f.paid_at,
         end_date: endDate.toISOString().slice(0, 10),
         price: Number(f.amount),
-      }).select().single();
-      if (mErr) throw mErr;
+        status: "active",
+      };
+      let newMembership: any = null;
+      let msLastErr: any = null;
+      for (let attempt = 0; attempt < 15; attempt++) {
+        const { data, error } = await supabase.from("memberships").insert(msPayload).select().single();
+        if (!error) { newMembership = data; msLastErr = null; break; }
+        msLastErr = error;
+        const m = error.message.match(/'([^']+)' column|column "([^"]+)"/);
+        const missing = m?.[1] || m?.[2];
+        if (missing && missing in msPayload) { delete msPayload[missing]; continue; }
+        break;
+      }
+      if (!newMembership) throw new Error((msLastErr?.message || "알 수 없는 오류") + "\n\n💡 AQUNOTE_V37_FIX8.sql을 Supabase에 실행해 주세요.");
 
       // 2) payments에 결제 이력 추가 (결제수단 상세 포함)
       const payload: any = {
@@ -226,7 +248,7 @@ export default function PaymentsPage() {
       const endDate = new Date(paidAt);
       endDate.setDate(endDate.getDate() + validDays);
 
-      const { data: newMs, error: msErr } = await supabase.from("memberships").insert({
+      const msPayload: any = {
         org_id: orgId,
         member_id: payment.member_id,
         plan_name: planName,
@@ -236,8 +258,31 @@ export default function PaymentsPage() {
         end_date: endDate.toISOString().slice(0, 10),
         price: payment.amount,
         status: "active",
-      }).select().single();
-      if (msErr) throw msErr;
+      };
+      // 스키마에 없는 컬럼 자동 제거 및 대체 컬럼명 시도
+      let newMs: any = null;
+      let lastErr: any = null;
+      for (let attempt = 0; attempt < 15; attempt++) {
+        const { data, error } = await supabase.from("memberships").insert(msPayload).select().single();
+        if (!error) { newMs = data; lastErr = null; break; }
+        lastErr = error;
+        const m = error.message.match(/'([^']+)' column|column "([^"]+)"/);
+        const missing = m?.[1] || m?.[2];
+        if (missing && missing in msPayload) { delete msPayload[missing]; continue; }
+        // end_date/start_date 대체 컬럼명 시도
+        if (/end_date/.test(error.message) && msPayload.end_date) {
+          msPayload.expires_at = msPayload.end_date; delete msPayload.end_date; continue;
+        }
+        if (/start_date/.test(error.message) && msPayload.start_date) {
+          msPayload.begin_date = msPayload.start_date; delete msPayload.start_date; continue;
+        }
+        break;
+      }
+      if (!newMs) {
+        alert("회원권 생성 실패: " + (lastErr?.message || "알 수 없는 오류") +
+          "\n\n💡 AQUNOTE_V37_FIX8.sql 을 Supabase에 실행해 주세요.");
+        return;
+      }
 
       // 결제에 membership_id 연결
       await supabase.from("payments").update({ membership_id: newMs.id }).eq("id", payment.id);
