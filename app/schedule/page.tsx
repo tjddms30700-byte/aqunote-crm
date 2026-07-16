@@ -114,6 +114,7 @@ export default function SchedulePage() {
 
   // Quick action sheet (예약 클릭 시)
   const [quickAction, setQuickAction] = useState<any | null>(null);
+  const [actionSheet, setActionSheet] = useState<{ date: string; time?: string } | null>(null);
   const [payments, setPayments] = useState<any[]>([]);
   const [attendance, setAttendance] = useState<any[]>([]);
 
@@ -454,7 +455,59 @@ export default function SchedulePage() {
     return { total, byStatus, revenue };
   }, [slots, year, month0]);
 
-  /* 모달 열기 */
+  /* 모달 열기 - 날짜만 클릭하면 액션 시트 보여줌, time이 있으면 예약 모달 직행 */
+  function openDateActionSheet(date: string, time?: string) {
+    if (time) {
+      // 시간 셔이 클릭은 바로 예약 등록
+      openNewModal(date, time);
+    } else {
+      setActionSheet({ date });
+    }
+  }
+
+  function openRevenueModalFromDate(date: string) {
+    // 매출 등록 = event_type='revenue'
+    setF({
+      event_date: date,
+      time_slot: nowTime(),
+      event_type: "revenue",
+      member_id: "",
+      staff_id: "",
+      lesson_name: "",
+      status: "done",
+      note: "",
+      amount: 0,
+      recurring_enabled: false,
+      recurring_weeks: 4,
+    });
+    setModal({ date });
+    setActionSheet(null);
+  }
+
+  function openStaffScheduleFromDate(date: string) {
+    // 직원 일정 = event_type='staff_work'
+    setF({
+      event_date: date,
+      time_slot: "09:00",
+      event_type: "staff_work",
+      member_id: "",
+      staff_id: "",
+      lesson_name: "",
+      status: "scheduled",
+      note: "",
+      amount: 0,
+      recurring_enabled: false,
+      recurring_weeks: 4,
+    });
+    setModal({ date });
+    setActionSheet(null);
+  }
+
+  function nowTime() {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+  }
+
   function openNewModal(date: string, time?: string) {
     setF({
       event_date: date,
@@ -841,7 +894,7 @@ export default function SchedulePage() {
           slots={slots}
           members={members}
           staff={staff}
-          onCellClick={(date, time) => openNewModal(date, time)}
+          onCellClick={(date, time) => openDateActionSheet(date, time)}
           onEdit={openEditModal}
           memberName={memberName}
         />
@@ -852,7 +905,7 @@ export default function SchedulePage() {
           slots={slots}
           members={members}
           staff={staff}
-          onCellClick={(date, time) => openNewModal(date, time)}
+          onCellClick={(date, time) => openDateActionSheet(date, time)}
           onEdit={openEditModal}
           memberName={memberName}
         />
@@ -860,6 +913,17 @@ export default function SchedulePage() {
 
       {/* ═══ 하단 상태별 통계 요약 ═══ */}
       <StatsSummary stats={monthStats} year={year} month0={month0} />
+
+      {/* ═══ 날짜 액션 시트 ═══ */}
+      {actionSheet && (
+        <DateActionSheet
+          date={actionSheet.date}
+          onReservation={() => { openNewModal(actionSheet.date); setActionSheet(null); }}
+          onRevenue={() => openRevenueModalFromDate(actionSheet.date)}
+          onStaffSchedule={() => openStaffScheduleFromDate(actionSheet.date)}
+          onClose={() => setActionSheet(null)}
+        />
+      )}
 
       {/* ═══ 등록/수정 모달 ═══ */}
       {modal && (
@@ -1938,6 +2002,66 @@ function MemberSearchSelect({ members, value, onChange }: any) {
       )}
 
       {open && <div className="fixed inset-0 z-40" onClick={() => setOpen(false)}></div>}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 📅 날짜 클릭 시 나오는 액션 시트 (예약등록 / 매출등록 / 직원일정등록)
+// ═══════════════════════════════════════════════════════════════
+function DateActionSheet({ date, onReservation, onRevenue, onStaffSchedule, onClose }: any) {
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-aqu-50 to-blue-50">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-xs text-gray-500">선택한 날짜</div>
+              <div className="text-lg font-bold text-slate-900">{date}</div>
+            </div>
+            <button onClick={onClose} className="p-1.5 hover:bg-white/50 rounded-lg">
+              <span className="text-xl">✕</span>
+            </button>
+          </div>
+        </div>
+        <div className="p-4 space-y-2">
+          <button onClick={onReservation}
+            className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-blue-200 hover:bg-blue-50 hover:border-blue-400 transition">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-xl shadow">
+              📅
+            </div>
+            <div className="flex-1 text-left">
+              <div className="font-bold text-slate-900">예약 등록</div>
+              <div className="text-xs text-gray-500">회원 수업 · 체험 예약</div>
+            </div>
+            <span className="text-gray-400">→</span>
+          </button>
+
+          <button onClick={onRevenue}
+            className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-pink-200 hover:bg-pink-50 hover:border-pink-400 transition">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-pink-500 to-rose-500 flex items-center justify-center text-white text-xl shadow">
+              💰
+            </div>
+            <div className="flex-1 text-left">
+              <div className="font-bold text-slate-900">매출 등록</div>
+              <div className="text-xs text-gray-500">결제 · 회원권 · 제품 판매</div>
+            </div>
+            <span className="text-gray-400">→</span>
+          </button>
+
+          <button onClick={onStaffSchedule}
+            className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-purple-200 hover:bg-purple-50 hover:border-purple-400 transition">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-500 flex items-center justify-center text-white text-xl shadow">
+              👥
+            </div>
+            <div className="flex-1 text-left">
+              <div className="font-bold text-slate-900">직원 일정 등록</div>
+              <div className="text-xs text-gray-500">근무 · 휴무 · 회의</div>
+            </div>
+            <span className="text-gray-400">→</span>
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

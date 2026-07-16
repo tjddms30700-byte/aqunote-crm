@@ -72,6 +72,14 @@ export default function PaymentsPage() {
     installment: 0,
     receipt_no: "",
     memo: "",
+    // v3.8: 여러 수단 분할 결제
+    pay_card: 0,
+    pay_cash: 0,
+    pay_transfer: 0,
+    pay_other: 0,
+    pay_other_label: "",
+    unpaid: 0,
+    discount: 0,
   });
 
   useEffect(() => { loadAll(); }, []);
@@ -183,30 +191,49 @@ export default function PaymentsPage() {
       }
       if (!newMembership) throw new Error((msLastErr?.message || "알 수 없는 오류") + "\n\n💡 AQUNOTE_V37_FIX8.sql을 Supabase에 실행해 주세요.");
 
-      // 2) payments에 결제 이력 추가 (결제수단 상세 포함)
+      // 2) payments에 결제 이력 추가 (여러 수단 분할 포함)
       const payload: any = {
         org_id: orgId,
         member_id: f.member_id,
         membership_id: newMembership?.id,
         amount: Number(f.amount),
+        gross_amount: Number(f.amount),
         method: f.method,
         paid_at: f.paid_at,
         paid_time: f.paid_time || null,
         description: f.plan_name,
         memo: f.memo || null,
+        // v3.8: 여러 수단 분할
+        pay_card: Number(f.pay_card || 0),
+        pay_cash: Number(f.pay_cash || 0),
+        pay_transfer: Number(f.pay_transfer || 0),
+        pay_other: Number(f.pay_other || 0),
+        pay_other_label: f.pay_other_label || null,
+        unpaid_amount: Number(f.unpaid || 0),
+        discount_amount: Number(f.discount || 0),
       };
-      if (f.method === "card") {
+      if (f.method === "card" || (f.pay_card && Number(f.pay_card) > 0)) {
         payload.approval_no = f.approval_no || null;
         payload.card_number = f.card_number ? toMaskedDisplay(f.card_number) : null;
         payload.card_issuer = f.card_issuer || null;
         payload.installment = Number(f.installment || 0);
       }
-      if (f.method === "cash") {
+      if (f.method === "cash" || (f.pay_cash && Number(f.pay_cash) > 0)) {
         payload.receipt_no = f.receipt_no || null;
       }
 
-      const { error: pErr } = await supabase.from("payments").insert(payload);
-      if (pErr) throw pErr;
+      // v3.8: 방어적 insert - 없는 컬럼 자동 제거 후 재시도
+      let payLastErr: any = null;
+      for (let i = 0; i < 15; i++) {
+        const { error: pErr } = await supabase.from("payments").insert(payload);
+        if (!pErr) { payLastErr = null; break; }
+        payLastErr = pErr;
+        const m = pErr.message.match(/'([^']+)' column|column "([^"]+)"/);
+        const missing = m?.[1] || m?.[2];
+        if (missing && missing in payload) { delete payload[missing]; continue; }
+        break;
+      }
+      if (payLastErr) throw new Error(payLastErr.message + "\n\n💡 AQUNOTE_V38_INIT.sql 을 실행해 payments에 분할 컬럼을 추가해 주세요.");
 
       setShowModal(false);
       await loadAll();
@@ -692,19 +719,55 @@ export default function PaymentsPage() {
               </Field>
             </div>
 
-            {/* Payment method */}
-            <div className="mt-3">
-              <label className="block text-xs font-semibold text-gray-600 mb-1">결제 수단 *</label>
-              <div className="grid grid-cols-4 gap-2">
-                {METHODS.map(m => (
-                  <button key={m.value} type="button" onClick={() => setF({ ...f, method: m.value })}
-                    className={`py-2 px-1 rounded-lg border text-xs md:text-sm flex flex-col items-center gap-1 transition ${f.method === m.value ? m.color + " font-bold shadow-sm" : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"}`}>
-                    <m.icon className="w-4 h-4" />
-                    {m.label}
-                  </button>
-                ))}
+            {/* v3.8: 여러 수단 분할 결제 */}
+            <div className="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-bold text-slate-700">💰 결제 수단 (여러 개 분할 가능)</label>
+                <div className="text-[10px] text-gray-500">총액: ₩{Number(f.amount || 0).toLocaleString()}</div>
               </div>
+              <div className="space-y-1.5">
+                <SplitPayRow label="💳 카드" val={f.pay_card} onC={v => setF({ ...f, pay_card: v })} totalAmount={Number(f.amount||0)} f={f} />
+                <SplitPayRow label="💵 현금" val={f.pay_cash} onC={v => setF({ ...f, pay_cash: v })} totalAmount={Number(f.amount||0)} f={f} />
+                <SplitPayRow label="🏦 계좌이체" val={f.pay_transfer} onC={v => setF({ ...f, pay_transfer: v })} totalAmount={Number(f.amount||0)} f={f} />
+                <SplitPayRow label="📋 기타" val={f.pay_other} onC={v => setF({ ...f, pay_other: v })} totalAmount={Number(f.amount||0)} f={f}
+                  extra={
+                    <input type="text" value={f.pay_other_label || ""} onChange={e => setF({ ...f, pay_other_label: e.target.value })}
+                      placeholder="기타 명칭" className="w-24 px-2 py-1 text-xs border border-gray-200 rounded" />
+                  } />
+                <SplitPayRow label="⚠️ 미수" val={f.unpaid} onC={v => setF({ ...f, unpaid: v })} totalAmount={Number(f.amount||0)} f={f} isUnpaid />
+                <SplitPayRow label="🎁 할인" val={f.discount} onC={v => setF({ ...f, discount: v })} totalAmount={Number(f.amount||0)} f={f} isDiscount />
+              </div>
+              {(() => {
+                const totalPaid = Number(f.pay_card||0) + Number(f.pay_cash||0) + Number(f.pay_transfer||0) + Number(f.pay_other||0) + Number(f.unpaid||0) + Number(f.discount||0);
+                const target = Number(f.amount||0);
+                const diff = target - totalPaid;
+                return (
+                  <div className={`mt-3 p-2 rounded-lg flex items-center justify-between text-sm ${diff === 0 ? "bg-green-50 text-green-700" : diff > 0 ? "bg-yellow-50 text-yellow-700" : "bg-red-50 text-red-700"}`}>
+                    <span className="font-semibold">{diff === 0 ? "✅ 결제 완료" : diff > 0 ? `⚠️ 남은 금액: ₩${diff.toLocaleString()}` : `⚠️ 초과 금액: ₩${Math.abs(diff).toLocaleString()}`}</span>
+                    <button type="button"
+                      onClick={() => {
+                        // 남은 금액을 가장 큰 금액의 수단에 자동 채우기
+                        if (diff > 0) {
+                          setF({ ...f, pay_card: (Number(f.pay_card)||0) + diff });
+                        }
+                      }}
+                      className="text-xs px-2 py-1 bg-white border border-current rounded font-semibold">
+                      카드로 나머지 채우기
+                    </button>
+                  </div>
+                );
+              })()}
             </div>
+
+            {/* 하위 호환을 위해 method 필드 유지 (남은 것 중 가장 큰 수단) */}
+            {(() => {
+              const paidByMethod = { card: Number(f.pay_card||0), cash: Number(f.pay_cash||0), transfer: Number(f.pay_transfer||0), other: Number(f.pay_other||0) };
+              const primary = Object.entries(paidByMethod).sort(([,a],[,b]) => b - a)[0][0];
+              if (f.method !== primary && primary && paidByMethod[primary as keyof typeof paidByMethod] > 0) {
+                setTimeout(() => setF((prev: any) => ({ ...prev, method: primary })), 0);
+              }
+              return null;
+            })()}
 
             {/* CARD-specific fields */}
             {f.method === "card" && (
@@ -1043,6 +1106,29 @@ function RefundModal({ membership, payments, onClose, onDone }: any) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// v3.8: 여러 결제 수단 분할 입력 헬퍼
+function SplitPayRow({ label, val, onC, totalAmount, f, extra, isUnpaid, isDiscount }: any) {
+  const numVal = Number(val || 0);
+  return (
+    <div className="flex items-center gap-2">
+      <div className={`w-20 text-xs font-medium ${isUnpaid ? "text-red-600" : isDiscount ? "text-purple-600" : "text-slate-700"}`}>{label}</div>
+      <input type="number" min={0} value={numVal || ""} onChange={e => onC(parseInt(e.target.value) || 0)}
+        placeholder="0"
+        className={`flex-1 px-2 py-1.5 border rounded text-sm text-right font-mono ${numVal > 0 ? "border-current bg-white" : "border-gray-200 bg-white"}`} />
+      <span className="text-xs text-gray-400 w-4">원</span>
+      {extra}
+      {totalAmount > 0 && (
+        <button type="button" onClick={() => onC(totalAmount)}
+          className="text-[10px] px-1.5 py-0.5 bg-slate-200 hover:bg-slate-300 rounded font-semibold whitespace-nowrap"
+          title="전액 입력">전액</button>
+      )}
+      <button type="button" onClick={() => onC(0)}
+        className="text-[10px] px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 rounded"
+        title="초기화">×</button>
     </div>
   );
 }
