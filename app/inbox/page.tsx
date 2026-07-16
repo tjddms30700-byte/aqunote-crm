@@ -28,7 +28,7 @@ type InboxLead = {
 export default function InboxPage() {
   const [leads, setLeads] = useState<InboxLead[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<"pending" | "processed" | "all">("pending");
+  const [filter, setFilter] = useState<"pending" | "processed" | "archived" | "all">("pending");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [processing, setProcessing] = useState(false);
 
@@ -50,6 +50,10 @@ export default function InboxPage() {
   }
 
   const filteredLeads = leads.filter(l => {
+    // 아카이브된 항목은 반드시 archived 탭에서만 노출
+    const isArchived = (l as any).archived === true;
+    if (filter === "archived") return isArchived;
+    if (isArchived) return false;
     if (filter === "pending") return !l.processed;
     if (filter === "processed") return l.processed;
     return true;
@@ -155,12 +159,16 @@ export default function InboxPage() {
         return;
       }
 
+      // 승격 성공 즉시 archived=true 로 변경하여 즐시 목록에서 감춤 (이력은 아카이브 탭에서 확인 가능)
       await supabase.from("leads_inbox").update({
         processed: true,
         member_id: newMember.id,
+        archived: true,
+        archived_at: new Date().toISOString(),
       }).eq("id", lead.id);
 
       await loadAll();
+      alert(`✅ ${lead.name}님이 회원으로 승격되었습니다 (승격된 유입은 아카이브 탭에서 확인 가능)`);
     } catch (e: any) {
       alert("오류: " + e.message);
     }
@@ -190,6 +198,7 @@ export default function InboxPage() {
         }
         await supabase.from("leads_inbox").update({
           processed: true, member_id: newMember.id,
+          archived: true, archived_at: new Date().toISOString(),
         }).eq("id", lead.id);
         success++;
       } catch (e) { fail++; }
@@ -205,7 +214,51 @@ export default function InboxPage() {
     await loadAll();
   }
 
-  const pendingCount = leads.filter(l => !l.processed).length;
+  const pendingCount = leads.filter(l => !l.processed && !(l as any).archived).length;
+  const processedActiveCount = leads.filter(l => l.processed && !(l as any).archived).length;
+  const archivedCount = leads.filter(l => (l as any).archived).length;
+
+  // 즐시 안 메뉴에서 종료된 리드를 수동으로 아카이브하기 (7일 기다리지 않고)
+  async function archiveSelected() {
+    if (selectedIds.size === 0) return alert("아카이브할 항목을 선택하세요");
+    if (!confirm(`선택한 ${selectedIds.size}건을 아카이브하시겠습니까?\n\n(목록에서 숨김 - 데이터는 보존됨)`)) return;
+    setProcessing(true);
+    const { error } = await supabase.from("leads_inbox")
+      .update({ archived: true, archived_at: new Date().toISOString() })
+      .in("id", Array.from(selectedIds));
+    setProcessing(false);
+    if (error) alert("아카이브 실패: " + error.message);
+    else { alert(`✅ ${selectedIds.size}건 아카이브 완료`); await loadAll(); }
+  }
+
+  // 종료된 리드 자동 정리 (삭제된 회원 참조 + 회원 사라진 참조 + 7일 지난 승격완료)
+  async function cleanupIntegrity() {
+    if (!confirm("데이터 무결성 자동 정리를 실행합니다.\n\n• 삭제된 회원 참조 유입 → 자동 삭제\n• 회원이 사라진 유입 → 대기 상태로 복원\n• 7일 지난 승격완료 → 아카이브\n\n계속하시겠습니까?")) return;
+    setProcessing(true);
+    try {
+      // 1) 삭제된 회원 참조 유입 삭제
+      const { data: deletedMembers } = await supabase.from("members")
+        .select("id").not("deleted_at", "is", null);
+      const deletedIds = (deletedMembers || []).map((m: any) => m.id);
+      let removed = 0;
+      if (deletedIds.length > 0) {
+        const { error, count } = await supabase.from("leads_inbox")
+          .delete({ count: "exact" }).in("member_id", deletedIds);
+        if (!error) removed = count || 0;
+      }
+
+      // 2) 7일 지난 processed=true 항목 자동 archived
+      const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
+      const { count: archived } = await supabase.from("leads_inbox")
+        .update({ archived: true, archived_at: new Date().toISOString() }, { count: "exact" })
+        .eq("processed", true).eq("archived", false).lt("created_at", weekAgo.toISOString());
+
+      alert(`✅ 무결성 정리 완료\n\n• 삭제된 회원 참조 유입 ${removed}건 삭제\n• 7일 지난 승격완료 ${archived || 0}건 아카이브`);
+      await loadAll();
+    } catch (e: any) {
+      alert("무결성 정리 실패: " + e.message);
+    } finally { setProcessing(false); }
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-aqu-50 to-white p-6">
@@ -282,9 +335,9 @@ export default function InboxPage() {
           <div className="text-xs opacity-80 mt-1">관리자 승격 필요</div>
         </div>
         <div className="bg-gradient-to-br from-emerald-500 to-teal-500 rounded-xl p-5 text-white shadow-md">
-          <div className="flex items-center gap-2 text-sm opacity-90"><Check className="w-4 h-4" /> 승격 완료</div>
-          <div className="text-3xl font-bold mt-1">{leads.filter(l => l.processed).length}건</div>
-          <div className="text-xs opacity-80 mt-1">회원 목록으로 이동됨</div>
+          <div className="flex items-center gap-2 text-sm opacity-90"><Check className="w-4 h-4" /> 승격 완료 (유효)</div>
+          <div className="text-3xl font-bold mt-1">{processedActiveCount}건</div>
+          <div className="text-xs opacity-80 mt-1">아카이브: {archivedCount}건</div>
         </div>
         <div className="bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl p-5 text-white shadow-md">
           <div className="flex items-center gap-2 text-sm opacity-90"><Users className="w-4 h-4" /> 전체 유입</div>
@@ -295,14 +348,26 @@ export default function InboxPage() {
 
       {/* 필터 & 일괄작업 */}
       <div className="max-w-7xl mx-auto mb-4 flex justify-between items-center">
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button onClick={() => setFilter("pending")} className={`px-4 py-2 text-sm rounded-lg ${filter === "pending" ? "bg-orange-500 text-white" : "bg-white border border-gray-200"}`}>⏳ 미처리 ({pendingCount})</button>
-          <button onClick={() => setFilter("processed")} className={`px-4 py-2 text-sm rounded-lg ${filter === "processed" ? "bg-emerald-500 text-white" : "bg-white border border-gray-200"}`}>✅ 완료 ({leads.length - pendingCount})</button>
+          <button onClick={() => setFilter("processed")} className={`px-4 py-2 text-sm rounded-lg ${filter === "processed" ? "bg-emerald-500 text-white" : "bg-white border border-gray-200"}`}>✅ 승격완료 ({processedActiveCount})</button>
+          <button onClick={() => setFilter("archived")} className={`px-4 py-2 text-sm rounded-lg ${filter === "archived" ? "bg-gray-500 text-white" : "bg-white border border-gray-200"}`}>🗄️ 아카이브 ({archivedCount})</button>
           <button onClick={() => setFilter("all")} className={`px-4 py-2 text-sm rounded-lg ${filter === "all" ? "bg-purple-500 text-white" : "bg-white border border-gray-200"}`}>📋 전체 ({leads.length})</button>
+          <button onClick={cleanupIntegrity} disabled={processing}
+            className="px-3 py-2 text-sm rounded-lg bg-white border border-red-200 text-red-600 hover:bg-red-50"
+            title="삭제된 회원이 참조하는 유입 자동 정리 + 7일 지난 승격완료 아카이브">
+            🧹 무결성 정리
+          </button>
         </div>
         {selectedIds.size > 0 && (
           <div className="flex gap-2">
             <span className="px-3 py-2 text-sm text-purple-700">{selectedIds.size}건 선택됨</span>
+            {filter !== "archived" && (
+              <button onClick={archiveSelected} disabled={processing}
+                className="px-4 py-2 bg-gray-500 text-white text-sm rounded-lg hover:bg-gray-600 disabled:opacity-50">
+                🗄️ 아카이브
+              </button>
+            )}
             <button onClick={promoteSelected} disabled={processing}
               className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-sm rounded-lg hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 flex items-center gap-1">
               <UserPlus className="w-4 h-4" /> 일괄 승격
