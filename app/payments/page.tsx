@@ -210,7 +210,7 @@ export default function PaymentsPage() {
 
       setShowModal(false);
       await loadAll();
-      alert("✅ 결제 등록 완료");
+      alert(`✅ 결제 등록 완료\n\n· 회원권: ${f.plan_name} ${safeSessions}회 자동 생성\n· 유효기간: ${f.paid_at} ~ ${endDate.toISOString().slice(0, 10)}\n· 금액: ₩${Number(f.amount).toLocaleString()}`);
     } catch (err: any) {
       alert("저장 실패: " + err.message);
     } finally {
@@ -372,7 +372,8 @@ export default function PaymentsPage() {
   const thisMonthRevenue = payments
     .filter((p) => p.status !== "cancelled" && (p.paid_at || "").startsWith(new Date().toISOString().slice(0, 7)))
     .reduce((sum, p) => sum + (p.amount || 0), 0);
-  const activeMemberships = memberships.filter((m) => m.status !== "cancelled" && m.end_date && new Date(m.end_date) > new Date()).length;
+  // 활성 회원권: 취소되지 않고, end_date가 없거나 미래인 것 (end_date null이어도 확인 가능)
+  const activeMemberships = memberships.filter((m) => m.status !== "cancelled" && (!m.end_date || new Date(m.end_date) > new Date())).length;
 
   return (
     <main className="max-w-6xl mx-auto px-3 md:px-6 py-6 md:py-10">

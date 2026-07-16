@@ -1538,7 +1538,15 @@ function MemberHistoryPanel({ memberId }: { memberId: string }) {
     setLoading(true);
     const [p, ms, at, sl, rf] = await Promise.all([
       supabase.from("payments").select("*").eq("member_id", memberId).order("paid_at", { ascending: false }),
-      supabase.from("memberships").select("*").eq("member_id", memberId).order("start_date", { ascending: false }),
+      // memberships 조회 — order 실패 시 no-order로 fallback
+      (async () => {
+        const r1 = await supabase.from("memberships").select("*").eq("member_id", memberId).order("start_date", { ascending: false });
+        if (r1.error) {
+          console.warn("memberships 조회 fallback:", r1.error);
+          return await supabase.from("memberships").select("*").eq("member_id", memberId);
+        }
+        return r1;
+      })(),
       supabase.from("attendance").select("*").eq("member_id", memberId),
       supabase.from("schedule_slots").select("*").eq("member_id", memberId).is("deleted_at", null).order("event_date", { ascending: false }),
       supabase.from("refunds").select("*").eq("member_id", memberId).order("refunded_at", { ascending: false }),
