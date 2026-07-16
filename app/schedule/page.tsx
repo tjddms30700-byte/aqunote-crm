@@ -550,10 +550,13 @@ export default function SchedulePage() {
       return d.getDay() === 0 ? 7 : d.getDay();
     };
 
+    // 직원 근무/휴무는 상태 구분 없이 자동으로 'scheduled'로 저장 (사유만 note에 기록)
+    const effectiveStatus = (f.event_type === "staff_work" || f.event_type === "staff_off")
+      ? "scheduled" : f.status;
     const basePayload: any = {
       time_slot: f.time_slot,
       event_type: f.event_type,
-      status: f.status,
+      status: effectiveStatus,
       lesson_name: f.lesson_name || null,
       note: f.note || null,
     };
@@ -1467,7 +1470,7 @@ function SlotModal({ f, setF, modal, members, staff, plans, onClose, onSave, onD
                     placeholder="자유 입력 (예: 체험, 개인지도)"
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none" />
                 )}
-                <div className="text-[10px] text-gray-500">💡 회원권은 <a href="/plans" className="text-aqu-600 underline">횟원권 관리 페이지</a>에서 추가하세요</div>
+                <div className="text-[10px] text-gray-500">💡 회원권은 <a href="/plans" className="text-aqu-600 underline">회원권 관리 페이지</a>에서 추가하세요</div>
               </div>
             ) : (
               <input type="text" value={f.lesson_name || ""}
@@ -1485,6 +1488,16 @@ function SlotModal({ f, setF, modal, members, staff, plans, onClose, onSave, onD
             </Field>
           )}
 
+          {(f.event_type === "staff_work" || f.event_type === "staff_off") ? (
+            <Field label={f.event_type === "staff_work" ? "📝 근무 사유 / 내용" : "📝 휴무 사유"}>
+              <textarea value={f.note || ""}
+                onChange={e => setF({ ...f, note: e.target.value })}
+                rows={3}
+                placeholder={f.event_type === "staff_work" ? "예: 오전조 근무, 회의 참석, 교육 등" : "예: 연차, 병가, 경조사 등"}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none resize-none" />
+              <div className="text-[10px] text-gray-500 mt-1">ℹ️ 직원 근무/휴무는 상태 구분 없이 사유만 기록됩니다</div>
+            </Field>
+          ) : (
           <Field label="상태">
             <div className="grid grid-cols-3 gap-1">
               {STATUS_OPTIONS.map(st => (
@@ -1496,13 +1509,16 @@ function SlotModal({ f, setF, modal, members, staff, plans, onClose, onSave, onD
               ))}
             </div>
           </Field>
+          )}
 
-          <Field label="메모">
-            <input type="text" value={f.note}
-              onChange={e => setF({ ...f, note: e.target.value })}
-              placeholder="예: 컨디션 나빠 30분 조기 종료"
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none" />
-          </Field>
+          {!(f.event_type === "staff_work" || f.event_type === "staff_off") && (
+            <Field label="메모">
+              <input type="text" value={f.note}
+                onChange={e => setF({ ...f, note: e.target.value })}
+                placeholder="예: 컨디션 나빠 30분 조기 종료"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none" />
+            </Field>
+          )}
 
           {/* 반복 예약 옵션 (새 예약일 때만) */}
           {!isEditing && (
