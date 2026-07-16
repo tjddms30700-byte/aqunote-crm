@@ -455,14 +455,9 @@ export default function SchedulePage() {
     return { total, byStatus, revenue };
   }, [slots, year, month0]);
 
-  /* 모달 열기 - 날짜만 클릭하면 액션 시트 보여줌, time이 있으면 예약 모달 직행 */
+  /* 모달 열기 - 항상 액션 시트 우선 (time이 있어도 3가지 선택지 제공) */
   function openDateActionSheet(date: string, time?: string) {
-    if (time) {
-      // 시간 셔이 클릭은 바로 예약 등록
-      openNewModal(date, time);
-    } else {
-      setActionSheet({ date });
-    }
+    setActionSheet({ date, time });
   }
 
   function openRevenueModalFromDate(date: string) {
@@ -776,7 +771,7 @@ export default function SchedulePage() {
 
                 return (
                   <div key={idx}
-                    onClick={() => setSelectedDate(cellStr)}
+                    onClick={() => { setSelectedDate(cellStr); if (!isOtherMonth) setActionSheet({ date: cellStr }); }}
                     onDragOver={(e) => handleDragOver(cellStr, e)}
                     onDragLeave={() => dragOverDate === cellStr && setDragOverDate(null)}
                     onDrop={(e) => handleDrop(cellStr, e)}
@@ -918,7 +913,8 @@ export default function SchedulePage() {
       {actionSheet && (
         <DateActionSheet
           date={actionSheet.date}
-          onReservation={() => { openNewModal(actionSheet.date); setActionSheet(null); }}
+          time={actionSheet.time}
+          onReservation={() => { openNewModal(actionSheet.date, actionSheet.time); setActionSheet(null); }}
           onRevenue={() => openRevenueModalFromDate(actionSheet.date)}
           onStaffSchedule={() => openStaffScheduleFromDate(actionSheet.date)}
           onClose={() => setActionSheet(null)}
@@ -2009,7 +2005,7 @@ function MemberSearchSelect({ members, value, onChange }: any) {
 // ═══════════════════════════════════════════════════════════════
 // 📅 날짜 클릭 시 나오는 액션 시트 (예약등록 / 매출등록 / 직원일정등록)
 // ═══════════════════════════════════════════════════════════════
-function DateActionSheet({ date, onReservation, onRevenue, onStaffSchedule, onClose }: any) {
+function DateActionSheet({ date, time, onReservation, onRevenue, onStaffSchedule, onClose }: any) {
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden" onClick={e => e.stopPropagation()}>
@@ -2017,7 +2013,7 @@ function DateActionSheet({ date, onReservation, onRevenue, onStaffSchedule, onCl
           <div className="flex items-center justify-between">
             <div>
               <div className="text-xs text-gray-500">선택한 날짜</div>
-              <div className="text-lg font-bold text-slate-900">{date}</div>
+              <div className="text-lg font-bold text-slate-900">{date}{time ? ` · ${time}` : ""}</div>
             </div>
             <button onClick={onClose} className="p-1.5 hover:bg-white/50 rounded-lg">
               <span className="text-xl">✕</span>
