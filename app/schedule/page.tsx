@@ -127,7 +127,7 @@ export default function SchedulePage() {
     const [sRes, mRes, stRes, pRes, aRes, plRes] = await Promise.all([
       supabase.from("schedule_slots").select("*").order("event_date").order("time_slot"),
       supabase.from("members").select("id, name, member_type, status, phone").is("deleted_at", null).order("name"),
-      supabase.from("staff").select("id, name, role").order("name"),
+      supabase.from("staff").select("id, name, role, color, is_resigned, resign_date").order("name"),
       supabase.from("payments").select("*").order("paid_at", { ascending: false }),
       supabase.from("attendance").select("*"),
       supabase.from("membership_plans").select("*").eq("is_active", true).order("sort_order"),
@@ -461,22 +461,18 @@ export default function SchedulePage() {
   }
 
   function openRevenueModalFromDate(date: string) {
-    // 매출 등록 = event_type='revenue'
-    setF({
-      event_date: date,
-      time_slot: nowTime(),
-      event_type: "revenue",
-      member_id: "",
-      staff_id: "",
-      lesson_name: "",
-      status: "done",
-      note: "",
-      amount: 0,
-      recurring_enabled: false,
-      recurring_weeks: 4,
-    });
-    setModal({ date });
+    // 매출 등록은 /payments 통합 결제 모달을 사용
     setActionSheet(null);
+    try {
+      // sessionStorage에 플래그 저장 (useEffect 타이밍 이슈 방지)
+      sessionStorage.setItem("aqunote_open_payment", JSON.stringify({
+        open: true,
+        date: date,
+        ts: Date.now(),
+      }));
+    } catch {}
+    // 강제 페이지 이동
+    window.location.assign(`/payments?open=1&date=${encodeURIComponent(date)}`);
   }
 
   function openStaffScheduleFromDate(date: string) {
@@ -801,17 +797,33 @@ export default function SchedulePage() {
                       {daySlots.slice(0, 3).map(s => {
                         const meta = statusMeta(s.status || "scheduled");
                         const staffP = staff.find((st: any) => st.id === s.staff_id);
+                        // 강사 색상 기반으로 셀 배경을 연하게 칠함 (예약/완료 상태와 구분 설계)
+                        const staffTint = staffP?.color ? {
+                          backgroundColor: staffP.color + "22", // alpha 13%
+                          borderLeftColor: staffP.color,
+                          borderLeftWidth: 4,
+                          color: "#1e293b"
+                        } : {};
                         return (
                           <div key={s.id}
                             draggable
                             onDragStart={(e) => handleDragStart(s, e)}
                             onClick={(e) => { e.stopPropagation(); openQuickAction(s); }}
-                            style={staffP ? { borderLeftColor: staffP.color, borderLeftWidth: 3 } : {}}
-                            className={`text-[9px] md:text-[10px] px-1 py-0.5 rounded border truncate ${meta.color} hover:shadow-sm cursor-move flex items-center gap-0.5`}
-                            title={`${s.time_slot} ${memberName(s.member_id) || s.lesson_name || ""}${staffP ? " (" + staffP.name + ")" : ""} (드래그하여 이월)`}>
+                            style={staffTint}
+                            className={`text-[9px] md:text-[10px] px-1 py-0.5 rounded border truncate ${staffP?.color ? "" : meta.color} hover:shadow-sm cursor-move flex items-center gap-0.5`}
+                            title={`${s.time_slot} ${memberName(s.member_id) || s.lesson_name || s.note || ""}${staffP ? " (" + staffP.name + ") " + (meta.label || "") : ""} (드래그하여 이월)`}>
                             <span className="font-mono opacity-70">{s.time_slot?.slice(0,5)}</span>
                             <span className="truncate">
-                              {memberName(s.member_id) || s.lesson_name || (s.event_type === "revenue" ? "💰" + (s.amount||0)/1000 + "k" : "일정")}
+                              {(() => {
+                                if (memberName(s.member_id)) return memberName(s.member_id);
+                                if (s.lesson_name) return s.lesson_name;
+                                if (s.event_type === "revenue") return "💰" + ((s.amount || 0) / 1000) + "k";
+                                if (s.event_type === "staff_work") return `👥 ${staffP?.name || "직원"}${s.note ? " · " + s.note : " 근무"}`;
+                                if (s.event_type === "staff_off") return `🏖️ ${staffP?.name || "직원"}${s.note ? " · " + s.note : " 휴무"}`;
+                                if (s.event_type === "trial") return `🌟 체험`;
+                                if (s.note) return s.note;
+                                return s.event_type === "other" ? "📌 기타" : "일정";
+                              })()}
                             </span>
                             {s.recurring_id && <Repeat className="w-2.5 h-2.5 opacity-60" />}
                           </div>
@@ -1166,18 +1178,45 @@ function WeekView({ slots, members, staff, onCellClick, onEdit, memberName }: an
     return slots.filter((s: any) => s.event_date === date && s.time_slot === time);
   }
 
+  function goToDate(dateStr: string) {
+    const target = new Date(dateStr);
+    const dow = target.getDay();
+    const monday = new Date(target);
+    monday.setDate(target.getDate() - (dow === 0 ? 6 : dow - 1));
+    setWeekStart(monday);
+  }
+
   return (
     <div className="bg-white rounded-2xl shadow-md border border-aqu-100 overflow-hidden">
-      <div className="flex items-center justify-between p-2 md:p-3 border-b border-aqu-100 bg-aqu-50">
-        <button onClick={() => shiftWeek(-1)} className="p-1.5 hover:bg-white rounded">
-          <ChevronLeft className="w-4 h-4" />
-        </button>
+      <div className="flex items-center justify-between p-2 md:p-3 border-b border-aqu-100 bg-aqu-50 flex-wrap gap-2">
+        <div className="flex items-center gap-1">
+          <button onClick={() => shiftWeek(-1)} className="p-1.5 hover:bg-white rounded" title="이전 주">
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <button onClick={() => shiftWeek(1)} className="p-1.5 hover:bg-white rounded" title="다음 주">
+            <ChevronRight className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => {
+              const now = new Date();
+              const dow = now.getDay();
+              const monday = new Date(now);
+              monday.setDate(now.getDate() - (dow === 0 ? 6 : dow - 1));
+              setWeekStart(monday);
+            }}
+            className="px-2 py-1 text-xs bg-aqu-100 hover:bg-aqu-200 text-aqu-700 rounded">
+            이번 주
+          </button>
+        </div>
         <div className="text-xs md:text-sm font-bold text-aqu-800">
           {ymd(weekDates[0])} ~ {ymd(weekDates[5])}
         </div>
-        <button onClick={() => shiftWeek(1)} className="p-1.5 hover:bg-white rounded">
-          <ChevronRight className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          <label className="text-[10px] text-aqu-700">날짜 선택:</label>
+          <input type="date" value={ymd(weekStart)}
+            onChange={e => e.target.value && goToDate(e.target.value)}
+            className="px-2 py-1 text-xs border border-aqu-200 rounded focus:ring-2 focus:ring-aqu-400" />
+        </div>
       </div>
 
       <div className="overflow-x-auto">
@@ -1211,10 +1250,21 @@ function WeekView({ slots, members, staff, onCellClick, onEdit, memberName }: an
                           return (
                             <div key={s.id}
                               onClick={() => onEdit(s)}
-                              style={borderColor ? { borderLeftColor: borderColor, borderLeftWidth: 3 } : {}}
-                              className={`text-[10px] p-1 rounded border ${meta.color} cursor-pointer hover:shadow-sm`}>
+                              style={borderColor ? {
+                                backgroundColor: borderColor + "22",
+                                borderLeftColor: borderColor,
+                                borderLeftWidth: 4,
+                                color: "#1e293b",
+                              } : {}}
+                              className={`text-[10px] p-1 rounded border ${borderColor ? "" : meta.color} cursor-pointer hover:shadow-sm`}>
                               <div className="font-medium truncate">
-                                {mem?.name || s.lesson_name || "일정"}
+                                {mem?.name || s.lesson_name || (
+                                  s.event_type === "staff_work" ? `👥 ${staffP?.name || "직원"}${s.note ? " · " + s.note : ""}` :
+                                  s.event_type === "staff_off" ? `🏖️ ${staffP?.name || "직원"}${s.note ? " · " + s.note : " 휴무"}` :
+                                  s.event_type === "revenue" ? `💰 ₩${(s.amount || 0).toLocaleString()}` :
+                                  s.event_type === "trial" ? "🌟 체험" :
+                                  s.note || "일정"
+                                )}
                               </div>
                               {staffP && (
                                 <div className="text-[9px] opacity-90 flex items-center gap-0.5">
@@ -1321,10 +1371,20 @@ function DayView({ date, setDate, slots, members, staff, onCellClick, onEdit, me
                           return (
                             <div key={s.id}
                               onClick={() => onEdit(s)}
-                              style={{ borderLeft: `4px solid ${st.color || "#94a3b8"}` }}
-                              className={`text-[10px] p-1.5 rounded ${meta.color} cursor-pointer hover:shadow-sm`}>
+                              style={{
+                                borderLeft: `4px solid ${st.color || "#94a3b8"}`,
+                                backgroundColor: (st.color || "#94a3b8") + "22",
+                                color: "#1e293b",
+                              }}
+                              className={`text-[10px] p-1.5 rounded cursor-pointer hover:shadow-sm`}>
                               <div className="font-medium truncate">
-                                {mem?.name || s.lesson_name || "일정"}
+                                {mem?.name || s.lesson_name || (
+                                  s.event_type === "staff_work" ? `👥 ${st.name}${s.note ? " · " + s.note : " 근무"}` :
+                                  s.event_type === "staff_off" ? `🏖️ ${st.name}${s.note ? " · " + s.note : " 휴무"}` :
+                                  s.event_type === "revenue" ? `💰 ₩${(s.amount || 0).toLocaleString()}` :
+                                  s.event_type === "trial" ? "🌟 체험" :
+                                  s.note || "일정"
+                                )}
                               </div>
                               {s.lesson_name && mem && (
                                 <div className="text-[9px] opacity-70 truncate">{s.lesson_name}</div>

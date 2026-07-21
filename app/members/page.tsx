@@ -126,7 +126,7 @@ export default function MembersPage() {
     setMemoSaving(false);
   }
 
-  async function addMember() {
+  async function addMember(gotoDetail: boolean = false) {
     if (!newMember.name) return;
     setSaving(true);
     try {
@@ -166,7 +166,12 @@ export default function MembersPage() {
           diagnosis: "", special_notes: "", pain_area: "", pain_scale: 0,
           medical_history: "", source: "검색", status: "waiting",
         });
-        router.push(`/members/${data.id}`);
+        if (gotoDetail) {
+          router.push(`/members/${data.id}`);
+        } else {
+          await loadMembers();
+          alert(`✅ ${data.name}님이 저장되었습니다`);
+        }
       } else {
         alert("저장 실패: " + (error?.message || "알 수 없는 오류"));
       }
@@ -306,10 +311,10 @@ export default function MembersPage() {
                         {m.extra?.diagnosis || "-"}
                       </td>
                       {/* 상태 드롭다운 */}
-                      <td className="px-4 py-3 relative">
+                      <td className="px-4 py-3 relative min-w-[140px]">
                         <button
                           onClick={() => setOpenStatusId(openStatusId === m.id ? null : m.id)}
-                          className={`px-2 py-1 rounded text-xs ${statusInfo.bgColor} ${statusInfo.textColor} hover:opacity-80 flex items-center gap-1`}
+                          className={`px-3 py-1.5 rounded text-xs ${statusInfo.bgColor} ${statusInfo.textColor} hover:opacity-80 inline-flex items-center gap-1 whitespace-nowrap`}
                         >
                           {statusInfo.label}
                           <span className="text-[10px] opacity-60">▼</span>
@@ -519,13 +524,17 @@ export default function MembersPage() {
             </div>
 
             <div className="flex gap-2 mt-6">
+              <button onClick={() => addMember(false)} disabled={!newMember.name || saving}
+                className="flex-1 py-2.5 bg-aqu-600 text-white rounded-lg text-sm font-medium hover:bg-aqu-700 disabled:bg-gray-300 flex items-center justify-center gap-1">
+                <Save className="w-4 h-4" /> {saving ? "저장중..." : "저장하기"}
+              </button>
+              <button onClick={() => addMember(true)} disabled={!newMember.name || saving}
+                className="flex-1 py-2.5 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 disabled:bg-gray-300 flex items-center justify-center gap-1">
+                <Save className="w-4 h-4" /> 저장 후 상세보기
+              </button>
               <button onClick={() => setShowAddModal(false)}
                 className="flex-1 py-2.5 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200">
-                취소
-              </button>
-              <button onClick={addMember} disabled={!newMember.name || saving}
-                className="flex-1 py-2.5 bg-aqu-600 text-white rounded-lg text-sm font-medium hover:bg-aqu-700 disabled:bg-gray-300 flex items-center justify-center gap-1">
-                <Save className="w-4 h-4" /> {saving ? "저장중..." : "저장 후 상세보기"}
+                취소하기
               </button>
             </div>
           </div>

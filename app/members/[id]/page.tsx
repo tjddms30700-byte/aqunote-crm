@@ -79,7 +79,7 @@ export default function MemberDetail() {
   const id = params?.id as string;
   const [member, setMember] = useState<Member | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"info" | "history" | "assessment" | "bodymap" | "sessions" | "documents">("info");
+  const [tab, setTab] = useState<"info" | "chart" | "history" | "assessment" | "bodymap" | "sessions" | "documents">("info");
 
   // Documents state
   const [docs, setDocs] = useState<any[]>([]);
@@ -351,6 +351,38 @@ export default function MemberDetail() {
     }
   }
 
+  // ✨ 기본 정보 수정 (유형/이름/연락처 등)
+  const [editingBasic, setEditingBasic] = useState(false);
+  const [basicForm, setBasicForm] = useState<any>({});
+  function openBasicEdit() {
+    setBasicForm({
+      name: member.name || "",
+      member_type: member.member_type || "adult",
+      phone: member.phone || "",
+      birth: member.birth || "",
+      gender: member.gender || "",
+      guardian_name: member.guardian_name || "",
+      guardian_relation: member.guardian_relation || "",
+      address: member.address || "",
+      source: member.source || "",
+    });
+    setEditingBasic(true);
+  }
+  async function saveBasicEdit() {
+    const payload: any = { ...basicForm };
+    if (payload.member_type === "adult") {
+      // 성인으로 변경 시 보호자 필드 비움
+      payload.guardian_name = null;
+      payload.guardian_relation = null;
+    }
+    const { error } = await supabase.from("members").update(payload).eq("id", member.id);
+    if (error) return alert("수정 실패: " + error.message);
+    setMember({ ...member, ...payload });
+    setEditingBasic(false);
+    setSaveStatus("✅ 기본정보 수정됨");
+    setTimeout(() => setSaveStatus(""), 2500);
+  }
+
   async function deleteMember() {
     if (!confirm(`정말 '${member.name}'님을 삭제하시겠습니까?\n(복구 가능한 soft delete입니다)`)) return;
     const { error } = await supabase.from('members').update({ deleted_at: new Date().toISOString() }).eq('id', member.id);
@@ -522,6 +554,7 @@ export default function MemberDetail() {
       <div className="flex flex-wrap gap-2 mb-4">
         {[
           { k: "info", label: "📌 기본정보" },
+          { k: "chart", label: "📝 상담차트" },
           { k: "history", label: "💰 결제·회원권·출석" },
           { k: "assessment", label: "🩺 수중기능평가" },
           { k: "bodymap", label: "🗺️ Body Map" },
@@ -538,15 +571,112 @@ export default function MemberDetail() {
       <div className="bg-white rounded-2xl shadow-md border border-aqu-100 p-6">
         {tab === "info" && (
           <div className="space-y-6">
-            {/* 기본 정보 (읽기 전용) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <InfoRow label="진단명" value={member.extra?.diagnosis || "-"} />
-              <InfoRow label="생년월일" value={member.birth ? `${member.birth} (만 ${calcAge(member.birth)}세)` : "-"} />
-              <InfoRow label="연락처" value={member.phone || member.guardian_phone || "-"} />
-              <InfoRow label="유입경로" value={member.source || "-"} />
-              <InfoRow label="상태" value={getStatusLabel(member.status)} highlight />
-              {member.member_type === "child" && member.guardian_name && (
-                <InfoRow label="보호자" value={`${member.guardian_name} (${member.guardian_relation || ""})`} />
+            {/* 기본 정보 - 회원유형/이름/연락처 수정 가능 */}
+            <div className="bg-aqu-50/30 border border-aqu-100 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-bold text-aqu-900">📌 기본 정보</h4>
+                {!editingBasic ? (
+                  <button onClick={openBasicEdit}
+                    className="text-xs px-3 py-1.5 bg-aqu-600 text-white rounded-lg hover:bg-aqu-700">✏️ 수정</button>
+                ) : (
+                  <div className="flex gap-2">
+                    <button onClick={() => setEditingBasic(false)}
+                      className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg">취소</button>
+                    <button onClick={saveBasicEdit}
+                      className="text-xs px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700">💾 저장</button>
+                  </div>
+                )}
+              </div>
+              {!editingBasic ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <InfoRow label="이름" value={member.name || "-"} />
+                  <InfoRow label="유형" value={member.member_type === "child" ? "🧒 아동" : "👤 성인"} />
+                  <InfoRow label="진단명" value={member.extra?.diagnosis || "-"} />
+                  <InfoRow label="생년월일" value={member.birth ? `${member.birth} (만 ${calcAge(member.birth)}세)` : "-"} />
+                  <InfoRow label="연락처" value={member.phone || member.guardian_phone || "-"} />
+                  <InfoRow label="성별" value={member.gender || "-"} />
+                  <InfoRow label="주소" value={member.address || "-"} />
+                  <InfoRow label="유입경로" value={member.source || "-"} />
+                  <InfoRow label="상태" value={getStatusLabel(member.status)} highlight />
+                  {member.member_type === "child" && member.guardian_name && (
+                    <InfoRow label="보호자" value={`${member.guardian_name} (${member.guardian_relation || ""})`} />
+                  )}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-gray-600 block mb-1">이름 *</label>
+                    <input type="text" value={basicForm.name}
+                      onChange={e => setBasicForm({ ...basicForm, name: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-600 block mb-1">회원 유형 * (성인 ↔ 아동 변경 가능)</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button type="button" onClick={() => setBasicForm({ ...basicForm, member_type: "adult" })}
+                        className={`py-2 rounded-lg text-sm border-2 ${basicForm.member_type === "adult" ? "bg-purple-100 border-purple-500 text-purple-700 font-bold" : "bg-white border-gray-200 text-gray-500"}`}>
+                        👤 성인
+                      </button>
+                      <button type="button" onClick={() => setBasicForm({ ...basicForm, member_type: "child" })}
+                        className={`py-2 rounded-lg text-sm border-2 ${basicForm.member_type === "child" ? "bg-blue-100 border-blue-500 text-blue-700 font-bold" : "bg-white border-gray-200 text-gray-500"}`}>
+                        🧒 아동
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-600 block mb-1">연락처</label>
+                    <input type="tel" value={basicForm.phone}
+                      onChange={e => setBasicForm({ ...basicForm, phone: e.target.value })}
+                      placeholder="010-1234-5678"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-600 block mb-1">생년월일</label>
+                    <input type="date" value={basicForm.birth}
+                      onChange={e => setBasicForm({ ...basicForm, birth: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-600 block mb-1">성별</label>
+                    <select value={basicForm.gender}
+                      onChange={e => setBasicForm({ ...basicForm, gender: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                      <option value="">선택</option>
+                      <option value="남">남자</option>
+                      <option value="여">여자</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-600 block mb-1">유입경로</label>
+                    <input type="text" value={basicForm.source}
+                      onChange={e => setBasicForm({ ...basicForm, source: e.target.value })}
+                      placeholder="검색/지인/광고"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                  </div>
+                  {basicForm.member_type === "child" && (
+                    <>
+                      <div>
+                        <label className="text-xs font-semibold text-gray-600 block mb-1">보호자 이름</label>
+                        <input type="text" value={basicForm.guardian_name}
+                          onChange={e => setBasicForm({ ...basicForm, guardian_name: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-gray-600 block mb-1">관계</label>
+                        <input type="text" value={basicForm.guardian_relation}
+                          onChange={e => setBasicForm({ ...basicForm, guardian_relation: e.target.value })}
+                          placeholder="부/모"
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                      </div>
+                    </>
+                  )}
+                  <div className="md:col-span-2">
+                    <label className="text-xs font-semibold text-gray-600 block mb-1">주소</label>
+                    <input type="text" value={basicForm.address}
+                      onChange={e => setBasicForm({ ...basicForm, address: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                  </div>
+                </div>
               )}
             </div>
 
@@ -660,6 +790,10 @@ export default function MemberDetail() {
               </div>
             </div>
           </div>
+        )}
+
+        {tab === "chart" && (
+          <ConsultationChartPanel memberId={id as string} member={m} />
         )}
 
         {tab === "history" && (
@@ -1758,6 +1892,390 @@ function StatCard({ icon, label, val, sub, color }: any) {
       <div className="text-xs opacity-90">{icon} {label}</div>
       <div className="text-lg md:text-xl font-black mt-1">{val}</div>
       {sub && <div className="text-[10px] opacity-80 mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 📝 상담차트 패널 (아동/성인 자동 판별)
+// ═══════════════════════════════════════════════════════════════
+function ConsultationChartPanel({ memberId, member }: { memberId: string; member: any }) {
+  const [chart, setChart] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [f, setF] = useState<any>({});
+
+  useEffect(() => { loadChart(); }, [memberId]);
+
+  async function loadChart() {
+    setLoading(true);
+    const { data } = await supabase.from("consultation_charts")
+      .select("*")
+      .eq("member_id", memberId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (data) {
+      setChart(data);
+      setF(data);
+    } else {
+      // 아직 차트가 없으면 새로 생성 준비 (아직 저장 X)
+      setChart(null);
+      setF({
+        member_id: memberId,
+        chart_type: member?.member_type === "child" ? "child" : "adult",
+        member_name: member?.name || "",
+        phone: member?.phone || "",
+        source: member?.source || "",
+        consult_date: new Date().toISOString().slice(0, 10),
+        consult_method: "온라인",
+        wish_days: member?.wish_days || [],
+        wish_time_slots: member?.wish_time_slots || [],
+        attention_level: "일반",
+        status: "draft",
+      });
+    }
+    setLoading(false);
+  }
+
+  async function saveChart() {
+    setSaving(true);
+    try {
+      const payload = { ...f, updated_at: new Date().toISOString() };
+      const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
+      if (orgId) payload.org_id = orgId;
+
+      if (chart?.id) {
+        const { error } = await supabase.from("consultation_charts").update(payload).eq("id", chart.id);
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase.from("consultation_charts").insert(payload).select().single();
+        if (error) throw error;
+        setChart(data);
+      }
+      await loadChart();
+      alert("✅ 상담차트가 저장되었습니다");
+    } catch (err: any) {
+      alert("저장 실패: " + err.message + "\n\n💡 AQUNOTE_V39_RESET_AND_CHART.sql을 Supabase에 실행해 주세요.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // 프린트 기능 - 상담차트를 별도 윈도우에서 프린트 미리보기 오픈
+  function printChart() {
+    const isChildLocal = f.chart_type === "child";
+    const attnColor = f.attention_level === "고주의" ? "#dc2626" : f.attention_level === "주의" ? "#ea580c" : "#16a34a";
+    const html = `<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>상담차트 - ${f.member_name || ""}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; margin: 0; padding: 20px; color: #1e293b; }
+  h1 { font-size: 20px; text-align: center; border-bottom: 3px double #333; padding-bottom: 10px; margin-bottom: 20px; }
+  h2 { font-size: 14px; background: #f1f5f9; padding: 6px 10px; margin: 15px 0 8px; border-left: 4px solid #6366f1; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 12px; }
+  th, td { border: 1px solid #94a3b8; padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { background: #f8fafc; font-weight: 600; width: 15%; white-space: nowrap; }
+  .full { width: 100%; }
+  .attn { display: inline-block; padding: 2px 10px; border-radius: 4px; color: white; font-weight: bold; background: ${attnColor}; }
+  .memo-box { border: 1px solid #94a3b8; min-height: 60px; padding: 8px; margin-bottom: 8px; white-space: pre-wrap; font-size: 12px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .footer { margin-top: 30px; display: flex; justify-content: space-between; font-size: 11px; color: #64748b; border-top: 1px solid #e2e8f0; padding-top: 10px; }
+  @media print {
+    body { padding: 15mm; }
+    .no-print { display: none !important; }
+    @page { size: A4; margin: 15mm; }
+  }
+  .toolbar { text-align: center; margin-bottom: 15px; }
+  .toolbar button { padding: 8px 20px; margin: 0 4px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .btn-print { background: #6366f1; color: white; }
+  .btn-close { background: #e2e8f0; color: #334155; }
+</style>
+</head>
+<body>
+  <div class="toolbar no-print">
+    <button class="btn-print" onclick="window.print()">🖨️ 인쇄</button>
+    <button class="btn-close" onclick="window.close()">❌ 닫기</button>
+  </div>
+
+  <h1>상담차트 (${isChildLocal ? "아동" : "성인"})</h1>
+
+  <table>
+    <tr><th>성명</th><td>${f.member_name || "-"}</td><th>성별</th><td>${f.gender || "-"}</td></tr>
+    ${isChildLocal ? `<tr><th>보호자명</th><td>${f.guardian_name || "-"}</td><th>관계</th><td>${f.guardian_relation || "-"}</td></tr>` : ""}
+    <tr><th>생년월일</th><td>${f.birth_date || "-"}</td><th>연락처</th><td>${f.phone || "-"}</td></tr>
+    <tr><th>주소</th><td colspan="3">${f.address || "-"}</td></tr>
+    <tr><th>유입경로</th><td>${f.source || "-"}</td><th>상담일</th><td>${f.consult_date || "-"}</td></tr>
+    <tr><th>상담방법</th><td>${f.consult_method || "-"}</td><th>상담자</th><td>${f.counselor || "-"}</td></tr>
+    <tr><th>${isChildLocal ? "이용기관/학교" : "이용기관"}</th><td colspan="3">${f.institution || "-"}</td></tr>
+    <tr><th>현재 진행중 치료</th><td colspan="3">${f.current_therapy || "-"}</td></tr>
+    <tr><th>희망요일</th><td>${(f.wish_days || []).join(", ") || "-"}</td><th>희망시간</th><td>${(f.wish_time_slots || []).join(", ") || "-"}</td></tr>
+  </table>
+
+  <h2>■ 1. 의학적 정보 및 주의사항</h2>
+  <table>
+    <tr><th>진단명</th><td>${f.diagnosis || "-"}</td></tr>
+    <tr><th>주 증상</th><td>${f.main_symptoms || "-"}</td></tr>
+    ${isChildLocal ? `
+      <tr><th>특이행동/기피</th><td>${f.special_behavior || "-"}</td></tr>
+      <tr><th>신체스펙</th><td>${f.physical_spec || "-"}</td></tr>
+    ` : `
+      <tr><th>수술력</th><td>${f.surgery_history || "-"}</td></tr>
+      <tr><th>복용약</th><td>${f.medication || "-"}</td></tr>
+      <tr><th>통증 여부</th><td>${f.pain_status || "-"}</td></tr>
+    `}
+    <tr><th>주의도 등급</th><td><span class="attn">${f.attention_level || "일반"}</span></td></tr>
+  </table>
+
+  <h2>■ 2. AQU BODY MAP 평가</h2>
+  <div class="memo-box">${(f.body_map_notes || "").replace(/</g, "&lt;") || "(메모 없음)"}</div>
+
+  <h2>■ 4. 감각 및 정서 반응</h2>
+  <table>
+    <tr><th>물 반응</th><td>${f.water_reaction || "-"}</td><th>정서</th><td>${f.emotion_status || "-"}</td></tr>
+  </table>
+
+  <h2>■ 5. 본인 (보호자) 니즈</h2>
+  <table>
+    <tr><th>피하고 싶은 상황</th><td>${f.avoid_situations || "-"}</td></tr>
+    <tr><th>기대하는 변화</th><td>${f.expected_change || "-"}</td></tr>
+    <tr><th>수중에서 기대 효과</th><td>${f.water_expected_effect || "-"}</td></tr>
+    <tr><th>권장 빈도</th><td>${f.recommended_frequency || "-"}</td></tr>
+  </table>
+
+  <h2>■ 6. 상담 결론</h2>
+  <div class="memo-box">${(f.conclusion || "").replace(/</g, "&lt;") || "(결론 메모 없음)"}</div>
+  <table>
+    <tr><th>체험 예정일</th><td>${f.trial_scheduled_date || "-"}</td><th>체험 확정</th><td>${f.trial_confirmed ? "✅ 확정" : "⏳ 미확정"}</td></tr>
+    <tr><th>메모</th><td colspan="3">${(f.memo || "-").replace(/</g, "&lt;")}</td></tr>
+  </table>
+
+  <div class="footer">
+    <span>인쇄일자: ${new Date().toLocaleString("ko-KR")}</span>
+    <span>AQUNOTE 상담차트</span>
+  </div>
+
+  <script>
+    // 자동으로 프린트 대화상자 열기 (사용자 선택적)
+    // window.onload = () => window.print();
+  </script>
+</body>
+</html>`;
+    const win = window.open("", "_blank", "width=900,height=1000");
+    if (!win) { alert("팝업이 차단되었습니다. 팝업 허용을 확인해 주세요."); return; }
+    win.document.write(html);
+    win.document.close();
+  }
+
+  if (loading) return <div className="text-center py-8 text-gray-400">로딩 중...</div>;
+
+  const isChild = f.chart_type === "child";
+
+  return (
+    <div className="space-y-4">
+      {/* 헤더 */}
+      <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-2xl p-4 border border-purple-100">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-lg font-bold text-purple-900">
+            📝 상담차트 ({isChild ? "아동" : "성인"})
+          </h3>
+          <div className="flex gap-2">
+            <select value={f.chart_type} onChange={e => setF({ ...f, chart_type: e.target.value })}
+              className="px-3 py-1.5 border border-purple-200 rounded-lg text-sm bg-white">
+              <option value="adult">👤 성인 차트</option>
+              <option value="child">🧒 아동 차트</option>
+            </select>
+            <button onClick={printChart}
+              className="px-4 py-1.5 bg-white border border-purple-300 text-purple-700 rounded-lg text-sm hover:bg-purple-50">
+              🖨️ 프린트
+            </button>
+            <button onClick={saveChart} disabled={saving}
+              className="px-4 py-1.5 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 disabled:opacity-50">
+              {saving ? "저장중..." : "💾 저장"}
+            </button>
+          </div>
+        </div>
+        {!chart && <div className="text-xs text-purple-700">아직 저장된 차트가 없습니다. 정보를 입력하고 저장하세요.</div>}
+      </div>
+
+      {/* 기본 정보 */}
+      <Section title="📋 기본 정보">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <ChartField label="성명" value={f.member_name} onChange={v => setF({ ...f, member_name: v })} />
+          <ChartField label="성별" value={f.gender} onChange={v => setF({ ...f, gender: v })} />
+          <ChartField label="생년월일" type="date" value={f.birth_date} onChange={v => setF({ ...f, birth_date: v })} />
+          {isChild && (
+            <>
+              <ChartField label="보호자명" value={f.guardian_name} onChange={v => setF({ ...f, guardian_name: v })} />
+              <ChartField label="관계" value={f.guardian_relation} onChange={v => setF({ ...f, guardian_relation: v })} placeholder="부/모 등" />
+            </>
+          )}
+          {!isChild && (
+            <ChartField label="관계" value={f.guardian_relation || "본인"} onChange={v => setF({ ...f, guardian_relation: v })} />
+          )}
+          <ChartField label="연락처" value={f.phone} onChange={v => setF({ ...f, phone: v })} />
+          <ChartField label="주소" value={f.address} onChange={v => setF({ ...f, address: v })} className="col-span-2 md:col-span-3" />
+          <ChartField label="유입경로" value={f.source} onChange={v => setF({ ...f, source: v })} placeholder="검색/지인/광고" />
+          <ChartField label="상담일" type="date" value={f.consult_date} onChange={v => setF({ ...f, consult_date: v })} />
+          <ChartField label="상담방법" value={f.consult_method} onChange={v => setF({ ...f, consult_method: v })} placeholder="온라인/직접상담" />
+          <ChartField label="상담자" value={f.counselor} onChange={v => setF({ ...f, counselor: v })} />
+          <ChartField label={isChild ? "이용기관/학교" : "이용기관"} value={f.institution} onChange={v => setF({ ...f, institution: v })} />
+          <ChartField label="현재 진행 중 치료" value={f.current_therapy} onChange={v => setF({ ...f, current_therapy: v })} className="col-span-2" />
+          <ChartField label="희망요일" value={(f.wish_days || []).join(", ")} onChange={v => setF({ ...f, wish_days: v.split(",").map((s: string) => s.trim()).filter(Boolean) })} placeholder="월,수,금" />
+          <ChartField label="희망시간" value={(f.wish_time_slots || []).join(", ")} onChange={v => setF({ ...f, wish_time_slots: v.split(",").map((s: string) => s.trim()).filter(Boolean) })} placeholder="13:30~14:40" />
+        </div>
+      </Section>
+
+      {/* 1. 의학적 정보 */}
+      <Section title="🩺 1. 의학적 정보 및 주의사항">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <ChartTextarea label="진단명" value={f.diagnosis} onChange={v => setF({ ...f, diagnosis: v })} />
+          <ChartTextarea label="주 증상" value={f.main_symptoms} onChange={v => setF({ ...f, main_symptoms: v })} />
+          {isChild ? (
+            <>
+              <ChartTextarea label="특이행동/기피" value={f.special_behavior} onChange={v => setF({ ...f, special_behavior: v })} />
+              <ChartField label="신체스펙" value={f.physical_spec} onChange={v => setF({ ...f, physical_spec: v })} placeholder="예: 95cm / 12kg" />
+            </>
+          ) : (
+            <>
+              <ChartTextarea label="수술력" value={f.surgery_history} onChange={v => setF({ ...f, surgery_history: v })} />
+              <ChartField label="복용약" value={f.medication} onChange={v => setF({ ...f, medication: v })} />
+              <ChartField label="통증 여부" value={f.pain_status} onChange={v => setF({ ...f, pain_status: v })} className="col-span-2" />
+            </>
+          )}
+          <div className="col-span-2">
+            <label className="text-xs font-semibold text-gray-600 block mb-1">주의도 등급</label>
+            <div className="flex gap-2">
+              {["일반", "주의", "고주의"].map(lv => (
+                <button key={lv} onClick={() => setF({ ...f, attention_level: lv })}
+                  className={`px-4 py-2 rounded-lg text-sm border ${f.attention_level === lv ? (lv === "고주의" ? "bg-red-500 text-white border-red-500" : lv === "주의" ? "bg-orange-400 text-white border-orange-400" : "bg-green-500 text-white border-green-500") : "bg-white border-gray-200 text-gray-500"}`}>
+                  {lv === "고주의" && "🔴 "}
+                  {lv === "주의" && "🟠 "}
+                  {lv === "일반" && "🟢 "}
+                  {lv}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Section>
+
+      {/* 2. AQU BODY MAP 메모 */}
+      <Section title="🗺️ 2. AQU BODY MAP 평가">
+        <ChartTextarea label="주요 문제 / 특이사항" value={f.body_map_notes} onChange={v => setF({ ...f, body_map_notes: v })} rows={5} />
+      </Section>
+
+      {/* 4. 감각 및 정서 반응 */}
+      <Section title="💧 4. 감각 및 정서 반응">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-semibold text-gray-600 block mb-1">물 반응</label>
+            <select value={f.water_reaction || ""} onChange={e => setF({ ...f, water_reaction: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+              <option value="">선택</option>
+              <option value="매우 긍정">매우 긍정</option>
+              <option value="보통">보통</option>
+              <option value="긴장">긴장</option>
+              <option value="거부">거부</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-600 block mb-1">정서</label>
+            <select value={f.emotion_status || ""} onChange={e => setF({ ...f, emotion_status: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+              <option value="">선택</option>
+              <option value="안정">안정</option>
+              <option value="약간 긴장">약간 긴장</option>
+              <option value="회피">회피</option>
+            </select>
+          </div>
+        </div>
+      </Section>
+
+      {/* 5. 니즈 */}
+      <Section title="🎯 5. 본인·보호자 니즈">
+        <div className="space-y-2">
+          <ChartTextarea label="피하고 싶은 상황" value={f.avoid_situations} onChange={v => setF({ ...f, avoid_situations: v })} />
+          <ChartTextarea label="기대하는 변화" value={f.expected_change} onChange={v => setF({ ...f, expected_change: v })} />
+          <ChartTextarea label="수중에서 기대 효과" value={f.water_expected_effect} onChange={v => setF({ ...f, water_expected_effect: v })} />
+          <div>
+            <label className="text-xs font-semibold text-gray-600 block mb-1">권장 빈도</label>
+            <div className="flex gap-2">
+              {["주1회", "주2회", "주3회"].map(fr => (
+                <button key={fr} onClick={() => setF({ ...f, recommended_frequency: fr })}
+                  className={`px-4 py-2 rounded-lg text-sm border ${f.recommended_frequency === fr ? "bg-purple-500 text-white border-purple-500" : "bg-white border-gray-200 text-gray-500"}`}>
+                  {fr}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </Section>
+
+      {/* 6. 상담 결론 */}
+      <Section title="✅ 6. 상담 결론">
+        <div className="space-y-3">
+          <ChartTextarea label="종합 결론" value={f.conclusion} onChange={v => setF({ ...f, conclusion: v })} rows={4} />
+          <div className="grid grid-cols-2 gap-3">
+            <ChartField label="체험 예정일" type="date" value={f.trial_scheduled_date} onChange={v => setF({ ...f, trial_scheduled_date: v })} />
+            <div className="flex items-end">
+              <label className="flex items-center gap-2 py-2 cursor-pointer">
+                <input type="checkbox" checked={!!f.trial_confirmed}
+                  onChange={e => setF({ ...f, trial_confirmed: e.target.checked })}
+                  className="w-4 h-4 accent-emerald-600" />
+                <span className="text-sm">체험 확정</span>
+              </label>
+            </div>
+          </div>
+          <ChartTextarea label="메모" value={f.memo} onChange={v => setF({ ...f, memo: v })} />
+        </div>
+      </Section>
+
+      {/* 저장 하단 */}
+      <div className="flex justify-end sticky bottom-4 gap-2">
+        <button onClick={printChart}
+          className="px-5 py-3 bg-white border-2 border-purple-500 text-purple-700 rounded-xl font-bold shadow-lg hover:bg-purple-50">
+          🖨️ 프린트
+        </button>
+        <button onClick={saveChart} disabled={saving}
+          className="px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-bold shadow-lg disabled:opacity-50">
+          {saving ? "저장중..." : "💾 상담차트 저장"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Section({ title, children }: any) {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-4">
+      <h4 className="text-sm font-bold text-slate-800 mb-3">{title}</h4>
+      {children}
+    </div>
+  );
+}
+
+function ChartField({ label, value, onChange, type = "text", placeholder, className }: any) {
+  return (
+    <div className={className}>
+      <label className="text-xs font-semibold text-gray-600 block mb-1">{label}</label>
+      <input type={type} value={value || ""} onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-400 focus:outline-none" />
+    </div>
+  );
+}
+
+function ChartTextarea({ label, value, onChange, rows = 2 }: any) {
+  return (
+    <div>
+      <label className="text-xs font-semibold text-gray-600 block mb-1">{label}</label>
+      <textarea value={value || ""} onChange={e => onChange(e.target.value)}
+        rows={rows}
+        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-400 focus:outline-none resize-none" />
     </div>
   );
 }

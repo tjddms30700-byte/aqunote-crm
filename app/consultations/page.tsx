@@ -162,11 +162,16 @@ export default function ConsultationsPage() {
     }).length,
   }), [leads, waitingLeads]);
 
-  // ─── 시간대별 대기자 매칭 ───
-  // day/time slot 별 대기자 수 집계
+  // ─── 시간대별 대기자 매칭 (등록일 오름차순 = 선착순 순위) ───
   const waitingByTimeSlot = useMemo(() => {
+    // 대기자를 등록일 오름차순으로 정렬 (먼저 등록된 사람이 1순위)
+    const sorted = [...waitingLeads].sort((a: any, b: any) => {
+      const dA = a.created_at || "";
+      const dB = b.created_at || "";
+      return dA.localeCompare(dB);
+    });
     const map: Record<string, Lead[]> = {};
-    for (const l of waitingLeads) {
+    for (const l of sorted) {
       const days = (l.wish_days || l.extra?.wish_days || []) as string[];
       const times = (l.wish_time_slots || l.extra?.wish_time_slots || []) as string[];
       for (const d of days) {
@@ -303,14 +308,15 @@ export default function ConsultationsPage() {
                     {DAYS.slice(1).map((d) => {
                       const list = waitingByTimeSlot[`${d}|${t}`] || [];
                       return (
-                        <td key={d} className={`p-1 border border-aqu-100 align-top ${list.length > 0 ? "bg-yellow-50" : ""}`}>
-                          {list.slice(0, 5).map((l, i) => (
+                        <td key={d} className={`p-1.5 border border-aqu-100 align-top ${list.length > 0 ? "bg-yellow-50" : ""}`}>
+                          {list.map((l, i) => (
                             <Link key={l.id} href={`/members/${l.id}`}
-                              className="block text-[11px] text-aqu-700 hover:text-aqu-900 hover:underline">
-                              {i + 1}. {l.name}
+                              className="block text-[11px] py-0.5 hover:bg-yellow-100 rounded px-1 flex items-center gap-1"
+                              title={`등록일: ${(l.created_at || "").slice(0, 10)}${l.phone ? " · " + l.phone : ""}`}>
+                              <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-bold ${i === 0 ? "bg-orange-500 text-white" : i === 1 ? "bg-orange-300 text-white" : i === 2 ? "bg-orange-200 text-orange-800" : "bg-gray-200 text-gray-600"}`}>{i + 1}</span>
+                              <span className="text-aqu-800 hover:underline truncate">{l.name}</span>
                             </Link>
                           ))}
-                          {list.length > 5 && <div className="text-[10px] text-gray-400">+{list.length - 5}명</div>}
                         </td>
                       );
                     })}
@@ -374,31 +380,29 @@ export default function ConsultationsPage() {
                         </td>
                       );
                     }
-                    // OPEN (빈자리) - 대기자 자동 매칭
+                    // OPEN (빈자리) - 대기자수만 표시, 상세 명단은 '대기자 현황' 탭에서 확인
                     if (waiters.length > 0) {
                       return (
                         <td key={d}
                           onClick={() => setEditCell({ dayIdx, time: t, row: cell })}
-                          className="p-1 border-2 border-emerald-400 bg-emerald-50 align-top cursor-pointer hover:bg-emerald-100"
+                          className="p-2 border-2 border-emerald-400 bg-emerald-50 text-center cursor-pointer hover:bg-emerald-100"
                           title="클릭하여 상태 변경">
-                          <div className="font-bold text-emerald-700 text-center mb-1 text-[10px]">🟢 빈자리 · {waiters.length}명 대기</div>
-                          {waiters.slice(0, 3).map((w, wi) => (
-                            <div key={w.id} className="text-[10px] text-emerald-900 flex items-center gap-1">
-                              <span className="font-mono text-emerald-600">{wi + 1}.</span>
-                              <Link href={`/members/${w.id}`} onClick={e => e.stopPropagation()}
-                                className="hover:underline truncate">{w.name}</Link>
-                              {w.phone && <span className="text-[9px] text-gray-500 ml-auto">{w.phone.slice(-4)}</span>}
-                            </div>
-                          ))}
-                          {waiters.length > 3 && <div className="text-[9px] text-gray-500">+ {waiters.length - 3}명</div>}
+                          <div className="font-bold text-emerald-700 text-sm">🟢 빈자리</div>
+                          <div className="text-[11px] text-emerald-800 mt-0.5">대기 {waiters.length}명</div>
+                          <button type="button"
+                            onClick={(e) => { e.stopPropagation(); setView("waiting"); }}
+                            className="text-[10px] text-emerald-600 hover:underline mt-0.5">→ 명단 보기</button>
                         </td>
                       );
                     }
                     return (
                       <td key={d}
                         onClick={() => setEditCell({ dayIdx, time: t, row: cell })}
-                        className="p-1 border border-emerald-100 bg-white text-center text-emerald-600 cursor-pointer hover:bg-emerald-50"
-                        title="클릭하여 상태 변경">🟢 빈자리</td>
+                        className="p-2 border border-emerald-100 bg-white text-center text-emerald-600 cursor-pointer hover:bg-emerald-50"
+                        title="클릭하여 상태 변경">
+                        <div className="font-bold text-sm">🟢 빈자리</div>
+                        <div className="text-[10px] text-gray-400 mt-0.5">대기자 없음</div>
+                      </td>
                     );
                   })}
                 </tr>
@@ -414,6 +418,7 @@ export default function ConsultationsPage() {
           dayIdx={editCell.dayIdx}
           time={editCell.time}
           row={editCell.row}
+          members={leads}
           onClose={() => setEditCell(null)}
           onSave={async (patch: any) => {
             await updateMatrixCell(editCell.dayIdx, editCell.time, patch);
@@ -535,11 +540,19 @@ function Field({ label, value, onChange, type = "text" }: any) {
 // ═══════════════════════════════════════════════════════════════
 // 시간대 매칭 셀 편집 모달
 // ═══════════════════════════════════════════════════════════════
-function SlotCellEditor({ dayIdx, time, row, onClose, onSave }: any) {
+function SlotCellEditor({ dayIdx, time, row, members, onClose, onSave }: any) {
   const dayLabel = ["일","월","화","수","목","금","토"][dayIdx];
   const [status, setStatus] = useState<string>(row?.status || "closed");
   const [fixedName, setFixedName] = useState<string>(row?.fixed_name || "");
   const [note, setNote] = useState<string>(row?.note || "");
+  const [nameSearch, setNameSearch] = useState("");
+  const [showNameList, setShowNameList] = useState(false);
+
+  // 회원 필터링 (종결/대기종료 제외)
+  const memberList = (members || []).filter((m: any) =>
+    !(["closed", "ended"].includes(m.status)) &&
+    (!nameSearch || (m.name || "").toLowerCase().includes(nameSearch.toLowerCase()) || (m.phone || "").includes(nameSearch))
+  );
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
@@ -575,9 +588,38 @@ function SlotCellEditor({ dayIdx, time, row, onClose, onSave }: any) {
           {status === "fixed" && (
             <div>
               <label className="text-sm text-gray-600">고정 수업 이름 / 회원명 *</label>
-              <input type="text" value={fixedName} onChange={e => setFixedName(e.target.value)}
-                placeholder="예: 김서윤, 그룹레슨A, PT-오전조"
-                className="w-full p-2 border rounded-lg mt-1" />
+              <div className="relative">
+                <div className="flex gap-1 mt-1">
+                  <input type="text" value={fixedName}
+                    onChange={e => { setFixedName(e.target.value); setNameSearch(e.target.value); setShowNameList(true); }}
+                    onFocus={() => setShowNameList(true)}
+                    placeholder="회원명 검색 또는 직접 입력 (예: 그룹레슨A)"
+                    className="flex-1 p-2 border rounded-lg" />
+                  {fixedName && (
+                    <button type="button" onClick={() => { setFixedName(""); setNameSearch(""); }}
+                      className="px-2 text-gray-400 hover:text-red-500">×</button>
+                  )}
+                </div>
+                {showNameList && memberList.length > 0 && (
+                  <div className="absolute z-10 top-full left-0 right-0 mt-1 max-h-56 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg">
+                    {memberList.slice(0, 30).map((m: any) => (
+                      <button key={m.id} type="button"
+                        onClick={() => { setFixedName(m.name); setNameSearch(""); setShowNameList(false); }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 flex items-center gap-2 border-b border-gray-50">
+                        <span>{m.member_type === "child" ? "🧒" : "👤"}</span>
+                        <span className="font-medium">{m.name}</span>
+                        <span className="text-xs text-gray-400 ml-auto">{m.phone ? m.phone.slice(-4) : "-"}</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{m.status || "regular"}</span>
+                      </button>
+                    ))}
+                    {memberList.length > 30 && (
+                      <div className="p-2 text-[10px] text-gray-400 text-center">+{memberList.length - 30}명 더 있음. 검색을 좁혀보세요</div>
+                    )}
+                  </div>
+                )}
+                {showNameList && <div className="fixed inset-0 z-0" onClick={() => setShowNameList(false)}></div>}
+              </div>
+              <div className="text-[10px] text-gray-500 mt-1">💡 회원명을 선택하거나 그룹명을 직접 입력할 수 있습니다</div>
             </div>
           )}
 

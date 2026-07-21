@@ -84,6 +84,37 @@ export default function PaymentsPage() {
 
   useEffect(() => { loadAll(); }, []);
 
+  // URL 쿼리 파라미터 또는 sessionStorage 플래그로 등록 모달 자동 오픈
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let shouldOpen = false;
+    let targetDate = todayStr();
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("open") === "1") {
+      shouldOpen = true;
+      targetDate = params.get("date") || todayStr();
+    }
+    try {
+      const raw = sessionStorage.getItem("aqunote_open_payment");
+      if (raw) {
+        const flag = JSON.parse(raw);
+        // 60초 이내 플래그만 유효
+        if (flag?.open && flag.ts && Date.now() - flag.ts < 60000) {
+          shouldOpen = true;
+          targetDate = flag.date || targetDate;
+        }
+        sessionStorage.removeItem("aqunote_open_payment");
+      }
+    } catch {}
+
+    if (shouldOpen) {
+      setF((prev: any) => ({ ...prev, paid_at: targetDate }));
+      setShowModal(true);
+      window.history.replaceState({}, "", "/payments");
+    }
+  }, []);
+
   async function loadAll() {
     setLoading(true);
     const [p, m, mem, pl] = await Promise.all([
@@ -356,14 +387,49 @@ export default function PaymentsPage() {
     loadAll();
   }
 
+  // 결제 취소 되돌리기 (cancelled → active)
+  async function restorePayment(id: string) {
+    const pay = payments.find(p => p.id === id);
+    if (!pay || pay.status !== "cancelled") return;
+    if (!confirm(`이 취소된 결제를 되돌리시겠습니까?\n\n· 금액: ₩${(pay.amount || 0).toLocaleString()}\n· 날짜: ${pay.paid_at}\n\n✅ 결제와 연결된 회원권도 다시 활성화됩니다`)) return;
+    // 연결 회원권 복원
+    if (pay.membership_id) {
+      await supabase.from("memberships").update({
+        status: "active", cancelled_at: null, cancelled_reason: null,
+      }).eq("id", pay.membership_id);
+    }
+    const { error } = await supabase.from("payments").update({
+      status: "active", cancelled_at: null, cancelled_reason: null,
+    }).eq("id", id);
+    if (error) { alert("되돌리기 실패: " + error.message); return; }
+    alert("✅ 결제가 되돌려졌습니다");
+    loadAll();
+  }
+
+  // 하드 삭제 (완전 제거 - 돌이킬 수 없음)
+  async function hardDeletePayment(id: string) {
+    const pay = payments.find(p => p.id === id);
+    if (!pay) return;
+    if (!confirm(`⚠️ 결제 이력을 이력에서 완전히 삭제합니다.\n\n· 금액: ₩${(pay.amount || 0).toLocaleString()}\n· 날짜: ${pay.paid_at}\n· 상품: ${pay.description || "상품 없음"}\n\n❗ 이 작업은 되돌릴 수 없습니다.\n❗ 연결된 회원권도 함께 삭제됩니다.\n\n계속하시겠습니까?`)) return;
+    // 연결 회원권도 하드 삭제
+    if (pay.membership_id) {
+      try { await supabase.from("schedule_slots").update({ membership_id: null }).eq("membership_id", pay.membership_id); } catch {}
+      await supabase.from("memberships").delete().eq("id", pay.membership_id);
+    }
+    // 결제 연결된 refunds/session_adjustments 도 정리
+    try { await supabase.from("refunds").delete().eq("payment_id", id); } catch {}
+    const { error } = await supabase.from("payments").delete().eq("id", id);
+    if (error) { alert("삭제 실패: " + error.message); return; }
+    alert("🗑️ 이력이 완전히 삭제되었습니다");
+    loadAll();
+  }
+
   async function deletePayment(id: string) {
     const pay = payments.find(p => p.id === id);
     if (!pay) return;
     if (pay.status === "cancelled") {
-      // 이미 취소된 결제는 완전 삭제 옵션
-      if (!confirm("이미 취소된 결제입니다. 이력에서 완전히 제거하시겠습니까?\n\n⚠️ 이 작업은 되돌릴 수 없습니다.")) return;
-      await supabase.from("payments").delete().eq("id", id);
-      loadAll();
+      // 이미 취소된 결제는 하드 삭제 함수로 위임
+      await hardDeletePayment(id);
       return;
     }
 
@@ -628,11 +694,33 @@ export default function PaymentsPage() {
                             💵 환불
                           </button>
                         )}
-                      <button onClick={() => deletePayment(p.id)}
-                        className="p-1.5 text-red-400 hover:bg-red-50 rounded"
-                        title={isCancelled ? "이력에서 완전 삭제" : "결제 취소 (이력 유지)"}>
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {isCancelled ? (
+                        <>
+                          <button onClick={() => restorePayment(p.id)}
+                            className="p-1.5 text-green-600 hover:bg-green-50 rounded border border-green-200"
+                            title="취소를 되돌려 다시 활성화">
+                            ↩직 되돌리기
+                          </button>
+                          <button onClick={() => hardDeletePayment(p.id)}
+                            className="p-1.5 text-red-600 hover:bg-red-50 rounded border border-red-200"
+                            title="이력에서 완전 제거 (되돌릴 수 없음)">
+                            🗑️ 완전삭제
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button onClick={() => deletePayment(p.id)}
+                            className="p-1.5 text-orange-600 hover:bg-orange-50 rounded"
+                            title="이력은 남기고 '취소' 상태로 변경 (되돌릴 수 있음)">
+                            ❌ 취소
+                          </button>
+                          <button onClick={() => hardDeletePayment(p.id)}
+                            className="p-1.5 text-red-500 hover:bg-red-50 rounded"
+                            title="이력에서 완전 제거 (되돌릴 수 없음)">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
                       </div>
                     </td>
                   </tr>
@@ -660,15 +748,8 @@ export default function PaymentsPage() {
 
             {/* Member */}
             <Field label="회원 *">
-              <select value={f.member_id} onChange={e => setF({ ...f, member_id: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none">
-                <option value="">-- 회원 선택 --</option>
-                {members.map(m => (
-                  <option key={m.id} value={m.id}>
-                    {m.name} ({m.member_type === "child" ? "아동" : "성인"})
-                  </option>
-                ))}
-              </select>
+              <PaymentMemberSearch members={members} value={f.member_id}
+                onChange={(id: string) => setF({ ...f, member_id: id })} />
             </Field>
 
             {/* Plan */}
@@ -1129,6 +1210,97 @@ function SplitPayRow({ label, val, onC, totalAmount, f, extra, isUnpaid, isDisco
       <button type="button" onClick={() => onC(0)}
         className="text-[10px] px-1.5 py-0.5 bg-gray-100 hover:bg-gray-200 rounded"
         title="초기화">×</button>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 💳 결제 등록 - 회원 검색 (돋보기 + 이름/전화번호 뒷자리 검색)
+// ═══════════════════════════════════════════════════════════════
+function PaymentMemberSearch({ members, value, onChange }: any) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+
+  const selected = members.find((m: any) => m.id === value);
+
+  const filtered = (members || []).filter((m: any) => {
+    if (!query) return true;
+    const q = query.trim().toLowerCase();
+    const name = (m.name || "").toLowerCase();
+    const phoneDigits = (m.phone || "").replace(/\D/g, "");
+    return name.includes(q) || phoneDigits.includes(q.replace(/\D/g, ""));
+  });
+
+  return (
+    <div className="relative">
+      <div className="flex gap-2">
+        <div className="flex-1 relative">
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
+            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <circle cx="11" cy="11" r="7" /><path d="m21 21-4.35-4.35" />
+          </svg>
+          <input type="text"
+            value={selected ? `${selected.name} (${selected.member_type === "child" ? "🧒 아동" : "👤 성인"}${selected.phone ? " · " + selected.phone.replace(/\D/g, "").slice(-4) : ""})` : query}
+            onChange={(e) => { setQuery(e.target.value); setOpen(true); if (selected) onChange(""); }}
+            onFocus={() => setOpen(true)}
+            placeholder="🔍 이름 또는 전화번호 뒷자리 (예: 3206)"
+            className="w-full pl-9 pr-9 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none"
+          />
+          {(selected || query) && (
+            <button type="button" onClick={() => { onChange(""); setQuery(""); setOpen(true); }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-500 text-lg leading-none">×</button>
+          )}
+        </div>
+      </div>
+
+      {open && !selected && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)}></div>
+          <div className="absolute z-40 top-full left-0 right-0 mt-1 max-h-72 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-xl">
+            {filtered.length === 0 ? (
+              <div className="p-4 text-center text-xs text-gray-400">
+                검색 결과 없음<br />
+                <span className="text-[10px]">이름 또는 전화번호 뒷자리(예: 3206)로 검색하세요</span>
+              </div>
+            ) : (
+              filtered.slice(0, 80).map((m: any) => {
+                const phoneDigits = (m.phone || "").replace(/\D/g, "");
+                const tail = phoneDigits.slice(-4);
+                const isChild = m.member_type === "child";
+                return (
+                  <button key={m.id} type="button"
+                    onClick={() => { onChange(m.id); setQuery(""); setOpen(false); }}
+                    className={`w-full text-left px-3 py-2.5 text-sm hover:bg-aqu-50 flex items-center gap-2 border-b border-gray-50 ${value === m.id ? "bg-aqu-50" : ""}`}>
+                    <span className="text-lg">{isChild ? "🧒" : "👤"}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-slate-800 truncate">
+                        {m.name}
+                        <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded ${isChild ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"}`}>
+                          {isChild ? "아동" : "성인"}
+                        </span>
+                      </div>
+                      {m.phone && (
+                        <div className="text-[11px] text-gray-500 font-mono">
+                          {m.phone}
+                          {tail && <span className="ml-1 px-1 bg-yellow-100 text-yellow-800 rounded">···{tail}</span>}
+                        </div>
+                      )}
+                    </div>
+                    {m.status && (
+                      <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">{m.status}</span>
+                    )}
+                  </button>
+                );
+              })
+            )}
+            {filtered.length > 80 && (
+              <div className="p-2 text-[10px] text-gray-400 text-center border-t">
+                +{filtered.length - 80}명 더 있음. 검색을 좁혀보세요.
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

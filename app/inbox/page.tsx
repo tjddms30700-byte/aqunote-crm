@@ -159,6 +159,26 @@ export default function InboxPage() {
         return;
       }
 
+      // 상담차트 자동 생성 (하나씩 미리 만들어 두면 상담 당일 바로 입력 가능)
+      try {
+        await supabase.from("consultation_charts").insert({
+          org_id: orgId,
+          member_id: newMember.id,
+          chart_type: lead.member_type || "adult",
+          member_name: lead.name,
+          phone: lead.phone,
+          source: lead.source || "웹신청",
+          consult_date: new Date().toISOString().slice(0, 10),
+          consult_method: "온라인",
+          wish_days: lead.wish_days || [],
+          wish_time_slots: lead.wish_time_slots || [],
+          status: "draft",
+          attention_level: "일반",
+        });
+      } catch (chartErr) {
+        console.warn("상담차트 자동생성 실패(무시해도 됨):", chartErr);
+      }
+
       // 승격 성공 즉시 archived=true 로 변경하여 즐시 목록에서 감춤 (이력은 아카이브 탭에서 확인 가능)
       await supabase.from("leads_inbox").update({
         processed: true,
@@ -168,7 +188,7 @@ export default function InboxPage() {
       }).eq("id", lead.id);
 
       await loadAll();
-      alert(`✅ ${lead.name}님이 회원으로 승격되었습니다 (승격된 유입은 아카이브 탭에서 확인 가능)`);
+      alert(`✅ ${lead.name}님이 회원으로 승격되었습니다\n📝 상담차트가 자동 생성되었습니다 (회원 상세 → 상담차트 탭에서 입력)`);
     } catch (e: any) {
       alert("오류: " + e.message);
     }
@@ -196,6 +216,24 @@ export default function InboxPage() {
           fail++;
           continue;
         }
+        // 상담차트 자동 생성
+        try {
+          await supabase.from("consultation_charts").insert({
+            org_id: orgId,
+            member_id: newMember.id,
+            chart_type: lead.member_type || "adult",
+            member_name: lead.name,
+            phone: lead.phone,
+            source: lead.source || "웹신청",
+            consult_date: new Date().toISOString().slice(0, 10),
+            consult_method: "온라인",
+            wish_days: lead.wish_days || [],
+            wish_time_slots: lead.wish_time_slots || [],
+            status: "draft",
+            attention_level: "일반",
+          });
+        } catch {}
+
         await supabase.from("leads_inbox").update({
           processed: true, member_id: newMember.id,
           archived: true, archived_at: new Date().toISOString(),
