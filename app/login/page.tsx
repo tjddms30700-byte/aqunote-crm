@@ -68,10 +68,10 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         <div className="text-center mb-6">
           <div className="inline-flex items-center gap-2 mb-2">
-            <Waves className="w-10 h-10 text-aqu-600" />
-            <h1 className="text-4xl font-bold text-aqu-900">AQUNOTE</h1>
+            <img src="/logo-whale.png" alt="아쿠고래" className="w-12 h-12 rounded-full" />
+            <h1 className="text-4xl font-bold text-aqu-900">아쿠노트</h1>
           </div>
-          <p className="text-sm text-gray-500">위례아쿠수중운동센터 CRM</p>
+          <p className="text-sm text-gray-500">센터 운영부터 맞춤 중재·재무까지 한 곳에서</p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-xl border border-aqu-100 p-6 md:p-8">

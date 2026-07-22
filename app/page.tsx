@@ -176,8 +176,21 @@ export default function Home() {
             AQUNOTE
           </h1>
         </div>
-        <p className="text-base md:text-xl text-gray-700 font-medium">아쿠수중운동센터 통합 CRM+ERP</p>
-        <p className="text-xs md:text-sm text-gray-500 mt-2">회원 · IEP · 행동중재 · 시간표 · 결제 · 재무 · 근태를 하나로</p>
+        <p className="text-base md:text-xl text-gray-700 font-medium">센터 운영부터 맞춤 중재·재무까지 한 곳에서</p>
+        <div className="flex flex-wrap items-center justify-center gap-2 mt-4">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-50 text-blue-700 text-xs md:text-sm font-semibold border border-blue-100 shadow-sm">
+            <span>👥</span> 회원·수업
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-purple-50 text-purple-700 text-xs md:text-sm font-semibold border border-purple-100 shadow-sm">
+            <span>📝</span> IEP·행동중재
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 text-xs md:text-sm font-semibold border border-emerald-100 shadow-sm">
+            <span>💰</span> 결제·재무
+          </span>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-50 text-amber-700 text-xs md:text-sm font-semibold border border-amber-100 shadow-sm">
+            <span>👨‍💼</span> 직원·근태
+          </span>
+        </div>
       </div>
 
       {/* ═══ 6개 그룹 카드 ═══ */}

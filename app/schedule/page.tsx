@@ -1988,11 +1988,11 @@ function MemberSearchSelect({ members, value, onChange }: any) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
 
-  // 종결/대기종료 제외하고 모든 회원 표시
+  // ✅ 전체 회원 표시 (종결/대기종료 포함) - 지난 회원도 결제/재등록 가능하도록
   const filtered = members
-    .filter((m: any) => !(["closed", "ended"].includes(m.status)))
-    .filter((m: any) => !query || (m.name || "").toLowerCase().includes(query.toLowerCase())
-                       || (m.phone || "").includes(query));
+    .filter((m: any) => !query
+                       || (m.name || "").toLowerCase().includes(query.toLowerCase())
+                       || ((m.phone || "").replace(/\D/g, "").includes(query.replace(/\D/g, "")) && query.replace(/\D/g, "").length > 0));
 
   const selected = members.find((m: any) => m.id === value);
 
@@ -2001,10 +2001,10 @@ function MemberSearchSelect({ members, value, onChange }: any) {
       <div className="flex gap-2">
         <input
           type="text"
-          value={selected ? `${selected.name} (${selected.member_type === "child" ? "아동" : "성인"})` : query}
+          value={selected ? `${selected.name}${selected.phone ? ` (${selected.phone.replace(/\D/g,"").slice(-4)})` : ""} · ${selected.member_type === "child" ? "아동" : "성인"}` : query}
           onChange={(e) => { setQuery(e.target.value); setOpen(true); if (selected) onChange(""); }}
-          onFocus={() => setOpen(true)}
-          placeholder="🔍 회원 이름이나 전화번호로 검색..."
+          onFocus={(e) => { setOpen(true); e.currentTarget.select(); }}
+          placeholder="🔍 이름 또는 전화번호 뒷자리 (예: 3206)"
           className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none"
         />
         {value && (
@@ -2020,23 +2020,27 @@ function MemberSearchSelect({ members, value, onChange }: any) {
           ) : (
             filtered.slice(0, 50).map((m: any) => {
               const statusMap: any = {
-                regular: { icon: "🎯", color: "text-green-600" },
-                waiting: { icon: "⏳", color: "text-yellow-600" },
-                trial_scheduled: { icon: "📅", color: "text-blue-600" },
-                trial_done: { icon: "✅", color: "text-purple-600" },
-                paused: { icon: "⏸️", color: "text-gray-500" },
+                regular: { icon: "🎯", color: "text-green-600", label: "정규" },
+                waiting: { icon: "⏳", color: "text-yellow-600", label: "대기" },
+                trial_scheduled: { icon: "📅", color: "text-blue-600", label: "체험예정" },
+                trial_done: { icon: "✅", color: "text-purple-600", label: "체험완료" },
+                paused: { icon: "⏸️", color: "text-gray-500", label: "일시정지" },
+                closed: { icon: "🔴", color: "text-red-500", label: "종결" },
+                ended: { icon: "⚫", color: "text-gray-400", label: "대기종료" },
               };
               const st = statusMap[m.status] || statusMap.regular;
+              const phoneTail = (m.phone || "").replace(/\D/g, "").slice(-4);
               return (
                 <button key={m.id} type="button"
                   onClick={() => { onChange(m.id); setQuery(""); setOpen(false); }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-aqu-50 flex items-center gap-2 ${value === m.id ? "bg-aqu-50" : ""}`}>
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-aqu-50 flex items-center gap-2 ${value === m.id ? "bg-aqu-50" : ""} ${["closed","ended"].includes(m.status) ? "opacity-60" : ""}`}>
                   <span className={st.color}>{st.icon}</span>
                   <span className="font-medium">{m.name}</span>
+                  {phoneTail && <span className="text-xs text-amber-600 font-mono bg-amber-50 px-1.5 py-0.5 rounded">({phoneTail})</span>}
                   <span className="text-xs text-gray-400">
                     {m.member_type === "child" ? "🧒 아동" : "👤 성인"}
-                    {m.phone && " · " + m.phone.slice(-4)}
                   </span>
+                  <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded ${st.color} bg-gray-50`}>{st.label}</span>
                 </button>
               );
             })

@@ -73,9 +73,9 @@ function RevenueDashboardPage() {
       setLoading(true);
       const [payRes, slotRes, memRes, mshipRes] = await Promise.all([
         supabase.from("payments").select("*").order("created_at", { ascending: false }),
-        supabase.from("schedule_slots").select("*").eq("event_type", "revenue"),
+        supabase.from("schedule_slots").select("*").eq("event_type", "revenue").neq("status", "cancelled"),
         supabase.from("members").select("id, name, member_type").is("deleted_at", null),
-        supabase.from("memberships").select("*").order("end_date", { ascending: true }),
+        supabase.from("memberships").select("*").neq("status", "cancelled").order("end_date", { ascending: true }),
       ]);
       setPayments(payRes.data || []);
       setSlots(slotRes.data || []);
@@ -98,14 +98,17 @@ function RevenueDashboardPage() {
         member_id: p.member_id,
         label: p.plan_name || p.description || "결제",
       }));
-    const slotRevs = slots.map(s => ({
-      id: s.id,
-      source: "schedule" as const,
-      amount: s.amount || 0,
-      date: s.created_at,
-      member_id: s.member_id,
-      label: "시간표 매출",
-    }));
+    // ✅ schedule_slots 매출도 cancelled 제외 (한번 더 안전 필터)
+    const slotRevs = slots
+      .filter((s: any) => s.status !== "cancelled" && (s.amount || 0) > 0)
+      .map(s => ({
+        id: s.id,
+        source: "schedule" as const,
+        amount: s.amount || 0,
+        date: s.created_at,
+        member_id: s.member_id,
+        label: "시간표 매출",
+      }));
     return [...paymentRevs, ...slotRevs].sort((a, b) => (b.date > a.date ? 1 : -1));
   }, [payments, slots]);
 
