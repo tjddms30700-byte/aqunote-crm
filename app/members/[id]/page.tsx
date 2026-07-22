@@ -365,16 +365,20 @@ export default function MemberDetail() {
       guardian_relation: member.guardian_relation || "",
       address: member.address || "",
       source: member.source || "",
+      diagnosis: member.extra?.diagnosis || "",
     });
     setEditingBasic(true);
   }
   async function saveBasicEdit() {
-    const payload: any = { ...basicForm };
+    const { diagnosis, ...rest } = basicForm;
+    const payload: any = { ...rest };
     if (payload.member_type === "adult") {
       // 성인으로 변경 시 보호자 필드 비움
       payload.guardian_name = null;
       payload.guardian_relation = null;
     }
+    // 진단명은 extra JSONB에 저장 (기존 키 보존)
+    payload.extra = { ...(member.extra || {}), diagnosis: diagnosis || null };
     const { error } = await supabase.from("members").update(payload).eq("id", member.id);
     if (error) return alert("수정 실패: " + error.message);
     setMember({ ...member, ...payload });
@@ -651,6 +655,13 @@ export default function MemberDetail() {
                     <input type="text" value={basicForm.source}
                       onChange={e => setBasicForm({ ...basicForm, source: e.target.value })}
                       placeholder="검색/지인/광고"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="text-xs font-semibold text-gray-600 block mb-1">🩺 진단명</label>
+                    <input type="text" value={basicForm.diagnosis || ""}
+                      onChange={e => setBasicForm({ ...basicForm, diagnosis: e.target.value })}
+                      placeholder="예: 뇌병변, 자폐스펙트럼, 다운증후군, 요추 추간판 탈출증 등"
                       className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
                   </div>
                   {basicForm.member_type === "child" && (

@@ -1511,33 +1511,7 @@ function SlotModal({ f, setF, modal, members, staff, plans, onClose, onSave, onD
           </Field>
 
           <Field label="수업명 / 회원권 선택">
-            {plans && plans.length > 0 ? (
-              <div className="space-y-1">
-                <select value={f.lesson_name || ""} onChange={e => setF({ ...f, lesson_name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none">
-                  <option value="">-- 회원권 선택 --</option>
-                  {plans.map((p: any) => (
-                    <option key={p.id} value={p.name}>
-                      {p.name} {p.sessions > 0 ? `(${p.sessions}회)` : "(무제한)"} ‧ ₩{(p.price || 0).toLocaleString()}
-                    </option>
-                  ))}
-                  <option value="__custom__">📝 직접 입력...</option>
-                </select>
-                {(f.lesson_name === "__custom__" || (f.lesson_name && !plans.find((p: any) => p.name === f.lesson_name))) && (
-                  <input type="text"
-                    value={f.lesson_name === "__custom__" ? "" : f.lesson_name}
-                    onChange={e => setF({ ...f, lesson_name: e.target.value })}
-                    placeholder="자유 입력 (예: 체험, 개인지도)"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none" />
-                )}
-                <div className="text-[10px] text-gray-500">💡 회원권은 <a href="/plans" className="text-aqu-600 underline">회원권 관리 페이지</a>에서 추가하세요</div>
-              </div>
-            ) : (
-              <input type="text" value={f.lesson_name || ""}
-                onChange={e => setF({ ...f, lesson_name: e.target.value })}
-                placeholder="예: 수중프로그램 30회권"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none" />
-            )}
+            <PlanPicker plans={plans} value={f.lesson_name} onChange={(name: string) => setF({ ...f, lesson_name: name })} />
           </Field>
 
           {f.event_type === "revenue" && (
@@ -2134,6 +2108,171 @@ function DateActionSheet({ date, time, onReservation, onRevenue, onStaffSchedule
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 🎫 회원권 선택 - 정액권/횟수권 자동 판별
+// ═══════════════════════════════════════════════════════════════
+function PlanPicker({ plans, value, onChange }: any) {
+  // plan_type 자동 판별:
+  //  1) plans에 plan_type이 있으면 사용
+  //  2) 없으면 이름에 "월/기간/무제한" 있으면 amount, "회" 있으면 session
+  //  3) sessions > 0 → session, sessions === 0 → amount (기본 규칙)
+  function detectType(p: any): "session" | "amount" {
+    if (p?.plan_type === "amount" || p?.plan_type === "session") return p.plan_type;
+    const name = (p?.name || "").toLowerCase();
+    if (/월|기간|무제한|정액/.test(name)) return "amount";
+    if (/회|횟수/.test(name)) return "session";
+    return (p?.sessions || 0) > 0 ? "session" : "amount";
+  }
+
+  const [tab, setTab] = useState<"session" | "amount" | "custom">("session");
+  const [customInput, setCustomInput] = useState("");
+
+  const availablePlans = (plans || []).filter((p: any) => p.is_active !== false);
+  const sessionPlans = availablePlans.filter((p: any) => detectType(p) === "session");
+  const amountPlans = availablePlans.filter((p: any) => detectType(p) === "amount");
+
+  // 현재 선택된 회원권의 타입을 감지해 탭 자동 전환
+  useEffect(() => {
+    if (!value) return;
+    const found = availablePlans.find((p: any) => p.name === value);
+    if (found) {
+      const t = detectType(found);
+      setTab(t);
+    } else if (value === "__custom__" || (value && !availablePlans.find((p: any) => p.name === value))) {
+      setTab("custom");
+      if (value !== "__custom__") setCustomInput(value);
+    }
+  }, [value, plans]);
+
+  const isChosen = (p: any) => value === p.name;
+
+  if (!plans || plans.length === 0) {
+    return (
+      <div>
+        <input type="text" value={value || ""} onChange={e => onChange(e.target.value)}
+          placeholder="예: 수중프로그램 30회권, 월 4회권"
+          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none" />
+        <div className="text-[10px] text-gray-500 mt-1">
+          💡 회원권은 <a href="/plans" className="text-aqu-600 underline">회원권 관리 페이지</a>에서 추가하세요
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {/* 탭 - 정액권/횟수권/직접입력 */}
+      <div className="flex gap-1 border-b border-gray-100">
+        <button type="button" onClick={() => setTab("session")}
+          className={`flex-1 px-3 py-2 text-xs font-semibold border-b-2 transition ${tab === "session" ? "border-indigo-500 text-indigo-700 bg-indigo-50/50" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
+          🎫 횟수권 ({sessionPlans.length})
+        </button>
+        <button type="button" onClick={() => setTab("amount")}
+          className={`flex-1 px-3 py-2 text-xs font-semibold border-b-2 transition ${tab === "amount" ? "border-purple-500 text-purple-700 bg-purple-50/50" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
+          🗓️ 정액권 ({amountPlans.length})
+        </button>
+        <button type="button" onClick={() => setTab("custom")}
+          className={`flex-1 px-3 py-2 text-xs font-semibold border-b-2 transition ${tab === "custom" ? "border-gray-500 text-gray-700 bg-gray-50" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
+          📝 직접 입력
+        </button>
+      </div>
+
+      {/* 횟수권 그리드 */}
+      {tab === "session" && (
+        <div className="grid grid-cols-2 gap-1.5 max-h-56 overflow-y-auto">
+          {sessionPlans.length === 0 ? (
+            <div className="col-span-2 p-4 text-center text-xs text-gray-400 bg-gray-50 rounded-lg">
+              등록된 횟수권이 없습니다<br/>
+              <a href="/plans" className="text-indigo-600 underline text-[11px] mt-1 inline-block">회원권 관리에서 추가</a>
+            </div>
+          ) : (
+            sessionPlans.map((p: any) => (
+              <button key={p.id} type="button"
+                onClick={() => onChange(p.name)}
+                className={`text-left p-2 rounded-lg border-2 transition ${isChosen(p) ? "border-indigo-500 bg-indigo-50 shadow-sm" : "border-gray-200 bg-white hover:border-indigo-300 hover:bg-indigo-50/30"}`}>
+                <div className="flex items-center justify-between mb-0.5">
+                  <span className={`text-xs font-bold ${isChosen(p) ? "text-indigo-800" : "text-slate-800"}`}>{p.name}</span>
+                  {isChosen(p) && <span className="text-indigo-600 text-xs">✓</span>}
+                </div>
+                <div className="flex items-center gap-1.5 text-[10px]">
+                  <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded font-mono font-bold">
+                    {p.sessions || 1}회
+                  </span>
+                  <span className="text-gray-600">₩{(p.price || 0).toLocaleString()}</span>
+                  {p.valid_days && <span className="text-gray-400">· {p.valid_days}일</span>}
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* 정액권 그리드 */}
+      {tab === "amount" && (
+        <div className="grid grid-cols-2 gap-1.5 max-h-56 overflow-y-auto">
+          {amountPlans.length === 0 ? (
+            <div className="col-span-2 p-4 text-center text-xs text-gray-400 bg-gray-50 rounded-lg">
+              등록된 정액권이 없습니다<br/>
+              <a href="/plans" className="text-purple-600 underline text-[11px] mt-1 inline-block">회원권 관리에서 추가</a>
+            </div>
+          ) : (
+            amountPlans.map((p: any) => (
+              <button key={p.id} type="button"
+                onClick={() => onChange(p.name)}
+                className={`text-left p-2 rounded-lg border-2 transition ${isChosen(p) ? "border-purple-500 bg-purple-50 shadow-sm" : "border-gray-200 bg-white hover:border-purple-300 hover:bg-purple-50/30"}`}>
+                <div className="flex items-center justify-between mb-0.5">
+                  <span className={`text-xs font-bold ${isChosen(p) ? "text-purple-800" : "text-slate-800"}`}>{p.name}</span>
+                  {isChosen(p) && <span className="text-purple-600 text-xs">✓</span>}
+                </div>
+                <div className="flex items-center gap-1.5 text-[10px]">
+                  <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded font-mono font-bold">
+                    {p.valid_days ? `${p.valid_days}일` : "무제한"}
+                  </span>
+                  <span className="text-gray-600">₩{(p.price || 0).toLocaleString()}</span>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* 직접 입력 */}
+      {tab === "custom" && (
+        <div>
+          <input type="text"
+            value={customInput || (value && !availablePlans.find((p: any) => p.name === value) ? value : "")}
+            onChange={e => { setCustomInput(e.target.value); onChange(e.target.value); }}
+            placeholder="예: 체험, 개인지도, 그룹레슨 A"
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none" />
+          <div className="text-[10px] text-gray-500 mt-1">
+            💡 목록에 없는 특별 회원권은 여기에 입력하세요
+          </div>
+        </div>
+      )}
+
+      {/* 선택 확인 배지 */}
+      {value && value !== "__custom__" && (
+        <div className="flex items-center gap-2 p-2 bg-emerald-50 border border-emerald-200 rounded-lg text-xs">
+          <span className="text-emerald-600 font-bold">✓ 선택됨:</span>
+          <span className="text-emerald-800 font-semibold">{value}</span>
+          {(() => {
+            const p = availablePlans.find((x: any) => x.name === value);
+            if (!p) return <span className="text-gray-500">(직접 입력)</span>;
+            const t = detectType(p);
+            return (
+              <span className={`ml-auto px-1.5 py-0.5 rounded text-[10px] font-bold ${t === "session" ? "bg-indigo-100 text-indigo-700" : "bg-purple-100 text-purple-700"}`}>
+                {t === "session" ? `🎫 횟수권 ${p.sessions}회` : `🗓️ 정액권 ${p.valid_days || "?"}일`}
+              </span>
+            );
+          })()}
+          <button type="button" onClick={() => onChange("")}
+            className="text-gray-400 hover:text-red-500 text-sm leading-none">×</button>
+        </div>
+      )}
     </div>
   );
 }

@@ -1223,13 +1223,25 @@ function PaymentMemberSearch({ members, value, onChange }: any) {
 
   const selected = members.find((m: any) => m.id === value);
 
+  // "강선옥 (9802) · 성인" 형식
+  function formatSelected(m: any) {
+    if (!m) return "";
+    const tail = (m.phone || "").replace(/\D/g, "").slice(-4);
+    const typeLabel = m.member_type === "child" ? "아동" : "성인";
+    return `${m.name}${tail ? ` (${tail})` : ""} · ${typeLabel}`;
+  }
+
   const filtered = (members || []).filter((m: any) => {
     if (!query) return true;
     const q = query.trim().toLowerCase();
+    if (!q) return true;
     const name = (m.name || "").toLowerCase();
     const phoneDigits = (m.phone || "").replace(/\D/g, "");
-    return name.includes(q) || phoneDigits.includes(q.replace(/\D/g, ""));
+    const qDigits = q.replace(/\D/g, "");
+    return name.includes(q) || (qDigits && phoneDigits.includes(qDigits));
   });
+
+  const displayValue = query || (selected ? formatSelected(selected) : "");
 
   return (
     <div className="relative">
@@ -1240,22 +1252,33 @@ function PaymentMemberSearch({ members, value, onChange }: any) {
             <circle cx="11" cy="11" r="7" /><path d="m21 21-4.35-4.35" />
           </svg>
           <input type="text"
-            value={selected ? `${selected.name} (${selected.member_type === "child" ? "🧒 아동" : "👤 성인"}${selected.phone ? " · " + selected.phone.replace(/\D/g, "").slice(-4) : ""})` : query}
-            onChange={(e) => { setQuery(e.target.value); setOpen(true); if (selected) onChange(""); }}
-            onFocus={() => setOpen(true)}
+            value={displayValue}
+            onFocus={(e) => {
+              setOpen(true);
+              if (selected && !query) e.currentTarget.select();
+            }}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setOpen(true);
+              if (selected) onChange("");
+            }}
             placeholder="🔍 이름 또는 전화번호 뒷자리 (예: 3206)"
             className="w-full pl-9 pr-9 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none"
           />
           {(selected || query) && (
-            <button type="button" onClick={() => { onChange(""); setQuery(""); setOpen(true); }}
+            <button type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onChange(""); setQuery(""); setOpen(true);
+              }}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-500 text-lg leading-none">×</button>
           )}
         </div>
       </div>
 
-      {open && !selected && (
+      {open && (
         <>
-          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)}></div>
+          <div className="fixed inset-0 z-30" onClick={() => { setOpen(false); setQuery(""); }}></div>
           <div className="absolute z-40 top-full left-0 right-0 mt-1 max-h-72 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-xl">
             {filtered.length === 0 ? (
               <div className="p-4 text-center text-xs text-gray-400">
@@ -1269,21 +1292,24 @@ function PaymentMemberSearch({ members, value, onChange }: any) {
                 const isChild = m.member_type === "child";
                 return (
                   <button key={m.id} type="button"
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => { onChange(m.id); setQuery(""); setOpen(false); }}
                     className={`w-full text-left px-3 py-2.5 text-sm hover:bg-aqu-50 flex items-center gap-2 border-b border-gray-50 ${value === m.id ? "bg-aqu-50" : ""}`}>
                     <span className="text-lg">{isChild ? "🧒" : "👤"}</span>
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium text-slate-800 truncate">
-                        {m.name}
-                        <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded ${isChild ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"}`}>
+                      <div className="font-medium text-slate-800 truncate flex items-center gap-1.5 flex-wrap">
+                        <span>{m.name}</span>
+                        {tail && (
+                          <span className="text-[11px] font-mono px-1.5 py-0.5 bg-yellow-100 text-yellow-800 rounded">
+                            ({tail})
+                          </span>
+                        )}
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${isChild ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"}`}>
                           {isChild ? "아동" : "성인"}
                         </span>
                       </div>
                       {m.phone && (
-                        <div className="text-[11px] text-gray-500 font-mono">
-                          {m.phone}
-                          {tail && <span className="ml-1 px-1 bg-yellow-100 text-yellow-800 rounded">···{tail}</span>}
-                        </div>
+                        <div className="text-[10px] text-gray-400 font-mono mt-0.5">{m.phone}</div>
                       )}
                     </div>
                     {m.status && (
