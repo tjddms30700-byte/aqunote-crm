@@ -5,6 +5,7 @@ import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
+import MemberSearch from "@/components/MemberSearch";
 import {
   Waves, Plus, X, Save, CreditCard, Calendar, DollarSign, Home,
   Banknote, Building2, HelpCircle, Ticket, Clock, Hash, Trash2, Receipt
@@ -748,7 +749,7 @@ export default function PaymentsPage() {
 
             {/* Member */}
             <Field label="회원 *">
-              <PaymentMemberSearch members={members} value={f.member_id}
+              <MemberSearch members={members} value={f.member_id}
                 onChange={(id: string) => setF({ ...f, member_id: id })} />
             </Field>
 

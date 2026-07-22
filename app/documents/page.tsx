@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
+import MemberSearch from "@/components/MemberSearch";
 import { supabase } from "@/lib/supabase";
 import {
   FileText, Upload, Download, Trash2, Home, Search,
@@ -264,15 +265,9 @@ export default function DocumentsPage() {
             </h2>
 
             <label className="block text-xs font-semibold text-gray-600 mb-1">회원 (필수)</label>
-            <select value={upMember} onChange={e => setUpMember(e.target.value)}
-              className="w-full mb-3 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none">
-              <option value="">-- 회원 선택 --</option>
-              {members.map(m => (
-                <option key={m.id} value={m.id}>
-                  {m.name} ({m.member_type === "child" ? "아동" : "성인"})
-                </option>
-              ))}
-            </select>
+            <div className="mb-3">
+              <MemberSearch members={members} value={upMember} onChange={setUpMember} />
+            </div>
 
             <label className="block text-xs font-semibold text-gray-600 mb-1">카테고리</label>
             <select value={upCat} onChange={e => setUpCat(e.target.value)}

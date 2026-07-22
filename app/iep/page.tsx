@@ -5,6 +5,7 @@ import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import HomeButton from "@/components/HomeButton";
+import MemberSearch from "@/components/MemberSearch";
 import {
   Target, Plus, X, Save, Sparkles, TrendingUp, User,
   Trash2, Edit, Check, ChevronDown, ChevronRight, BarChart3, Loader2
@@ -222,13 +223,9 @@ export default function IEPPage() {
       {/* Member selector */}
       <div className="mb-4 bg-white rounded-xl border border-aqu-100 p-3 flex flex-wrap items-center gap-3">
         <User className="w-4 h-4 text-aqu-600" />
-        <select value={selectedMember} onChange={e => setSelectedMember(e.target.value)}
-          className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none flex-1 max-w-xs">
-          <option value="">-- 회원 선택 --</option>
-          {members.map(m => (
-            <option key={m.id} value={m.id}>{m.name} ({m.member_type === "child" ? "아동" : "성인"})</option>
-          ))}
-        </select>
+        <div className="flex-1 max-w-xs">
+          <MemberSearch members={members} value={selectedMember} onChange={setSelectedMember} />
+        </div>
         {selectedMemberName && (
           <>
             <Link href={`/members/${selectedMember}`} className="text-xs text-aqu-600 hover:underline">

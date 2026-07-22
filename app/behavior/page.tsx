@@ -5,6 +5,7 @@ import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import HomeButton from "@/components/HomeButton";
+import MemberSearch from "@/components/MemberSearch";
 import {
   AlertTriangle, Plus, X, Save, Sparkles, Clock, Timer,
   Trash2, User, ChevronDown, ChevronRight, BarChart3, Loader2, Zap
@@ -166,13 +167,9 @@ export default function BehaviorPage() {
       {/* Member selector */}
       <div className="mb-4 bg-white rounded-xl border border-aqu-100 p-3 flex flex-wrap items-center gap-3">
         <User className="w-4 h-4 text-aqu-600" />
-        <select value={selectedMember} onChange={e => setSelectedMember(e.target.value)}
-          className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm flex-1 max-w-xs">
-          <option value="">-- 회원 선택 --</option>
-          {members.map(m => (
-            <option key={m.id} value={m.id}>{m.name} ({m.member_type === "child" ? "아동" : "성인"})</option>
-          ))}
-        </select>
+        <div className="flex-1 max-w-xs">
+          <MemberSearch members={members} value={selectedMember} onChange={setSelectedMember} />
+        </div>
         {selectedMemberName && (
           <button onClick={() => setShowBehModal(true)}
             className="ml-auto bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs flex items-center gap-1">

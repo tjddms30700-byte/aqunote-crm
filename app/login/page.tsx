@@ -29,6 +29,21 @@ export default function LoginPage() {
       if (mode === "login") {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
+
+        // ✅ v3.10: 로그인 계정의 지점 정보 저장 (지점 스위체 연동)
+        try {
+          const { data: acct } = await supabase
+            .from("staff_accounts")
+            .select("id, login_id, email, branch_id, is_master, permission")
+            .eq("email", email)
+            .is("deleted_at", null)
+            .maybeSingle();
+          if (acct) {
+            const { saveLoggedInAccount } = await import("@/lib/branchContext");
+            saveLoggedInAccount(acct);
+          }
+        } catch (e) { /* branch_id / is_master 컴럼 미존재 시 무시 */ }
+
         setMsg({ type: "ok", text: "로그인 성공! 이동합니다..." });
         setTimeout(() => router.push("/dashboard"), 800);
       } else {

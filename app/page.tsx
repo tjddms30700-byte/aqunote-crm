@@ -11,6 +11,7 @@ import {
   Waves, Wallet, UserCog, PieChart, Inbox
 } from "lucide-react";
 import Logo from "@/components/Logo";
+import BranchSwitcher from "@/components/BranchSwitcher";
 
 /* ═════ 6개 대분류 ═════ */
 const GROUPS = [
@@ -166,6 +167,11 @@ export default function Home() {
             <LogIn className="w-3.5 h-3.5" /> 로그인
           </Link>
         )}
+      </div>
+
+      {/* ✅ 지점 스위처 (로그인 상태일 때만 표시) */}
+      <div className="flex justify-end mb-3">
+        <BranchSwitcher />
       </div>
 
       {/* Hero */}

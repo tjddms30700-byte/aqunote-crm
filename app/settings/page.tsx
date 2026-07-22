@@ -27,7 +27,7 @@ export default function SettingsPage() {
   // 지점 폼
   const [newBranch, setNewBranch] = useState<any>({ name: "", address: "", phone: "", manager_name: "" });
   // 계정 폼
-  const [newAcct, setNewAcct] = useState<any>({ staff_id: "", login_id: "", email: "", password: "", permission: "general" });
+  const [newAcct, setNewAcct] = useState<any>({ staff_id: "", login_id: "", email: "", password: "", permission: "general", branch_id: "", is_master: false });
 
   useEffect(() => { loadAll(); }, []);
 
@@ -64,6 +64,11 @@ export default function SettingsPage() {
       const { error: dbErr } = await supabase.from("organizations").update({ logo_url: publicUrl }).eq("id", org.id);
       if (dbErr) throw dbErr;
       setLogoUrl(publicUrl);
+      // ✅ localStorage 즉시 업데이트로 깜빡임 제거
+      try {
+        const cacheUrl = publicUrl + (publicUrl.includes("?") ? "&" : "?") + "v=" + Date.now();
+        window.localStorage.setItem("aqu_logo_url_v2", cacheUrl);
+      } catch {}
       alert("✅ 로고가 변경되었습니다! 홈페이지에서 확인하세요");
       window.dispatchEvent(new CustomEvent("logo-updated"));
     } catch (err: any) {
@@ -78,6 +83,12 @@ export default function SettingsPage() {
     if (!confirm("기본 고래 로고로 되돌립니다")) return;
     await supabase.from("organizations").update({ logo_url: null }).eq("id", org.id);
     setLogoUrl("");
+    // ✅ localStorage 캐시 즉시 정리 + 전체 페이지 기본 로고로 즉시 전환 (깜빡임 없음)
+    try {
+      window.localStorage.removeItem("aqu_logo_url_v2");
+      window.localStorage.setItem("aqu_logo_url_v2", "DEFAULT");
+    } catch {}
+    window.dispatchEvent(new CustomEvent("logo-reset"));
     window.dispatchEvent(new CustomEvent("logo-updated"));
     alert("✅ 기본 로고로 되돌렸습니다");
   }
@@ -148,24 +159,50 @@ export default function SettingsPage() {
   // ═══ 지점 추가/삭제 ═══
   async function addBranch() {
     if (!newBranch.name.trim()) { alert("지점명을 입력하세요"); return; }
+    const bt = newBranch.branch_type || "branch";
+    const isHead = bt === "head";
+    // 본점은 1개만 존재 가능: 이미 다른 head가 있으면 direct로 자동 전환
+    if (isHead) {
+      const existingHead = branches.find(b => b.branch_type === "head");
+      if (existingHead) {
+        if (!confirm(`이미 본점(${existingHead.name})이 있습니다.\n새 지점을 본점으로 지정하면 기존 본점은 직영점으로 변경됩니다. 계속할까요?`)) return;
+        await supabase.from("branches").update({ branch_type: "direct", is_main: false }).eq("id", existingHead.id);
+      }
+    }
     const { error } = await supabase.from("branches").insert({
       org_id: org.id,
       name: newBranch.name.trim(),
       address: newBranch.address.trim() || null,
       phone: newBranch.phone.trim() || null,
       manager_name: newBranch.manager_name.trim() || null,
-      is_main: branches.length === 0,
+      branch_type: bt,
+      is_main: isHead || branches.length === 0,
       is_active: true,
     });
-    if (error) { alert("추가 실패: " + error.message); return; }
-    setNewBranch({ name: "", address: "", phone: "", manager_name: "" });
+    if (error) { alert("추가 실패: " + error.message + "\n(SQL 마이그레이션 미적용 시 AQUNOTE_V310_BRANCH_MASTER.sql 실행 필요)"); return; }
+    setNewBranch({ name: "", address: "", phone: "", manager_name: "", branch_type: "branch" });
+    loadAll();
+  }
+
+  async function updateBranchType(b: any, newType: string) {
+    // head로 변경 시 기존 head를 direct로 자동 전환
+    if (newType === "head") {
+      const existingHead = branches.find(x => x.branch_type === "head" && x.id !== b.id);
+      if (existingHead) {
+        await supabase.from("branches").update({ branch_type: "direct", is_main: false }).eq("id", existingHead.id);
+      }
+      await supabase.from("branches").update({ branch_type: "head", is_main: true }).eq("id", b.id);
+    } else {
+      await supabase.from("branches").update({ branch_type: newType, is_main: false }).eq("id", b.id);
+    }
     loadAll();
   }
 
   async function toggleMain(b: any) {
-    // 다른 모든 지점의 is_main → false, 현재만 true
+    // 다른 모든 지점의 is_main → false, 현재만 true (+ branch_type head로 자동 지정)
     await supabase.from("branches").update({ is_main: false }).neq("id", "00000000-0000-0000-0000-000000000000");
-    await supabase.from("branches").update({ is_main: true }).eq("id", b.id);
+    await supabase.from("branches").update({ branch_type: "direct" }).eq("branch_type", "head");
+    await supabase.from("branches").update({ is_main: true, branch_type: "head" }).eq("id", b.id);
     loadAll();
   }
 
@@ -202,7 +239,7 @@ export default function SettingsPage() {
       if (!authErr && authData.user) authUserId = authData.user.id;
     } catch (e) { /* Auth 실패 무시, DB 기록은 진행 */ }
 
-    const { error } = await supabase.from("staff_accounts").insert({
+    const insertPayload: any = {
       staff_id: newAcct.staff_id,
       org_id: org.id,
       login_id: newAcct.login_id.trim(),
@@ -210,9 +247,21 @@ export default function SettingsPage() {
       auth_user_id: authUserId,
       permission: newAcct.permission,
       is_active: true,
-    });
+    };
+    // ✅ v3.10: branch_id + is_master 추가 (마이그레이션 적용 시)
+    if (newAcct.branch_id) insertPayload.branch_id = newAcct.branch_id;
+    if (newAcct.is_master) insertPayload.is_master = true;
+    let { error } = await supabase.from("staff_accounts").insert(insertPayload);
+    // branch_id/is_master 컴럼 미존재 시 재시도
+    if (error && (error.message.includes("branch_id") || error.message.includes("is_master"))) {
+      delete insertPayload.branch_id;
+      delete insertPayload.is_master;
+      const retry = await supabase.from("staff_accounts").insert(insertPayload);
+      error = retry.error;
+      if (!error) alert("⚠️ 지점/마스터 설정은 저장되지 않았습니다. AQUNOTE_V310_BRANCH_MASTER.sql을 먼저 실행해주세요.");
+    }
     if (error) { alert("계정 생성 실패: " + error.message); return; }
-    setNewAcct({ staff_id: "", login_id: "", email: "", password: "", permission: "general" });
+    setNewAcct({ staff_id: "", login_id: "", email: "", password: "", permission: "general", branch_id: "", is_master: false });
     alert("✅ 로그인 계정이 생성되었습니다");
     loadAll();
   }
@@ -228,7 +277,14 @@ export default function SettingsPage() {
   }
   async function togglePermission(a: any) {
     const next = a.permission === "master" ? "general" : "master";
-    await supabase.from("staff_accounts").update({ permission: next }).eq("id", a.id);
+    // 마스터로 승격 시 is_master도 함께 설정
+    await supabase.from("staff_accounts").update({ permission: next, is_master: next === "master" }).eq("id", a.id);
+    loadAll();
+  }
+
+  // ✅ 계정의 지점 변경
+  async function updateAccountBranch(a: any, branchId: string) {
+    await supabase.from("staff_accounts").update({ branch_id: branchId || null }).eq("id", a.id);
     loadAll();
   }
 
@@ -308,6 +364,28 @@ export default function SettingsPage() {
                 placeholder="지점명 (예: 위례본점)" className="px-3 py-2 border border-gray-200 rounded-lg" />
               <input value={newBranch.manager_name} onChange={e => setNewBranch({ ...newBranch, manager_name: e.target.value })}
                 placeholder="지점장명" className="px-3 py-2 border border-gray-200 rounded-lg" />
+              {/* ✅ 지점 유형 선택 버튼 */}
+              <div className="md:col-span-2">
+                <label className="text-xs font-semibold text-gray-600 block mb-1.5">지점 유형</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { k: "head",   label: "🏢 본점",   desc: "마스터·1개만",  color: "from-yellow-400 to-amber-500" },
+                    { k: "direct", label: "🏪 직영점", desc: "직접 운영",  color: "from-blue-500 to-indigo-500" },
+                    { k: "branch", label: "🏬 지점",   desc: "일반 지점",  color: "from-gray-400 to-slate-500" },
+                  ].map(t => (
+                    <button key={t.k} type="button"
+                      onClick={() => setNewBranch({ ...newBranch, branch_type: t.k })}
+                      className={`px-3 py-2.5 rounded-lg border-2 text-sm text-left transition ${
+                        newBranch.branch_type === t.k
+                          ? `bg-gradient-to-br ${t.color} text-white border-transparent shadow`
+                          : "bg-white border-gray-200 text-gray-600 hover:border-gray-300"
+                      }`}>
+                      <div className="font-bold">{t.label}</div>
+                      <div className="text-[10px] opacity-80 mt-0.5">{t.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
               <input value={newBranch.address} onChange={e => setNewBranch({ ...newBranch, address: e.target.value })}
                 placeholder="주소" className="px-3 py-2 border border-gray-200 rounded-lg md:col-span-2" />
               <input value={newBranch.phone} onChange={e => setNewBranch({ ...newBranch, phone: e.target.value })}
@@ -327,14 +405,23 @@ export default function SettingsPage() {
               <div className="text-sm text-gray-400 py-6 text-center">등록된 지점이 없습니다</div>
             ) : (
               <div className="space-y-2">
-                {branches.map(b => (
+                {branches.map(b => {
+                  const typeMeta: any = {
+                    head:   { icon: "🏢", label: "본점",   color: "bg-yellow-100 text-yellow-700 border-yellow-200" },
+                    direct: { icon: "🏪", label: "직영점", color: "bg-blue-100 text-blue-700 border-blue-200" },
+                    branch: { icon: "🏬", label: "지점",   color: "bg-gray-100 text-gray-700 border-gray-200" },
+                  };
+                  const tm = typeMeta[b.branch_type] || typeMeta.branch;
+                  return (
                   <div key={b.id} className="flex items-center justify-between p-3 border border-gray-100 rounded-xl hover:border-blue-200 transition">
                     <div className="flex items-center gap-3">
-                      <MapPin className={`w-5 h-5 ${b.is_main ? "text-yellow-500" : "text-gray-400"}`} />
+                      <MapPin className={`w-5 h-5 ${b.branch_type === "head" ? "text-yellow-500" : b.branch_type === "direct" ? "text-blue-500" : "text-gray-400"}`} />
                       <div>
-                        <div className="font-semibold text-slate-900 flex items-center gap-2">
+                        <div className="font-semibold text-slate-900 flex items-center gap-2 flex-wrap">
                           {b.name}
-                          {b.is_main && <span className="text-[10px] px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full">본점</span>}
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full border ${tm.color}`}>
+                            {tm.icon} {tm.label}
+                          </span>
                           {!b.is_active && <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full">비활성</span>}
                         </div>
                         <div className="text-xs text-gray-500 mt-0.5">
@@ -345,19 +432,21 @@ export default function SettingsPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
-                      {!b.is_main && (
-                        <button onClick={() => toggleMain(b)}
-                          className="px-2.5 py-1.5 text-xs text-yellow-700 hover:bg-yellow-50 rounded-lg" title="본점 지정">
-                          ⭐ 본점 지정
-                        </button>
-                      )}
+                      {/* ✅ 지점 유형 변경 드롭다운 */}
+                      <select value={b.branch_type || "branch"} onChange={e => updateBranchType(b, e.target.value)}
+                        className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white">
+                        <option value="head">🏢 본점</option>
+                        <option value="direct">🏪 직영점</option>
+                        <option value="branch">🏬 지점</option>
+                      </select>
                       <button onClick={() => deleteBranch(b)}
                         className="p-2 text-red-500 hover:bg-red-50 rounded-lg" title="삭제">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -392,6 +481,29 @@ export default function SettingsPage() {
               </div>
               <Field label="🆔 로그인 아이디" value={newAcct.login_id} onChange={v => setNewAcct({ ...newAcct, login_id: v })} placeholder="예: therapist1" />
               <Field label="📧 이메일 (선택)" value={newAcct.email} onChange={v => setNewAcct({ ...newAcct, email: v })} placeholder="user@example.com" type="email" />
+              {/* ✅ 지점 선택 */}
+              <div>
+                <label className="text-xs text-gray-600 block mb-1">🏬 소속 지점</label>
+                <select value={newAcct.branch_id} onChange={e => setNewAcct({ ...newAcct, branch_id: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg">
+                  <option value="">-- 지점 선택 --</option>
+                  {branches.map(b => (
+                    <option key={b.id} value={b.id}>
+                      {b.branch_type === "head" ? "🏢" : b.branch_type === "direct" ? "🏪" : "🏬"} {b.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {/* ✅ 마스터 계정 체크박스 */}
+              <div className="flex items-end">
+                <label className="flex items-center gap-2 text-sm cursor-pointer p-2 rounded-lg hover:bg-yellow-50">
+                  <input type="checkbox" checked={newAcct.is_master}
+                    onChange={e => setNewAcct({ ...newAcct, is_master: e.target.checked, permission: e.target.checked ? "master" : newAcct.permission })}
+                    className="w-4 h-4 accent-yellow-500" />
+                  <span className="font-semibold text-yellow-700">👑 메인 마스터 계정</span>
+                  <span className="text-[10px] text-gray-500">(전체 지점 접근 가능)</span>
+                </label>
+              </div>
               <Field label="🔒 비밀번호 (6자+)" value={newAcct.password} onChange={v => setNewAcct({ ...newAcct, password: v })} placeholder="영문·숫자 6자 이상" type="password" full />
             </div>
             <button onClick={createAccount}
@@ -412,6 +524,7 @@ export default function SettingsPage() {
                       <th className="py-2">직원</th>
                       <th className="py-2">로그인 아이디</th>
                       <th className="py-2">이메일</th>
+                      <th className="py-2">🏬 지점</th>
                       <th className="py-2 text-center">권한</th>
                       <th className="py-2 text-center">상태</th>
                       <th className="py-2 text-right">관리</th>
@@ -426,12 +539,23 @@ export default function SettingsPage() {
                         </td>
                         <td className="py-2.5 font-mono text-xs">{a.login_id}</td>
                         <td className="py-2.5 text-xs text-gray-600">{a.email || "—"}</td>
+                        <td className="py-2.5 text-xs">
+                          <select value={a.branch_id || ""} onChange={e => updateAccountBranch(a, e.target.value)}
+                            className="px-1.5 py-1 text-xs border border-gray-200 rounded bg-white">
+                            <option value="">—</option>
+                            {branches.map(b => (
+                              <option key={b.id} value={b.id}>
+                                {b.branch_type === "head" ? "🏢" : b.branch_type === "direct" ? "🏪" : "🏬"} {b.name}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
                         <td className="py-2.5 text-center">
                           <button onClick={() => togglePermission(a)}
                             className={`text-[10px] px-2 py-1 rounded-full font-semibold ${
-                              a.permission === "master" ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700"
+                              (a.permission === "master" || a.is_master) ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700"
                             }`}>
-                            {a.permission === "master" ? "👑 마스터" : "👤 일반"}
+                            {(a.permission === "master" || a.is_master) ? "👑 메인마스터" : "👤 일반"}
                           </button>
                         </td>
                         <td className="py-2.5 text-center">

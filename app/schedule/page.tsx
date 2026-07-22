@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
+import MemberSearch from "@/components/MemberSearch";
 import { supabase } from "@/lib/supabase";
 import {
   Calendar, Plus, X, Home, ChevronLeft, ChevronRight,
@@ -1486,7 +1487,7 @@ function SlotModal({ f, setF, modal, members, staff, plans, onClose, onSave, onD
 
           {(f.event_type === "lesson" || f.event_type === "trial" || f.event_type === "revenue") && (
             <Field label="회원">
-              <MemberSearchSelect
+              <MemberSearch
                 members={members}
                 value={f.member_id}
                 onChange={(id: string) => setF({ ...f, member_id: id })}
