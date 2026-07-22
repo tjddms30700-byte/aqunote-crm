@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
+import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import {
@@ -61,6 +62,7 @@ export default function ConsultationsPage() {
   });
 
   useEffect(() => { loadAll(); }, []);
+  useBranchWatch(() => loadAll());
 
   const [matrix, setMatrix] = useState<any[]>([]);
   const [editCell, setEditCell] = useState<{ dayIdx: number; time: string; row?: any } | null>(null);
@@ -68,8 +70,27 @@ export default function ConsultationsPage() {
   async function loadAll() {
     setLoading(true);
     const [{ data: ldata }, { data: sdata }, { data: mdata }] = await Promise.all([
-      supabase.from("members").select("*").is("deleted_at", null).order("created_at", { ascending: false }),
-      supabase.from("schedule_slots").select("id, day_of_week, time_slot, status, member_id").limit(1000),
+      (async () => {
+        const _bid = getActiveBranchId();
+        let q: any = supabase.from("members").select("*").is("deleted_at", null);
+        if (_bid) q = q.eq("branch_id", _bid);
+        q = q.order("created_at", { ascending: false });
+        const r = await q;
+        if (r.error && (r.error.code === "42703" || r.error.message?.includes("branch_id"))) {
+          return await supabase.from("members").select("*").is("deleted_at", null).order("created_at", { ascending: false });
+        }
+        return r;
+      })(),
+      (async () => {
+        const _bid = getActiveBranchId();
+        let q: any = supabase.from("schedule_slots").select("id, day_of_week, time_slot, status, member_id, branch_id").limit(1000);
+        if (_bid) q = q.eq("branch_id", _bid);
+        const r = await q;
+        if (r.error && (r.error.code === "42703" || r.error.message?.includes("branch_id"))) {
+          return await supabase.from("schedule_slots").select("id, day_of_week, time_slot, status, member_id").limit(1000);
+        }
+        return r;
+      })(),
       supabase.from("slot_matrix").select("*"),
     ]);
     setLeads((ldata as Lead[]) || []);

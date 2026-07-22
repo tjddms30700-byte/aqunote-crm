@@ -2,6 +2,7 @@
 export const dynamic = "force-dynamic";
 
 import { useEffect, useState, useMemo } from "react";
+import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import HomeButton from "@/components/HomeButton";
@@ -21,12 +22,23 @@ export default function SalesPage() {
   const [showImport, setShowImport] = useState(false);
 
   useEffect(() => { load(); }, []);
+  useBranchWatch(() => load());
 
   async function load() {
     setLoading(true);
-    const { data } = await supabase.from("payments")
-      .select("*, members(name, member_type, customer_no), staff(name), memberships(plan_name, total_sessions, used_sessions)")
-      .order("paid_at", { ascending: false });
+    const branchId = getActiveBranchId();
+    let q: any = supabase.from("payments")
+      .select("*, members(name, member_type, customer_no), staff(name), memberships(plan_name, total_sessions, used_sessions)");
+    if (branchId) q = q.eq("branch_id", branchId);
+    q = q.order("paid_at", { ascending: false });
+    let { data, error } = await q;
+    // branch_id 컴럼 미존재 시 폴백
+    if (error && (error.code === "42703" || error.message?.includes("branch_id"))) {
+      const fb = await supabase.from("payments")
+        .select("*, members(name, member_type, customer_no), staff(name), memberships(plan_name, total_sessions, used_sessions)")
+        .order("paid_at", { ascending: false });
+      data = fb.data;
+    }
     setPayments(data || []);
     setLoading(false);
   }

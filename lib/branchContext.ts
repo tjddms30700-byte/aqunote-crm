@@ -1,14 +1,11 @@
 "use client";
 /**
- * 🏢 지점 컨텍스트 라이브러리
+ * 🏢 지점 컨텍스트 라이브러리 (v3.10.1)
  * ─────────────────────────────
  * - 로그인한 계정의 소속 지점(branch_id)과 마스터 여부(is_master)를 관리
  * - 마스터 계정은 지점 스위처로 다른 지점 데이터 조회 가능
  * - 일반 계정은 소속 지점 데이터만 조회 가능
- *
- * 사용 예:
- *   const { activeBranchId, isMaster, setActiveBranchId } = useBranchContext();
- *   // Supabase 쿼리에 .eq("branch_id", activeBranchId) 적용
+ * - localStorage 캐시로 컴포넌트 밖에서도 접근 가능 (getActiveBranchId)
  */
 import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
@@ -24,6 +21,18 @@ export type BranchContext = {
   activeBranchId: string | null;    // 현재 보고 있는 지점 (마스터는 전환 가능)
   branches: any[];                  // 접근 가능한 지점 목록
 };
+
+/**
+ * 컴포넌트 밖에서 activeBranchId를 즉시 읽기 (SSR 안전)
+ */
+export function getActiveBranchId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(ACTIVE_BRANCH_KEY);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * 현재 로그인 계정 정보를 읽어와 지점 컨텍스트를 반환
@@ -51,7 +60,10 @@ export async function loadBranchContext(): Promise<BranchContext> {
         .eq("email", user.email)
         .is("deleted_at", null)
         .maybeSingle();
-      if (data) acct = data;
+      if (data) {
+        acct = data;
+        try { window.localStorage.setItem(CURRENT_ACCOUNT_KEY, JSON.stringify(data)); } catch {}
+      }
     }
   } catch {}
 
@@ -141,6 +153,24 @@ export function useBranchContext() {
     },
     refresh,
   };
+}
+
+/**
+ * 페이지에서 지점 전환 이벤트를 감지해 콜백 실행
+ * 사용 예:
+ *   useBranchWatch(loadAll);  // 지점 바뀌면 자동으로 loadAll() 재호출
+ */
+export function useBranchWatch(callback: () => void) {
+  useEffect(() => {
+    const handler = () => callback();
+    window.addEventListener("branch-switched", handler);
+    window.addEventListener("account-updated", handler);
+    return () => {
+      window.removeEventListener("branch-switched", handler);
+      window.removeEventListener("account-updated", handler);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 }
 
 /**

@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
+import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import {
   Search, Waves, ChevronRight, Plus, X, Save, UserPlus, MessageSquare, Copy, Trash2, AlertTriangle, CheckSquare, Square
 } from "lucide-react";
@@ -69,14 +70,27 @@ export default function MembersPage() {
       .then(({ count }) => setInboxPending(count || 0));
   }, []);
 
+  // ✅ 지점 전환 이벤트 감지 → 데이터 자동 재로드
+  useBranchWatch(() => loadMembers());
+
   async function loadMembers() {
     setLoading(true);
-    const { data, error } = await supabase
+    const branchId = getActiveBranchId();
+    let query = supabase
       .from("members")
       .select("*")
-      .is("deleted_at", null)
-      .order("name", { ascending: true });
-    if (!error && data) setMembers(data as Member[]);
+      .is("deleted_at", null);
+    // ✅ 지점 필터 (branchId가 있을 때만)
+    if (branchId) query = query.eq("branch_id", branchId);
+    query = query.order("name", { ascending: true });
+    const { data, error } = await query;
+    // branch_id 컴럼 미존재 시 네트워크 에러 가능 → 폴백
+    if (error && (error.message?.includes("branch_id") || error.code === "42703")) {
+      const fb = await supabase.from("members").select("*").is("deleted_at", null).order("name");
+      if (fb.data) setMembers(fb.data as Member[]);
+    } else if (!error && data) {
+      setMembers(data as Member[]);
+    }
     setLoading(false);
   }
 
@@ -152,6 +166,9 @@ export default function MembersPage() {
         status: newMember.status,
         extra,
       };
+      // ✅ 현재 지점으로 자동 태깅
+      const activeBranchId = getActiveBranchId();
+      if (activeBranchId) payload.branch_id = activeBranchId;
       if (newMember.member_type === "child") {
         payload.guardian_name = newMember.guardian_name || null;
         payload.guardian_relation = newMember.guardian_relation || null;

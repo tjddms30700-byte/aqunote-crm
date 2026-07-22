@@ -6,6 +6,7 @@ import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import MemberSearch from "@/components/MemberSearch";
 import { supabase } from "@/lib/supabase";
+import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import {
   Calendar, Plus, X, Home, ChevronLeft, ChevronRight,
   Clock, User, DollarSign, Trash2, Check, XCircle,
@@ -125,11 +126,33 @@ export default function SchedulePage() {
 
   async function loadAll() {
     setLoading(true);
+    const branchId = getActiveBranchId();
+    // ✅ branch_id 필터 (컴럼 미존재 시 폴백)
+    const safeBranchQuery = async (baseFn: () => any, filterFn: (q: any) => any) => {
+      if (!branchId) return await baseFn();
+      const r = await filterFn(baseFn());
+      if (r.error && (r.error.code === "42703" || r.error.message?.includes("branch_id"))) {
+        return await baseFn();
+      }
+      return r;
+    };
     const [sRes, mRes, stRes, pRes, aRes, plRes] = await Promise.all([
-      supabase.from("schedule_slots").select("*").order("event_date").order("time_slot"),
-      supabase.from("members").select("id, name, member_type, status, phone").is("deleted_at", null).order("name"),
-      supabase.from("staff").select("id, name, role, color, is_resigned, resign_date").order("name"),
-      supabase.from("payments").select("*").order("paid_at", { ascending: false }),
+      safeBranchQuery(
+        () => supabase.from("schedule_slots").select("*").order("event_date").order("time_slot"),
+        (q: any) => q.eq("branch_id", branchId).order("event_date").order("time_slot")
+      ),
+      safeBranchQuery(
+        () => supabase.from("members").select("id, name, member_type, status, phone").is("deleted_at", null).order("name"),
+        (q: any) => q.eq("branch_id", branchId).order("name")
+      ),
+      safeBranchQuery(
+        () => supabase.from("staff").select("id, name, role, color, is_resigned, resign_date").order("name"),
+        (q: any) => q.eq("branch_id", branchId).order("name")
+      ),
+      safeBranchQuery(
+        () => supabase.from("payments").select("*").order("paid_at", { ascending: false }),
+        (q: any) => q.eq("branch_id", branchId).order("paid_at", { ascending: false })
+      ),
       supabase.from("attendance").select("*"),
       supabase.from("membership_plans").select("*"),
     ]);
@@ -141,6 +164,9 @@ export default function SchedulePage() {
     setPlans(plRes.data || []);
     setLoading(false);
   }
+
+  // ✅ 지점 전환 이벤트 감지
+  useBranchWatch(() => loadAll());
 
   // 예약 클릭 시 액션 시트 열기
   function openQuickAction(slot: any) {
@@ -561,6 +587,9 @@ export default function SchedulePage() {
     if (f.member_id) basePayload.member_id = f.member_id;
     if (f.staff_id) basePayload.staff_id = f.staff_id;
     if (f.event_type === "revenue") basePayload.amount = Number(f.amount || 0);
+    // ✅ 현재 지점 자동 태깅
+    const _activeBranch = getActiveBranchId();
+    if (_activeBranch) basePayload.branch_id = _activeBranch;
 
     try {
       if (f.id) {

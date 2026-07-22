@@ -3,6 +3,7 @@ import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
+import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import {
   BarChart3, Users, Calendar, CreditCard, MessageCircle,
   TrendingUp, TrendingDown, AlertCircle, Clock, DollarSign,
@@ -16,16 +17,36 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { loadAll(); }, []);
+  useBranchWatch(() => loadAll());
 
   async function loadAll() {
     setLoading(true);
+    const branchId = getActiveBranchId();
+    const safeQ = async (baseFn: () => any, filterFn: (q: any) => any) => {
+      if (!branchId) return await baseFn();
+      const r = await filterFn(baseFn());
+      if (r.error && (r.error.code === "42703" || r.error.message?.includes("branch_id"))) return await baseFn();
+      return r;
+    };
     const [m, p, ms, sl, at, st] = await Promise.all([
-      supabase.from("members").select("*").is("deleted_at", null),
-      supabase.from("payments").select("*").order("paid_at", { ascending: false }),
+      safeQ(
+        () => supabase.from("members").select("*").is("deleted_at", null),
+        (q: any) => q.eq("branch_id", branchId).is("deleted_at", null)
+      ),
+      safeQ(
+        () => supabase.from("payments").select("*").order("paid_at", { ascending: false }),
+        (q: any) => q.eq("branch_id", branchId).order("paid_at", { ascending: false })
+      ),
       supabase.from("memberships").select("*"),
-      supabase.from("schedule_slots").select("*"),
+      safeQ(
+        () => supabase.from("schedule_slots").select("*"),
+        (q: any) => q.eq("branch_id", branchId)
+      ),
       supabase.from("attendance").select("*"),
-      supabase.from("staff").select("*").is("deleted_at", null),
+      safeQ(
+        () => supabase.from("staff").select("*").is("deleted_at", null),
+        (q: any) => q.eq("branch_id", branchId).is("deleted_at", null)
+      ),
     ]);
     setData({
       members: m.data || [],

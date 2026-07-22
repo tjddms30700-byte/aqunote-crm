@@ -5,6 +5,7 @@ import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import { supabase } from "@/lib/supabase";
+import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import {
   ClipboardCheck, Home, Calendar, RefreshCw, Save, Check,
   X as XIcon, AlertCircle, User, Clock, Filter, CalendarDays
@@ -47,10 +48,27 @@ export default function AttendancePage() {
     cutoff.setDate(cutoff.getDate() - 90);
     const cutoffStr = cutoff.toISOString().slice(0,10);
 
+    const branchId = getActiveBranchId();
+    // ✅ branch_id 필터 (컴럼 미존재 시 폴백)
+    const safeQ = async (baseFn: () => any, filterFn: (q: any) => any) => {
+      if (!branchId) return await baseFn();
+      const r = await filterFn(baseFn());
+      if (r.error && (r.error.code === "42703" || r.error.message?.includes("branch_id"))) return await baseFn();
+      return r;
+    };
     const [sRes, mRes, stRes, aRes] = await Promise.all([
-      supabase.from("schedule_slots").select("*").eq("event_date", date).order("time_slot"),
-      supabase.from("members").select("id, name, member_type").is("deleted_at", null).order("name"),
-      supabase.from("staff").select("id, name, role, color").order("name"),
+      safeQ(
+        () => supabase.from("schedule_slots").select("*").eq("event_date", date).order("time_slot"),
+        (q: any) => q.eq("branch_id", branchId).eq("event_date", date).order("time_slot")
+      ),
+      safeQ(
+        () => supabase.from("members").select("id, name, member_type").is("deleted_at", null).order("name"),
+        (q: any) => q.eq("branch_id", branchId).is("deleted_at", null).order("name")
+      ),
+      safeQ(
+        () => supabase.from("staff").select("id, name, role, color").order("name"),
+        (q: any) => q.eq("branch_id", branchId).order("name")
+      ),
       supabase.from("attendance").select("*").gte("attend_date", cutoffStr).order("attend_date", { ascending: false }),
     ]);
     setSlots(sRes.data || []);

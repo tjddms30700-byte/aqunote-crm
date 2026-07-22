@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import MemberSearch from "@/components/MemberSearch";
+import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import {
   Waves, Plus, X, Save, CreditCard, Calendar, DollarSign, Home,
   Banknote, Building2, HelpCircle, Ticket, Clock, Hash, Trash2, Receipt
@@ -118,27 +119,46 @@ export default function PaymentsPage() {
 
   async function loadAll() {
     setLoading(true);
+    const branchId = getActiveBranchId();
+    // ✅ 지점 필터 적용 헬퍼 (branch_id 컴럼 미존재 시 폴백)
+    const bf = (q: any) => (branchId ? q.eq("branch_id", branchId) : q);
     const [p, m, mem, pl] = await Promise.all([
       // 이중 조인 실패에 대비해 fallback 해봄
       (async () => {
-        const first = await supabase.from("payments").select("*, members(name, member_type), memberships(plan_name, total_sessions, used_sessions, adjustment, end_date)").order("paid_at", { ascending: false });
+        const first = await bf(supabase.from("payments").select("*, members(name, member_type), memberships(plan_name, total_sessions, used_sessions, adjustment, end_date)")).order("paid_at", { ascending: false });
         if (first.error) {
           // 조인 실패 → memberships 조인 제거하고 재시도
           console.warn("payments 조인 실패, fallback", first.error);
-          return await supabase.from("payments").select("*, members(name, member_type)").order("created_at", { ascending: false });
+          const fb = await bf(supabase.from("payments").select("*, members(name, member_type)")).order("created_at", { ascending: false });
+          // branch_id 컴럼 미존재 시 폴백
+          if (fb.error && (fb.error.code === "42703" || fb.error.message?.includes("branch_id"))) {
+            return await supabase.from("payments").select("*, members(name, member_type)").order("created_at", { ascending: false });
+          }
+          return fb;
         }
         return first;
       })(),
       // memberships 조회 — order 실패 시 no-order로 fallback
       (async () => {
-        const r1 = await supabase.from("memberships").select("*, members(name, member_type)").order("created_at", { ascending: false });
+        // memberships는 members의 branch를 따른다 (직접 branch_id 없으므로 서버에서 모두 가져오고 프론트에서 필터)
+        const r1 = await supabase.from("memberships").select("*, members(name, member_type, branch_id)").order("created_at", { ascending: false });
         if (r1.error) {
           console.warn("memberships 조회 fallback:", r1.error);
           return await supabase.from("memberships").select("*, members(name, member_type)");
         }
+        // 프론트 필터링
+        if (branchId && r1.data) {
+          r1.data = r1.data.filter((x: any) => !x.members?.branch_id || x.members.branch_id === branchId);
+        }
         return r1;
       })(),
-      supabase.from("members").select("id, name, member_type, phone, status").is("deleted_at", null).order("name"),
+      (async () => {
+        const r = await bf(supabase.from("members").select("id, name, member_type, phone, status").is("deleted_at", null)).order("name");
+        if (r.error && (r.error.code === "42703" || r.error.message?.includes("branch_id"))) {
+          return await supabase.from("members").select("id, name, member_type, phone, status").is("deleted_at", null).order("name");
+        }
+        return r;
+      })(),
       supabase.from("membership_plans").select("*").eq("is_active", true).order("sort_order"),
     ]);
     setPayments(p.data || []);
@@ -147,6 +167,9 @@ export default function PaymentsPage() {
     setPlans(pl.data || []);
     setLoading(false);
   }
+
+  // ✅ 지점 전환 이벤트 감지
+  useBranchWatch(() => loadAll());
 
   function openModal() {
     setF({
@@ -224,6 +247,7 @@ export default function PaymentsPage() {
       if (!newMembership) throw new Error((msLastErr?.message || "알 수 없는 오류") + "\n\n💡 AQUNOTE_V37_FIX8.sql을 Supabase에 실행해 주세요.");
 
       // 2) payments에 결제 이력 추가 (여러 수단 분할 포함)
+      const _activeBranch = getActiveBranchId();
       const payload: any = {
         org_id: orgId,
         member_id: f.member_id,
@@ -235,6 +259,7 @@ export default function PaymentsPage() {
         paid_time: f.paid_time || null,
         description: f.plan_name,
         memo: f.memo || null,
+        ...(_activeBranch ? { branch_id: _activeBranch } : {}),
         // v3.8: 여러 수단 분할
         pay_card: Number(f.pay_card || 0),
         pay_cash: Number(f.pay_cash || 0),
