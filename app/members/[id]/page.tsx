@@ -377,6 +377,17 @@ export default function MemberDetail() {
       payload.guardian_name = null;
       payload.guardian_relation = null;
     }
+    // ✅ 빈 문자열 → null 변환 (PostgreSQL date/text 타입 에러 방지)
+    //   특히 birth(date), phone, guardian_name, guardian_relation, address, gender, source 등
+    const NULLABLE_FIELDS = ["birth", "phone", "gender", "guardian_name", "guardian_relation", "address", "source"];
+    for (const k of NULLABLE_FIELDS) {
+      if (payload[k] === "" || payload[k] === undefined) payload[k] = null;
+    }
+    // 이름은 필수 - 비어있으면 저장 거부
+    if (!payload.name || !payload.name.trim()) {
+      alert("이름은 필수입니다");
+      return;
+    }
     // 진단명은 extra JSONB에 저장 (기존 키 보존)
     payload.extra = { ...(member.extra || {}), diagnosis: diagnosis || null };
     const { error } = await supabase.from("members").update(payload).eq("id", member.id);
