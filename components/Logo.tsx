@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 
 const DEFAULT_LOGO = "/logo-whale.png";
 const LOGO_CACHE_KEY = "aqu_logo_url_v2";
+const ACTIVE_BRANCH_KEY = "aqu_active_branch_id";
 
 type LogoProps = {
   size?: "sm" | "md" | "lg" | "xl";
@@ -19,15 +20,13 @@ const SIZE_MAP = {
 };
 
 /**
- * 🐋 로고 컴포넌트
+ * 🐋 로고 컴포넌트 (v3.11: 지점별 독립 로고)
  * ─────────────────────
- * - localStorage 캐시로 깜빡임 방지 (SSR/CSR 첫 렌더에 즉시 반영)
- * - DB의 logo_url이 null이면 기본 로고 (아쿠고래) 사용
- * - "logo-updated" 이벤트로 실시간 전체 페이지 즉시 반영
- * - "logo-reset" 이벤트 발생 시 캐시 즉시 초기화 (깜빡임 없이)
+ * - 현재 활성 지점(branches.logo_url) 우선, 없으면 organizations.logo_url, 없으면 기본 로고
+ * - localStorage 캐시로 첫 렌더 깜빡임 방지
+ * - "logo-updated"/"logo-reset"/"branch-switched" 이벤트 감지하여 실시간 갱신
  */
 export default function Logo({ size = "md", showText = false, className = "" }: LogoProps) {
-  // 초기 상태: localStorage에 저장된 값 or 기본 로고 (깜빡임 방지)
   const [logoUrl, setLogoUrl] = useState<string>(() => {
     if (typeof window === "undefined") return DEFAULT_LOGO;
     try {
@@ -45,20 +44,39 @@ export default function Logo({ size = "md", showText = false, className = "" }: 
       try { window.localStorage.setItem(LOGO_CACHE_KEY, "DEFAULT"); } catch {}
       return;
     }
-    const { data } = await supabase
-      .from("organizations")
-      .select("logo_url")
-      .limit(1)
-      .single();
 
-    if (data?.logo_url) {
-      // 캐시 버스팅 파라미터 추가
-      const sep = data.logo_url.includes("?") ? "&" : "?";
-      const url = `${data.logo_url}${sep}v=${Date.now()}`;
+    // ✅ v3.11: 현재 지점의 로고 우선 조회
+    let logo: string | null = null;
+    try {
+      const branchId = window.localStorage.getItem(ACTIVE_BRANCH_KEY);
+      if (branchId) {
+        const { data } = await supabase
+          .from("branches")
+          .select("logo_url")
+          .eq("id", branchId)
+          .maybeSingle();
+        if (data?.logo_url) logo = data.logo_url;
+      }
+    } catch {}
+
+    // 지점 로고 없으면 organizations로 폴백
+    if (!logo) {
+      try {
+        const { data } = await supabase
+          .from("organizations")
+          .select("logo_url")
+          .limit(1)
+          .single();
+        if (data?.logo_url) logo = data.logo_url;
+      } catch {}
+    }
+
+    if (logo) {
+      const sep = logo.includes("?") ? "&" : "?";
+      const url = `${logo}${sep}v=${Date.now()}`;
       setLogoUrl(url);
       try { window.localStorage.setItem(LOGO_CACHE_KEY, url); } catch {}
     } else {
-      // ✅ DB의 logo_url이 null → 즉시 기본 로고 + 캐시도 DEFAULT로 갱신
       setLogoUrl(DEFAULT_LOGO);
       try { window.localStorage.setItem(LOGO_CACHE_KEY, "DEFAULT"); } catch {}
     }
@@ -67,13 +85,14 @@ export default function Logo({ size = "md", showText = false, className = "" }: 
   useEffect(() => {
     loadLogo();
     const updateHandler = () => loadLogo();
-    // 명시적 리셋: 즉시 기본 로고로 강제 (DB 왕복 없이 깜빡임 없음)
     const resetHandler = () => loadLogo(true);
     window.addEventListener("logo-updated", updateHandler);
     window.addEventListener("logo-reset", resetHandler);
+    window.addEventListener("branch-switched", updateHandler);
     return () => {
       window.removeEventListener("logo-updated", updateHandler);
       window.removeEventListener("logo-reset", resetHandler);
+      window.removeEventListener("branch-switched", updateHandler);
     };
   }, []);
 
@@ -84,7 +103,6 @@ export default function Logo({ size = "md", showText = false, className = "" }: 
         alt="아쿠노트"
         className={`${SIZE_MAP[size]} object-contain rounded-2xl`}
         onError={(e) => {
-          // 로드 실패 시 즉시 기본 로고 + 캐시 정리
           (e.target as HTMLImageElement).src = DEFAULT_LOGO;
           try { window.localStorage.setItem(LOGO_CACHE_KEY, "DEFAULT"); } catch {}
         }}

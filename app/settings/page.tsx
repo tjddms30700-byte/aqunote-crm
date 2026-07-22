@@ -30,16 +30,48 @@ export default function SettingsPage() {
   const [newAcct, setNewAcct] = useState<any>({ staff_id: "", login_id: "", email: "", password: "", permission: "general", branch_id: "", is_master: false });
 
   useEffect(() => { loadAll(); }, []);
+  // ✅ 지점 전환 이벤트 감지
+  useEffect(() => {
+    const h = () => loadAll();
+    window.addEventListener("branch-switched", h);
+    return () => window.removeEventListener("branch-switched", h);
+  }, []);
 
   async function loadAll() {
     const { data: o } = await supabase.from("organizations").select("*").limit(1).single();
-    if (o) {
-      setOrg(o);
-      setLogoUrl(o.logo_url || "");
-      setOrgForm(o);
-    }
+    if (o) setOrg(o);
+
     const { data: b } = await supabase.from("branches").select("*").is("deleted_at", null).order("is_main", { ascending: false }).order("created_at");
     setBranches(b || []);
+
+    // ✅ v3.11: 현재 활성 지점 정보를 orgForm으로 로드 (지점별 독립)
+    const activeBranchId = typeof window !== "undefined" ? window.localStorage.getItem("aqu_active_branch_id") : null;
+    const activeBranch = (b || []).find((x: any) => x.id === activeBranchId) || (b || [])[0];
+    if (activeBranch) {
+      // branches의 정보가 있으면 우선, 없는 필드는 organizations로 폴백
+      const merged: any = {
+        _branch_id: activeBranch.id,
+        _branch_name: activeBranch.name,
+        _branch_type: activeBranch.branch_type,
+        name:          activeBranch.name           || o?.name         || "",
+        business_no:   activeBranch.business_no    || o?.business_no  || "",
+        address:       activeBranch.address        || o?.address      || "",
+        business_type: activeBranch.business_type  || o?.business_type || "",
+        business_item: activeBranch.business_item  || o?.business_item || "",
+        bank_account:  activeBranch.bank_account   || o?.bank_account  || "",
+        phone:         activeBranch.phone          || o?.phone        || "",
+        email:         activeBranch.email          || o?.email        || "",
+        ceo_name:      activeBranch.ceo_name       || o?.ceo_name     || "",
+        ceo_birth:     activeBranch.ceo_birth      || o?.ceo_birth    || "",
+        ceo_phone:     activeBranch.ceo_phone      || o?.ceo_phone    || "",
+      };
+      setOrgForm(merged);
+      setLogoUrl(activeBranch.logo_url || o?.logo_url || "");
+    } else if (o) {
+      setOrgForm(o);
+      setLogoUrl(o.logo_url || "");
+    }
+
     const { data: s } = await supabase.from("staff").select("id,name,role,email").is("deleted_at", null).order("name");
     setStaffList(s || []);
     const { data: a } = await supabase.from("staff_accounts").select("*, staff(name, role)").is("deleted_at", null).order("created_at", { ascending: false });
@@ -61,7 +93,16 @@ export default function SettingsPage() {
       if (upErr) throw upErr;
       const { data } = supabase.storage.from("documents").getPublicUrl(filePath);
       const publicUrl = data.publicUrl;
-      const { error: dbErr } = await supabase.from("organizations").update({ logo_url: publicUrl }).eq("id", org.id);
+      // ✅ v3.11: 현재 지점에 저장 (지점별 독립 로고)
+      const branchId = orgForm._branch_id;
+      let dbErr: any = null;
+      if (branchId) {
+        const r = await supabase.from("branches").update({ logo_url: publicUrl }).eq("id", branchId);
+        dbErr = r.error;
+      } else if (org?.id) {
+        const r = await supabase.from("organizations").update({ logo_url: publicUrl }).eq("id", org.id);
+        dbErr = r.error;
+      }
       if (dbErr) throw dbErr;
       setLogoUrl(publicUrl);
       // ✅ localStorage 즉시 업데이트로 깜빡임 제거
@@ -81,7 +122,13 @@ export default function SettingsPage() {
 
   async function resetLogo() {
     if (!confirm("기본 고래 로고로 되돌립니다")) return;
-    await supabase.from("organizations").update({ logo_url: null }).eq("id", org.id);
+    // ✅ v3.11: 현재 지점의 로고만 초기화
+    const branchId = orgForm._branch_id;
+    if (branchId) {
+      await supabase.from("branches").update({ logo_url: null }).eq("id", branchId);
+    } else if (org?.id) {
+      await supabase.from("organizations").update({ logo_url: null }).eq("id", org.id);
+    }
     setLogoUrl("");
     // ✅ localStorage 캐시 즉시 정리 + 전체 페이지 기본 로고로 즉시 전환 (깜빡임 없음)
     try {
@@ -93,9 +140,8 @@ export default function SettingsPage() {
     alert("✅ 기본 로고로 되돌렸습니다");
   }
 
-  // ═══ 센터 정보 저장 ═══
+  // ═══ 센터 정보 저장 (지점별 독립) ═══
   async function saveOrg() {
-    if (!org?.id) { alert("센터 정보를 불러오지 못했습니다"); return; }
     setSaving(true);
 
     // 이미 존재하는 컬럼만 업데이트하도록 방어적으로 처리 (스키마에 없는 컬럼은 자동 스킵)
@@ -119,40 +165,52 @@ export default function SettingsPage() {
       if (v !== undefined) payload[k] = v;
     }
 
-    // 순차적으로 시도 → 실패 컬럼 자동 제거 후 재시도 (최대 12번)
-    let attempt = 0;
-    let lastErr: any = null;
-    let selectRes: any = null;
-    while (attempt < 12) {
-      attempt++;
-      const { data, error } = await supabase.from("organizations").update(payload).eq("id", org.id).select();
-      if (!error) {
-        selectRes = data;
-        lastErr = null;
+    // ✅ v3.11: 현재 지점 branches에 저장 (지점별 독립)
+    const branchId = orgForm._branch_id;
+    if (!branchId) {
+      // 지점이 설정 안 된 경우 (V310 미적용) → organizations에 저장
+      if (!org?.id) { setSaving(false); alert("센터 정보를 불러오지 못했습니다"); return; }
+      let attempt = 0, lastErr: any = null;
+      while (attempt < 12) {
+        attempt++;
+        const { error } = await supabase.from("organizations").update(payload).eq("id", org.id).select();
+        if (!error) { lastErr = null; break; }
+        lastErr = error;
+        const m = error.message.match(/'([^']+)' column|column "([^"]+)"/);
+        const missing = m?.[1] || m?.[2];
+        if (missing && missing in payload) { delete payload[missing]; continue; }
         break;
       }
+      setSaving(false);
+      if (lastErr) { alert("저장 실패: " + lastErr.message); return; }
+      alert("✅ 저장되었습니다");
+      loadAll();
+      return;
+    }
+
+    // branches 업데이트 (지점별 독립)
+    let attempt = 0;
+    let lastErr: any = null;
+    const branchPayload: any = { ...payload };
+    while (attempt < 15) {
+      attempt++;
+      const { data, error } = await supabase.from("branches").update(branchPayload).eq("id", branchId).select();
+      if (!error && data && data.length > 0) { lastErr = null; break; }
+      if (!error && (!data || data.length === 0)) { lastErr = { message: "0행 업데이트 (RLS)" }; break; }
       lastErr = error;
-      // 'column X does not exist' 또는 'Could not find the X column' 패턴 자동 제거
+      // 'column X does not exist' 자동 제거
       const m = error.message.match(/'([^']+)' column|column "([^"]+)"/);
       const missing = m?.[1] || m?.[2];
-      if (missing && missing in payload) {
-        delete payload[missing];
-        continue;
-      }
+      if (missing && missing in branchPayload) { delete branchPayload[missing]; continue; }
       break;
     }
 
     setSaving(false);
     if (lastErr) {
-      alert("저장 실패: " + lastErr.message + "\n\n💡 AQUNOTE_V37_FIX2.sql을 Supabase에 실행해 주세요.");
+      alert("저장 실패: " + lastErr.message + "\n\n💡 AQUNOTE_V311_BRANCH_INFO.sql을 Supabase에 먼저 실행해 주세요.");
       return;
     }
-    // 업데이트된 행이 0개면 RLS 문제 가능성
-    if (Array.isArray(selectRes) && selectRes.length === 0) {
-      alert("⚠️ 저장이 무시되었습니다 (0행 업데이트).\n\nRLS(보안 정책) 때문입니다. AQUNOTE_V37_FIX2.sql을 실행하면 UPDATE 정책이 자동 생성됩니다.");
-      return;
-    }
-    alert("✅ 저장되었습니다");
+    alert(`✅ 현재 지점(${orgForm._branch_name}) 정보가 저장되었습니다`);
     loadAll();
   }
 
@@ -323,8 +381,27 @@ export default function SettingsPage() {
       {/* ═══ [1] 센터 정보 탭 ═══ */}
       {tab === "org" && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 md:p-7">
+          {/* ✅ v3.11: 현재 지점 안내 배너 */}
+          {orgForm._branch_id && (
+            <div className="mb-4 p-3 rounded-xl bg-gradient-to-r from-yellow-50 to-amber-50 border border-yellow-200 flex items-center gap-3">
+              <span className="text-2xl">
+                {orgForm._branch_type === "head" ? "🏢" : orgForm._branch_type === "direct" ? "🏪" : "🏬"}
+              </span>
+              <div className="flex-1">
+                <div className="text-sm font-bold text-yellow-900">
+                  현재 지점: {orgForm._branch_name}
+                  <span className="ml-2 text-[10px] px-2 py-0.5 bg-yellow-200 text-yellow-800 rounded-full">
+                    {orgForm._branch_type === "head" ? "본점" : orgForm._branch_type === "direct" ? "직영점" : "지점"}
+                  </span>
+                </div>
+                <div className="text-[11px] text-yellow-700 mt-0.5">
+                  ✨ 이 페이지의 모든 정보는 <b>{orgForm._branch_name}</b>에만 저장됩니다. 다른 지점의 정보를 수정하려면 상단 지점 스위체로 전환하세요.
+                </div>
+              </div>
+            </div>
+          )}
           <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-            <Building2 className="w-5 h-5 text-slate-600" /> 센터 정보
+            <Building2 className="w-5 h-5 text-slate-600" /> 센터 정보 <span className="text-xs text-gray-500 font-normal">(지점별 독립 저장)</span>
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Field label="🏢 센터명"        value={orgForm.name || ""}          onChange={(v) => setOrgForm({ ...orgForm, name: v })} />

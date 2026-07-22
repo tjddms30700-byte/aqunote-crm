@@ -56,6 +56,12 @@ export default function MembersPage() {
   const [openStatusId, setOpenStatusId] = useState<string | null>(null);
   const [inboxPending, setInboxPending] = useState(0);
 
+  // ✅ v3.11: 지점 이관 상태
+  const [selectedForTransfer, setSelectedForTransfer] = useState<Set<string>>(new Set());
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [branchList, setBranchList] = useState<any[]>([]);
+  const [transferring, setTransferring] = useState(false);
+
   const [newMember, setNewMember] = useState<any>({
     member_type: "child", name: "", birth: "", gender: "", phone: "",
     guardian_name: "", guardian_relation: "모", address: "",
@@ -68,6 +74,9 @@ export default function MembersPage() {
     // 신규 유입 미처리 건수
     supabase.from("leads_inbox").select("*", { count: "exact", head: true }).eq("processed", false)
       .then(({ count }) => setInboxPending(count || 0));
+    // ✅ 지점 목록 로드 (이관 대상)
+    supabase.from("branches").select("*").is("deleted_at", null).order("branch_type").order("created_at")
+      .then(({ data }) => setBranchList(data || []));
   }, []);
 
   // ✅ 지점 전환 이벤트 감지 → 데이터 자동 재로드
@@ -227,6 +236,15 @@ export default function MembersPage() {
             title="이름 + 전화번호 기준으로 중복 회원 감지">
             <Copy className="w-4 h-4" /> 중복 정리
           </button>
+          {/* ✅ v3.11: 지점 이관 버튼 */}
+          <button onClick={() => {
+              if (selectedForTransfer.size === 0) { alert("먼저 이관할 회원을 체크박스로 선택하세요"); return; }
+              setShowTransferModal(true);
+            }}
+            className={`px-3 py-1.5 rounded-lg text-sm flex items-center gap-1 shadow-sm text-white ${selectedForTransfer.size === 0 ? "bg-gray-300 cursor-not-allowed" : "bg-gradient-to-br from-indigo-500 to-blue-600 hover:opacity-90"}`}
+            title="선택한 회원을 다른 지점으로 이관">
+            🏬 지점 이관 {selectedForTransfer.size > 0 && `(${selectedForTransfer.size})`}
+          </button>
           <button onClick={() => setShowAddModal(true)}
             className="px-3 py-1.5 bg-aqu-600 text-white rounded-lg text-sm flex items-center gap-1 hover:bg-aqu-700">
             <UserPlus className="w-4 h-4" /> 신규 회원
@@ -290,6 +308,16 @@ export default function MembersPage() {
             <table className="w-full text-sm">
               <thead className="bg-aqu-50 text-aqu-900">
                 <tr>
+                  <th className="w-10 text-center px-2 py-3">
+                    <input type="checkbox"
+                      checked={selectedForTransfer.size > 0 && selectedForTransfer.size === filtered.length}
+                      onChange={() => {
+                        if (selectedForTransfer.size === filtered.length) setSelectedForTransfer(new Set());
+                        else setSelectedForTransfer(new Set(filtered.map((m: any) => m.id)));
+                      }}
+                      title="전체 선택"
+                      className="w-4 h-4 accent-indigo-500 cursor-pointer" />
+                  </th>
                   <th className="text-left px-4 py-3">이름</th>
                   <th className="text-left px-4 py-3">구분</th>
                   <th className="text-left px-4 py-3 hidden md:table-cell">보호자</th>
@@ -303,8 +331,21 @@ export default function MembersPage() {
               <tbody>
                 {filtered.map((m) => {
                   const statusInfo = getStatusInfo(m.status);
+                  const isSelForTransfer = selectedForTransfer.has(m.id);
                   return (
-                    <tr key={m.id} className="border-t border-aqu-100 hover:bg-aqu-50/50">
+                    <tr key={m.id} className={`border-t border-aqu-100 hover:bg-aqu-50/50 ${isSelForTransfer ? "bg-indigo-50/50" : ""}`}>
+                      <td className="px-2 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                        <input type="checkbox"
+                          checked={isSelForTransfer}
+                          onChange={() => {
+                            setSelectedForTransfer(prev => {
+                              const next = new Set(prev);
+                              if (next.has(m.id)) next.delete(m.id); else next.add(m.id);
+                              return next;
+                            });
+                          }}
+                          className="w-4 h-4 accent-indigo-500 cursor-pointer" />
+                      </td>
                       <td className="px-4 py-3 font-medium text-aqu-900 cursor-pointer"
                         onClick={() => router.push(`/members/${m.id}`)}>
                         {m.name}
@@ -559,6 +600,93 @@ export default function MembersPage() {
       )}
 
       {/* ─── 중복 회원 정리 모달 ─── */}
+      {/* ✅ v3.11: 지점 이관 모달 */}
+      {showTransferModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => !transferring && setShowTransferModal(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-indigo-50 to-blue-50 flex items-center justify-between">
+              <div>
+                <div className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  🏬 지점 이관
+                </div>
+                <div className="text-xs text-slate-500 mt-0.5">
+                  선택된 <b className="text-indigo-600">{selectedForTransfer.size}명</b>을 다른 지점으로 이관합니다
+                </div>
+              </div>
+              <button onClick={() => !transferring && setShowTransferModal(false)}
+                className="p-1.5 hover:bg-white/50 rounded-lg">
+                <span className="text-xl">✕</span>
+              </button>
+            </div>
+            <div className="p-5 max-h-[60vh] overflow-y-auto">
+              <div className="text-sm font-semibold text-slate-700 mb-3">이관할 지점 선택</div>
+              {branchList.length === 0 ? (
+                <div className="text-sm text-gray-400 py-6 text-center">등록된 지점이 없습니다</div>
+              ) : (
+                <div className="space-y-2">
+                  {branchList.map(b => {
+                    const typeMeta: any = {
+                      head:   { icon: "🏢", label: "본점",   color: "from-yellow-500 to-amber-500" },
+                      direct: { icon: "🏪", label: "직영점", color: "from-blue-500 to-indigo-500" },
+                      branch: { icon: "🏬", label: "지점",   color: "from-gray-400 to-slate-500" },
+                    };
+                    const tm = typeMeta[b.branch_type] || typeMeta.branch;
+                    return (
+                      <button key={b.id} type="button"
+                        disabled={transferring}
+                        onClick={async () => {
+                          if (selectedForTransfer.size === 0) { alert("이관할 회원을 선택하세요"); return; }
+                          const ids = Array.from(selectedForTransfer);
+                          if (!confirm(`선택한 ${ids.length}명을 [${b.name}](으)로 이관합니다.\n이관 시 해당 회원의 결제·시간표 데이터도 함께 이전됩니다.\n계속할까요?`)) return;
+                          setTransferring(true);
+                          let done = 0, err = 0;
+                          for (let i = 0; i < ids.length; i += 100) {
+                            const batch = ids.slice(i, i + 100);
+                            const { error: e1 } = await supabase.from("members").update({ branch_id: b.id }).in("id", batch);
+                            if (e1) { err++; continue; }
+                            try { await supabase.from("payments").update({ branch_id: b.id }).in("member_id", batch); } catch {}
+                            try { await supabase.from("schedule_slots").update({ branch_id: b.id }).in("member_id", batch); } catch {}
+                            done += batch.length;
+                          }
+                          setTransferring(false);
+                          setShowTransferModal(false);
+                          setSelectedForTransfer(new Set());
+                          alert(err > 0
+                            ? `⚠️ ${done}명 이관 완료, ${err}건 실패\n(SQL 마이그레이션 미적용 시 AQUNOTE_V310_BRANCH_MASTER.sql 먼저 실행)`
+                            : `✅ ${done}명이 [${b.name}](으)로 이관되었습니다`);
+                          loadMembers();
+                        }}
+                        className={`w-full p-3 rounded-xl border-2 border-gray-100 hover:border-indigo-300 hover:bg-indigo-50 transition text-left flex items-center gap-3 ${transferring ? "opacity-50 cursor-not-allowed" : ""}`}>
+                        <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${tm.color} flex items-center justify-center text-2xl shadow`}>
+                          {tm.icon}
+                        </div>
+                        <div className="flex-1">
+                          <div className="font-bold text-slate-900 flex items-center gap-2">
+                            {b.name}
+                            <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full">{tm.label}</span>
+                          </div>
+                          <div className="text-xs text-gray-500 mt-0.5">
+                            {b.address && <span>📍 {b.address}</span>}
+                            {b.manager_name && <span className="ml-2">👤 {b.manager_name}</span>}
+                          </div>
+                        </div>
+                        <span className="text-indigo-500 text-sm font-bold">이관 →</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <div className="px-5 py-3 bg-gray-50 border-t border-gray-100 flex justify-end">
+              <button onClick={() => !transferring && setShowTransferModal(false)}
+                className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm hover:bg-gray-100">
+                취소
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showDedupeModal && (
         <DedupeModal members={members} onClose={() => setShowDedupeModal(false)} onDone={() => { setShowDedupeModal(false); loadMembers(); }} />
       )}
