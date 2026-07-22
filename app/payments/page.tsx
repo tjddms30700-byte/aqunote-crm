@@ -137,7 +137,7 @@ export default function PaymentsPage() {
         }
         return r1;
       })(),
-      supabase.from("members").select("id, name, member_type").is("deleted_at", null).order("name"),
+      supabase.from("members").select("id, name, member_type, phone, status").is("deleted_at", null).order("name"),
       supabase.from("membership_plans").select("*").eq("is_active", true).order("sort_order"),
     ]);
     setPayments(p.data || []);
@@ -1223,12 +1223,11 @@ function PaymentMemberSearch({ members, value, onChange }: any) {
 
   const selected = members.find((m: any) => m.id === value);
 
-  // "강선옥 (9802) · 성인" 형식
+  // "강선옥 (010-1234-9802) · 성인" 형식 (전화번호 전체)
   function formatSelected(m: any) {
     if (!m) return "";
-    const tail = (m.phone || "").replace(/\D/g, "").slice(-4);
     const typeLabel = m.member_type === "child" ? "아동" : "성인";
-    return `${m.name}${tail ? ` (${tail})` : ""} · ${typeLabel}`;
+    return `${m.name}${m.phone ? ` (${m.phone})` : ""} · ${typeLabel}`;
   }
 
   const filtered = (members || []).filter((m: any) => {
@@ -1287,8 +1286,6 @@ function PaymentMemberSearch({ members, value, onChange }: any) {
               </div>
             ) : (
               filtered.slice(0, 80).map((m: any) => {
-                const phoneDigits = (m.phone || "").replace(/\D/g, "");
-                const tail = phoneDigits.slice(-4);
                 const isChild = m.member_type === "child";
                 return (
                   <button key={m.id} type="button"
@@ -1298,19 +1295,16 @@ function PaymentMemberSearch({ members, value, onChange }: any) {
                     <span className="text-lg">{isChild ? "🧒" : "👤"}</span>
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-slate-800 truncate flex items-center gap-1.5 flex-wrap">
-                        <span>{m.name}</span>
-                        {tail && (
+                        <span className="font-bold">{m.name}</span>
+                        {m.phone && (
                           <span className="text-[11px] font-mono px-1.5 py-0.5 bg-yellow-100 text-yellow-800 rounded">
-                            ({tail})
+                            ({m.phone})
                           </span>
                         )}
                         <span className={`text-[10px] px-1.5 py-0.5 rounded ${isChild ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"}`}>
                           {isChild ? "아동" : "성인"}
                         </span>
                       </div>
-                      {m.phone && (
-                        <div className="text-[10px] text-gray-400 font-mono mt-0.5">{m.phone}</div>
-                      )}
                     </div>
                     {m.status && (
                       <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">{m.status}</span>

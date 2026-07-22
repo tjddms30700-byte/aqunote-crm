@@ -130,7 +130,7 @@ export default function SchedulePage() {
       supabase.from("staff").select("id, name, role, color, is_resigned, resign_date").order("name"),
       supabase.from("payments").select("*").order("paid_at", { ascending: false }),
       supabase.from("attendance").select("*"),
-      supabase.from("membership_plans").select("*").eq("is_active", true).order("sort_order"),
+      supabase.from("membership_plans").select("*"),
     ]);
     setSlots(sRes.data || []);
     setMembers(mRes.data || []);
