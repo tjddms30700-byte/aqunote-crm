@@ -245,6 +245,67 @@ export default function MembersPage() {
             title="선택한 회원을 다른 지점으로 이관">
             🏬 지점 이관 {selectedForTransfer.size > 0 && `(${selectedForTransfer.size})`}
           </button>
+          {/* ✅ v3.12.3: 상담폼 일괄 자동 채우기 버튼 */}
+          <button
+            onClick={async () => {
+              if (!confirm("모든 회원의 상담폼 데이터를 상세 정보 칸으로 자동 복사합니다.\n\n✅ 비어있는 칸만 채워집니다 (기존 값 보존)\n⚠️ 이 작업은 수분 소요될 수 있습니다\n\n계속할까요?")) return;
+              try {
+                const { mapConsultFormToMemberInfo, mergeMappedInfo, hasFillableData } = await import("@/lib/consultFormMapper");
+                let done = 0, skipped = 0, err = 0;
+                for (const m of members) {
+                  const form = (m as any)?.extra?.consult_form;
+                  if (!form || !hasFillableData(form)) { skipped++; continue; }
+                  const existing = {
+                    current_status: (m as any).current_status || (m as any).extra?.current_status || "",
+                    main_symptom: (m as any).main_symptom || (m as any).extra?.main_symptom || "",
+                    medication: (m as any).medication || (m as any).extra?.medication || "",
+                    treatment_history: (m as any).treatment_history || (m as any).extra?.treatment_history || "",
+                    expected_change: (m as any).expected_change || (m as any).extra?.expected_change || "",
+                    special_notes: (m as any).special_notes || (m as any).extra?.special_notes || "",
+                    diagnosis: (m as any).extra?.diagnosis || "",
+                  };
+                  const mapped = mapConsultFormToMemberInfo(form, m.member_type);
+                  const merged = mergeMappedInfo(existing, mapped, "fill_empty");
+                  // 1차: 직접 컬럼 업데이트 시도
+                  const directPayload: any = {
+                    current_status: merged.current_status || null,
+                    main_symptom: merged.main_symptom || null,
+                    medication: merged.medication || null,
+                    treatment_history: merged.treatment_history || null,
+                    expected_change: merged.expected_change || null,
+                    special_notes: merged.special_notes || null,
+                  };
+                  const r1 = await supabase.from("members").update(directPayload).eq("id", m.id).select();
+                  if (r1.error || !r1.data || r1.data.length === 0) {
+                    // 2차: extra JSONB로 fallback
+                    const newExtra = {
+                      ...((m as any).extra || {}),
+                      current_status: merged.current_status,
+                      main_symptom: merged.main_symptom,
+                      medication: merged.medication,
+                      treatment_history: merged.treatment_history,
+                      expected_change: merged.expected_change,
+                      special_notes: merged.special_notes,
+                      diagnosis: merged.diagnosis || (m as any).extra?.diagnosis,
+                    };
+                    const r2 = await supabase.from("members").update({ extra: newExtra }).eq("id", m.id);
+                    if (r2.error) { err++; continue; }
+                  } else if (merged.diagnosis && !(m as any).extra?.diagnosis) {
+                    const newExtra = { ...((m as any).extra || {}), diagnosis: merged.diagnosis };
+                    await supabase.from("members").update({ extra: newExtra }).eq("id", m.id);
+                  }
+                  done++;
+                }
+                alert(`✅ 자동 채우기 완료\n\n• 적용된 회원: ${done}명\n• 상담폼 없음: ${skipped}명${err > 0 ? `\n• 실패: ${err}명` : ""}`);
+                loadMembers();
+              } catch (e: any) {
+                alert("일괄 자동 채우기 실패: " + (e?.message || e));
+              }
+            }}
+            className="px-3 py-1.5 bg-gradient-to-br from-purple-500 to-indigo-500 text-white rounded-lg text-sm flex items-center gap-1 hover:opacity-90 shadow-sm"
+            title="모든 회원의 상담폼 데이터를 상세정보 칸에 일괄 복사 (기존 값 보존)">
+            🔄 상담폼 일괄적용
+          </button>
           <button onClick={() => setShowAddModal(true)}
             className="px-3 py-1.5 bg-aqu-600 text-white rounded-lg text-sm flex items-center gap-1 hover:bg-aqu-700">
             <UserPlus className="w-4 h-4" /> 신규 회원

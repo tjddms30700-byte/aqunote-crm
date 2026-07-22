@@ -318,15 +318,29 @@ export default function MemberDetail() {
       if (m?.extra?.water_skills) setSkills(m.extra.water_skills);
       if (m?.extra?.pain_map) setPainMap(m.extra.pain_map);
       if (m?.extra?.sensation_map) setSensationMap(m.extra.sensation_map);
-      // 확장 기본정보 로드
-      setExtInfo({
-        current_status: m?.current_status || "",
-        main_symptom: m?.main_symptom || "",
-        medication: m?.medication || "",
-        treatment_history: m?.treatment_history || "",
-        expected_change: m?.expected_change || "",
+      // ✅ v3.12.3: 확장 기본정보 로드 + 상담폼 자동 보완
+      //   컬럼/extra 값이 비어있으면 extra.consult_form에서 자동으로 보완적 표시
+      const baseExtInfo = {
+        current_status: m?.current_status || m?.extra?.current_status || "",
+        main_symptom: m?.main_symptom || m?.extra?.main_symptom || "",
+        medication: m?.medication || m?.extra?.medication || "",
+        treatment_history: m?.treatment_history || m?.extra?.treatment_history || "",
+        expected_change: m?.expected_change || m?.extra?.expected_change || "",
         special_notes: m?.special_notes || m?.extra?.special_notes || "",
-      });
+      };
+      if (m?.extra?.consult_form) {
+        try {
+          const { mapConsultFormToMemberInfo, mergeMappedInfo } = await import("@/lib/consultFormMapper");
+          const mapped = mapConsultFormToMemberInfo(m.extra.consult_form, m.member_type);
+          const merged = mergeMappedInfo(baseExtInfo, mapped, "fill_empty");
+          setExtInfo(merged);
+        } catch (e) {
+          console.warn("상담폼 자동 보완 실패:", e);
+          setExtInfo(baseExtInfo);
+        }
+      } else {
+        setExtInfo(baseExtInfo);
+      }
       // 라벨 로드
       await loadLabels();
       setSessions(m?.extra?.sessions || []);
@@ -705,7 +719,39 @@ export default function MemberDetail() {
 
             {/* 확장 정보 - 편집 가능 */}
             <div className="border-t border-aqu-100 pt-4">
-              <h4 className="text-sm font-bold text-aqu-900 mb-3">📋 상세 정보</h4>
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-bold text-aqu-900">📋 상세 정보</h4>
+                {/* ✅ v3.12.3: 상담폼에서 자동 채우기 버튼 */}
+                {member?.extra?.consult_form && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const mode = confirm(
+                        "상담폼 데이터로 상세 정보를 자동 채움니다.\n\n✅ 확인: 비어있는 칸만 채우기 (기존 값 보존)\n❌ 취소: 작업 중단"
+                      );
+                      if (!mode) return;
+                      try {
+                        const { mapConsultFormToMemberInfo, mergeMappedInfo } = await import("@/lib/consultFormMapper");
+                        const mapped = mapConsultFormToMemberInfo(member.extra.consult_form, member.member_type);
+                        const merged = mergeMappedInfo(extInfo, mapped, "fill_empty");
+                        setExtInfo(merged);
+                        // 진단명도 extra에 보완 (기존이 비어있을 때만)
+                        if (mapped.diagnosis && !member?.extra?.diagnosis) {
+                          const newExtra = { ...(member.extra || {}), diagnosis: mapped.diagnosis };
+                          await supabase.from("members").update({ extra: newExtra }).eq("id", member.id);
+                          setMember({ ...member, extra: newExtra });
+                        }
+                        alert("✅ 상담폼 데이터가 상세 정보 칸에 채워졌습니다.\n검토 후 [상세 정보 저장] 버튼을 눌러 저장해주세요.");
+                      } catch (e: any) {
+                        alert("자동 채우기 실패: " + (e?.message || e));
+                      }
+                    }}
+                    className="text-xs px-3 py-1.5 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-500 text-white font-semibold hover:opacity-90 shadow-sm flex items-center gap-1"
+                    title="상담폼(네이버폼/구글폼)에서 수집한 데이터로 자동 채움">
+                    🔄 상담폼에서 자동 채우기
+                  </button>
+                )}
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <EditableField label="🚑 현재 상태" fieldKey="current_status"
                   value={extInfo.current_status} onChange={(v) => setExtInfo({...extInfo, current_status: v})}
@@ -816,7 +862,7 @@ export default function MemberDetail() {
         )}
 
         {tab === "consult_form" && (
-          <ConsultFormPanel member={m} />
+          <ConsultFormPanel member={member} />
         )}
 
         {tab === "chart" && (
