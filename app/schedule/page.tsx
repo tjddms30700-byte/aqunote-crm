@@ -236,7 +236,60 @@ export default function SchedulePage() {
         if (target) {
           const wasUsed = COUNTS_AS_USED.has(prevStatus);
           const isUsed = COUNTS_AS_USED.has(status);
-          if (!wasUsed && isUsed) {
+          // ✅ v3.12: 노쇼 정책 분기 (차감/이월/환불)
+          const noshowPolicy = target.noshow_policy || "deduct";
+
+          if (status === "noshow") {
+            // 노쇼 적용 정책
+            if (noshowPolicy === "carryover") {
+              // 이월: used_sessions는 차감하지 않고 carryover_count +1
+              if (!wasUsed) {
+                await supabase.from("memberships").update({
+                  carryover_count: (target.carryover_count || 0) + 1,
+                  updated_at: new Date().toISOString(),
+                }).eq("id", target.id);
+                try {
+                  await supabase.from("schedule_slots").update({
+                    membership_id: target.id,
+                    noshow_action: "carried_over",
+                    noshow_processed_at: new Date().toISOString(),
+                  }).eq("id", slot.id);
+                } catch {}
+                sessionMsg = " (회원권 1회 이월)";
+              }
+            } else if (noshowPolicy === "refund") {
+              // 환불: 차감하지 않음 (수동 환불 필요 — 안내만)
+              if (!wasUsed) {
+                try {
+                  await supabase.from("schedule_slots").update({
+                    membership_id: target.id,
+                    noshow_action: "refunded",
+                    noshow_processed_at: new Date().toISOString(),
+                  }).eq("id", slot.id);
+                } catch {}
+                sessionMsg = " (환불 대상 — 결제 페이지에서 수동 환불 필요)";
+              }
+            } else {
+              // 기본: 차감
+              if (!wasUsed) {
+                await supabase.from("memberships").update({
+                  used_sessions: (target.used_sessions || 0) + 1,
+                  updated_at: new Date().toISOString(),
+                }).eq("id", target.id);
+                try {
+                  await supabase.from("schedule_slots").update({
+                    membership_id: target.id,
+                    noshow_action: "deducted",
+                    noshow_processed_at: new Date().toISOString(),
+                  }).eq("id", slot.id);
+                } catch {
+                  await supabase.from("schedule_slots").update({ membership_id: target.id }).eq("id", slot.id);
+                }
+                sessionMsg = " (회원권 1회 차감)";
+              }
+            }
+          } else if (!wasUsed && isUsed) {
+            // 일반 완료: 차감
             await supabase.from("memberships").update({
               used_sessions: (target.used_sessions || 0) + 1,
               updated_at: new Date().toISOString(),
@@ -244,12 +297,28 @@ export default function SchedulePage() {
             await supabase.from("schedule_slots").update({ membership_id: target.id }).eq("id", slot.id);
             sessionMsg = " (회원권 1회 차감)";
           } else if (wasUsed && !isUsed) {
-            const used = Math.max(0, (target.used_sessions || 0) - 1);
-            await supabase.from("memberships").update({
-              used_sessions: used,
-              updated_at: new Date().toISOString(),
-            }).eq("id", target.id);
-            sessionMsg = " (회원권 1회 복원)";
+            // 복원
+            const prevAction = slot.noshow_action;
+            if (prevAction === "carried_over") {
+              // 이월 취소: carryover_count -1
+              await supabase.from("memberships").update({
+                carryover_count: Math.max(0, (target.carryover_count || 0) - 1),
+                updated_at: new Date().toISOString(),
+              }).eq("id", target.id);
+              sessionMsg = " (이월 취소)";
+            } else {
+              // 일반 복원
+              const used = Math.max(0, (target.used_sessions || 0) - 1);
+              await supabase.from("memberships").update({
+                used_sessions: used,
+                updated_at: new Date().toISOString(),
+              }).eq("id", target.id);
+              sessionMsg = " (회원권 1회 복원)";
+            }
+            // noshow_action 정리
+            try {
+              await supabase.from("schedule_slots").update({ noshow_action: null }).eq("id", slot.id);
+            } catch {}
           }
         }
       }

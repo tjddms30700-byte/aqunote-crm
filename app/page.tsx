@@ -8,7 +8,7 @@ import {
   LogIn, LogOut, User as UserIcon, CreditCard, DollarSign, Briefcase, FileText,
   ClipboardCheck, TrendingUp, Ticket, Settings,
   Target, AlertTriangle, Clock, FileCheck, MessageSquare,
-  Waves, Wallet, UserCog, PieChart, Inbox
+  Waves, Wallet, UserCog, PieChart, Inbox, RefreshCw
 } from "lucide-react";
 import Logo from "@/components/Logo";
 import BranchSwitcher from "@/components/BranchSwitcher";
@@ -48,6 +48,7 @@ const GROUPS = [
       { href: "/payments",          icon: CreditCard,  title: "결제 관리",  desc: "결제 수단·이력" },
       { href: "/sales",             icon: DollarSign,  title: "매출내역",  desc: "총합계·다중수단" },
       { href: "/plans",             icon: Ticket,      title: "회원권",    desc: "횟수·금액 설정" },
+      { href: "/renewals",          icon: RefreshCw,   title: "정기 결제",  desc: "자동갱신·만료임박" },
       { href: "/finance",           icon: DollarSign,  title: "재무 관리",  desc: "수입·지출·손익" },
       { href: "/dashboard/revenue", icon: TrendingUp,  title: "매출 통계",  desc: "월별·주별 추이" },
     ],

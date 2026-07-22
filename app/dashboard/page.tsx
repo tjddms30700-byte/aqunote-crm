@@ -98,21 +98,25 @@ export default function DashboardPage() {
     }).length;
 
     // 곧 결제 예정자 (잔여 2회 이하 or 만료 7일 이내)
+    // ✅ v3.12: 잔여 3회 이하로 확대 + 필드명 호환 (total_sessions/sessions_total 둘 다 지원)
     const paymentDueMembers = data.memberships
+      .filter((ms: any) => ms.status !== "cancelled")
       .map((ms: any) => {
         const memb = data.members.find((m: any) => m.id === ms.member_id);
         if (!memb) return null;
-        const remaining = (ms.sessions_total || 0) - (ms.sessions_used || 0);
+        const total = ms.total_sessions ?? ms.sessions_total ?? 0;
+        const used  = ms.used_sessions  ?? ms.sessions_used  ?? 0;
+        const remaining = Math.max(0, total - used);
         const daysToExpire = ms.end_date
           ? Math.floor((new Date(ms.end_date).getTime() - now.getTime()) / 86400000)
           : null;
-        const urgent = remaining <= 2 || (daysToExpire !== null && daysToExpire <= 7 && daysToExpire >= 0);
+        const urgent = remaining <= 3 || (daysToExpire !== null && daysToExpire <= 7 && daysToExpire >= 0);
         if (!urgent || remaining <= 0) return null;
         return { member: memb, membership: ms, remaining, daysToExpire };
       })
       .filter(Boolean)
       .sort((a: any, b: any) => a.remaining - b.remaining)
-      .slice(0, 8);
+      .slice(0, 12);
 
     // 오늘 수업
     const todaySlots = data.slots.filter((s: any) => s.event_date === today);
@@ -285,24 +289,45 @@ export default function DashboardPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
             {stats.paymentDueMembers.map((p: any) => (
-              <Link key={p.membership.id} href={`/members/${p.member.id}`}
+              <div key={p.membership.id}
                 className="border border-orange-100 rounded-lg p-3 hover:border-orange-400 hover:shadow-md transition-all bg-orange-50/30">
-                <div className="flex justify-between items-start mb-1">
-                  <span className="font-medium text-aqu-900 text-sm">{p.member.name}</span>
-                  <span className="text-[10px] text-gray-500">{p.member.member_type === "child" ? "🧒" : "👤"}</span>
-                </div>
-                <div className="text-xs text-gray-600 space-y-0.5">
-                  <div>💧 잔여: <strong className="text-orange-600">{p.remaining}회</strong></div>
-                  {p.daysToExpire !== null && p.daysToExpire >= 0 && (
-                    <div>📅 만료: <strong className={p.daysToExpire <= 3 ? "text-red-600" : "text-orange-600"}>D-{p.daysToExpire}</strong></div>
+                <Link href={`/members/${p.member.id}`} className="block">
+                  <div className="flex justify-between items-start mb-1">
+                    <span className="font-medium text-aqu-900 text-sm">{p.member.name}</span>
+                    <span className="text-[10px] text-gray-500">{p.member.member_type === "child" ? "🧒" : "👤"}</span>
+                  </div>
+                  <div className="text-xs text-gray-600 space-y-0.5">
+                    <div>💧 잔여: <strong className="text-orange-600">{p.remaining}회</strong></div>
+                    {p.daysToExpire !== null && p.daysToExpire >= 0 && (
+                      <div>📅 만료: <strong className={p.daysToExpire <= 3 ? "text-red-600" : "text-orange-600"}>D-{p.daysToExpire}</strong></div>
+                    )}
+                  </div>
+                  {(p.remaining <= 1 || (p.daysToExpire !== null && p.daysToExpire <= 3)) && (
+                    <div className="mt-2 text-[10px] bg-red-500 text-white rounded px-2 py-0.5 inline-block">🚨 긴급</div>
                   )}
-                </div>
-                {(p.remaining <= 1 || (p.daysToExpire !== null && p.daysToExpire <= 3)) && (
-                  <div className="mt-2 text-[10px] bg-red-500 text-white rounded px-2 py-0.5 inline-block">🚨 긴급</div>
-                )}
-              </Link>
+                </Link>
+                {/* ✅ v3.12: 카카오 메시지 버튼 */}
+                <button
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMsgTarget({ member: p.member, membership: p.membership }); }}
+                  className="mt-2 w-full text-[10px] px-2 py-1 rounded bg-gradient-to-br from-yellow-400 to-amber-500 text-white font-semibold hover:opacity-90 shadow-sm"
+                  title="카카오 메시지 생성">
+                  💬 메시지 생성
+                </button>
+              </div>
             ))}
           </div>
+        )}
+
+        {/* ✅ v3.12: 카카오 메시지 모달 */}
+        {msgTarget && (
+          <KakaoMessageModal
+            open={true}
+            onClose={() => setMsgTarget(null)}
+            member={msgTarget.member}
+            membership={msgTarget.membership}
+            branchName={branch?.name}
+            centerPhone={branch?.phone}
+          />
         )}
       </div>
 
