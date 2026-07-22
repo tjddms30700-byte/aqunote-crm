@@ -2331,15 +2331,16 @@ function ConsultFormPanel({ member }: { member: any }) {
 
   const isChild = form.member_type === "child";
   const isAdult = form.member_type === "adult";
+  const isMixed = form.source === "naver_form_v1";
 
-  // 공통 필드 렌더링
-  const Row = ({ label, value, icon }: { label: string; value: any; icon?: string }) => {
+  // Row 렌더 함수 (컴포넌트 아님 - 안전한 순수 함수)
+  const renderRow = (label: string, value: any, icon?: string) => {
     if (value === null || value === undefined || value === "" || (Array.isArray(value) && value.length === 0)) return null;
     const display = Array.isArray(value) ? value.join(" · ") : String(value);
     return (
-      <div className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-3 py-2.5 border-b border-gray-100 last:border-b-0">
+      <div key={label} className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-3 py-2.5 border-b border-gray-100 last:border-b-0">
         <div className="sm:w-40 shrink-0 text-xs font-semibold text-slate-600 flex items-center gap-1">
-          {icon && <span>{icon}</span>}
+          {icon ? <span>{icon}</span> : null}
           <span>{label}</span>
         </div>
         <div className="flex-1 text-sm text-slate-900 whitespace-pre-wrap">{display}</div>
@@ -2347,23 +2348,33 @@ function ConsultFormPanel({ member }: { member: any }) {
     );
   };
 
-  const Section = ({ title, children, color = "blue" }: any) => {
-    const colorMap: any = {
-      blue: "from-blue-50 to-indigo-50 border-blue-100",
-      purple: "from-purple-50 to-fuchsia-50 border-purple-100",
-      emerald: "from-emerald-50 to-teal-50 border-emerald-100",
-      amber: "from-amber-50 to-orange-50 border-amber-100",
-      rose: "from-rose-50 to-pink-50 border-rose-100",
-    };
+  const colorMap: Record<string, string> = {
+    blue: "from-blue-50 to-indigo-50 border-blue-100",
+    purple: "from-purple-50 to-fuchsia-50 border-purple-100",
+    emerald: "from-emerald-50 to-teal-50 border-emerald-100",
+    amber: "from-amber-50 to-orange-50 border-amber-100",
+    rose: "from-rose-50 to-pink-50 border-rose-100",
+  };
+
+  const renderSection = (title: string, rows: any[], color: string = "blue") => {
+    const validRows = rows.filter(r => r !== null && r !== undefined);
+    if (validRows.length === 0) return null;
     return (
-      <div className={`bg-gradient-to-br ${colorMap[color]} border rounded-2xl p-4 mb-4`}>
+      <div key={title} className={`bg-gradient-to-br ${colorMap[color] || colorMap.blue} border rounded-2xl p-4 mb-4`}>
         <h3 className="text-sm font-bold text-slate-800 mb-2 flex items-center gap-1.5">{title}</h3>
         <div className="bg-white/70 rounded-xl px-3 py-1">
-          {children}
+          {validRows}
         </div>
       </div>
     );
   };
+
+  const sourceLabel =
+    form.source === "naver_form_v1" ? "네이버폼(이전)" :
+    form.source === "naver_form_child" ? "네이버폼(아동)" :
+    form.source === "naver_form_adult" ? "네이버폼(성인)" : "상담폼";
+
+  const genderLabel = form.gender === "male" ? "남" : form.gender === "female" ? "여" : form.gender;
 
   return (
     <div className="bg-white rounded-2xl shadow-md border border-aqu-100 p-5 md:p-7">
@@ -2373,16 +2384,14 @@ function ConsultFormPanel({ member }: { member: any }) {
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
             📋 상담폼 접수 정보
             <span className="text-[10px] px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">
-              {form.source === "naver_form_v1" ? "네이버폼(이전)" :
-               form.source === "naver_form_child" ? "네이버폼(아동)" :
-               form.source === "naver_form_adult" ? "네이버폼(성인)" : "상담폼"}
+              {sourceLabel}
             </span>
           </h2>
-          {form.submitted_at && (
+          {form.submitted_at ? (
             <div className="text-xs text-gray-500 mt-1">
-              📅 접수일: {form.submitted_at}
+              📅 접수일: {String(form.submitted_at)}
             </div>
-          )}
+          ) : null}
         </div>
         <button onClick={() => window.print()}
           className="text-xs px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold">
@@ -2391,92 +2400,88 @@ function ConsultFormPanel({ member }: { member: any }) {
       </div>
 
       {/* 공통 기본 정보 */}
-      <Section title="👤 기본 정보" color="blue">
-        <Row label="이름" value={form.name} icon="🏷" />
-        <Row label="성별" value={form.gender === "male" ? "남" : form.gender === "female" ? "여" : form.gender} icon="⚧" />
-        <Row label="생년월일" value={form.birth} icon="🎂" />
-        <Row label="연락처" value={form.phone} icon="📞" />
-        <Row label="주소" value={form.address} icon="📍" />
-      </Section>
+      {renderSection("👤 기본 정보", [
+        renderRow("이름", form.name, "🏷"),
+        renderRow("성별", genderLabel, "⚧"),
+        renderRow("생년월일", form.birth, "🎂"),
+        renderRow("연락처", form.phone, "📞"),
+        renderRow("주소", form.address, "📍"),
+      ], "blue")}
 
       {/* 아동 전용 */}
-      {isChild && (
-        <>
-          <Section title="🧒 아동 상세" color="purple">
-            <Row label="키/체중" value={form.height_weight} icon="📏" />
-            <Row label="내원 사유" value={form.visit_reason} icon="🩺" />
-            <Row label="현재 기관" value={form.current_institution} icon="🏫" />
-            <Row label="형제 자매" value={form.siblings} icon="👨‍👩‍👧‍👦" />
-            <Row label="보호자 정보" value={form.guardian_info} icon="👨‍👩‍👧" />
-          </Section>
+      {isChild ? renderSection("🧒 아동 상세", [
+        renderRow("키/체중", form.height_weight, "📏"),
+        renderRow("내원 사유", form.visit_reason, "🩺"),
+        renderRow("현재 기관", form.current_institution, "🏫"),
+        renderRow("형제 자매", form.siblings, "👨‍👩‍👧‍👦"),
+        renderRow("보호자 정보", form.guardian_info, "👨‍👩‍👧"),
+      ], "purple") : null}
 
-          <Section title="🎨 성향 및 특이사항" color="emerald">
-            <Row label="좋아하는 것" value={form.likes} icon="❤️" />
-            <Row label="싫어하는 것" value={form.dislikes} icon="💔" />
-            <Row label="물 반응" value={form.water_experience} icon="💧" />
-            <Row label="알레르기" value={form.allergy} icon="🌿" />
-            <Row label="특이사항" value={form.special_notes} icon="📝" />
-            <Row label="요청사항" value={form.requests} icon="🙋" />
-            <Row label="기대 목표" value={form.expected_goal} icon="🎯" />
-          </Section>
-        </>
-      )}
+      {isChild ? renderSection("🎨 성향 및 특이사항", [
+        renderRow("좋아하는 것", form.likes, "❤️"),
+        renderRow("싫어하는 것", form.dislikes, "💔"),
+        renderRow("물 반응", form.water_experience, "💧"),
+        renderRow("알레르기", form.allergy, "🌿"),
+        renderRow("특이사항", form.special_notes, "📝"),
+        renderRow("요청사항", form.requests, "🙋"),
+        renderRow("기대 목표", form.expected_goal, "🎯"),
+      ], "emerald") : null}
 
       {/* 성인 전용 */}
-      {isAdult && (
-        <>
-          <Section title="🩺 통증 정보" color="rose">
-            <Row label="통증 부위" value={form.pain_area} icon="🎯" />
-            <Row label="통증 척도" value={form.pain_scale ? `${form.pain_scale}/10` : null} icon="📊" />
-            <Row label="시작 시기" value={form.pain_start} icon="⏱" />
-            <Row label="악화 요인" value={form.worsening_factor} icon="⚠️" />
-          </Section>
+      {isAdult ? renderSection("🩺 통증 정보", [
+        renderRow("통증 부위", form.pain_area, "🎯"),
+        renderRow("통증 척도", form.pain_scale ? `${form.pain_scale}/10` : null, "📊"),
+        renderRow("시작 시기", form.pain_start, "⏱"),
+        renderRow("악화 요인", form.worsening_factor, "⚠️"),
+      ], "rose") : null}
 
-          <Section title="💊 병력 및 치료" color="amber">
-            <Row label="진단명" value={form.diagnosis} icon="📋" />
-            <Row label="기저질환" value={form.medical_history} icon="🏥" />
-            <Row label="수술력" value={form.surgery_history} icon="⚕️" />
-            <Row label="복용 약물" value={form.medication} icon="💊" />
-            <Row label="알레르기" value={form.allergy} icon="🌿" />
-            <Row label="주의사항" value={form.caution} icon="⚠️" />
-            <Row label="요청사항" value={form.requests} icon="🙋" />
-          </Section>
-        </>
-      )}
+      {isAdult ? renderSection("💊 병력 및 치료", [
+        renderRow("진단명", form.diagnosis, "📋"),
+        renderRow("기저질환", form.medical_history, "🏥"),
+        renderRow("수술력", form.surgery_history, "⚕️"),
+        renderRow("복용 약물", form.medication, "💊"),
+        renderRow("알레르기", form.allergy, "🌿"),
+        renderRow("주의사항", form.caution, "⚠️"),
+        renderRow("요청사항", form.requests, "🙋"),
+      ], "amber") : null}
 
       {/* form1 (이전 통합 폼) */}
-      {form.source === "naver_form_v1" && (
-        <Section title="🩺 진단 · 치료 정보" color="amber">
-          <Row label="진단명" value={form.diagnosis} icon="📋" />
-          <Row label="현재 불편한 점" value={form.main_symptom} icon="🩺" />
-          <Row label="원하는 치료" value={form.wish_treatment} icon="💊" />
-          <Row label="치료 목표" value={form.expected_change} icon="🎯" />
-          <Row label="기타 주의사항" value={form.special_notes} icon="📝" />
-        </Section>
-      )}
+      {isMixed ? renderSection("🩺 진단 · 치료 정보", [
+        renderRow("진단명", form.diagnosis, "📋"),
+        renderRow("현재 불편한 점", form.main_symptom, "🩺"),
+        renderRow("원하는 치료", form.wish_treatment, "💊"),
+        renderRow("치료 목표", form.expected_change, "🎯"),
+        renderRow("기타 주의사항", form.special_notes, "📝"),
+      ], "amber") : null}
 
       {/* 희망 수업 시간 */}
-      {form.wish_time_slots && form.wish_time_slots.length > 0 && (
-        <Section title="📅 희망 수업 시간대" color="blue">
-          <div className="flex flex-wrap gap-2 py-2">
-            {form.wish_time_slots.map((slot: string, i: number) => (
-              <span key={i} className="text-xs px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full font-semibold">
-                {slot}
-              </span>
-            ))}
+      {Array.isArray(form.wish_time_slots) && form.wish_time_slots.length > 0 ? (
+        <div className={`bg-gradient-to-br ${colorMap.blue} border rounded-2xl p-4 mb-4`}>
+          <h3 className="text-sm font-bold text-slate-800 mb-2 flex items-center gap-1.5">📅 희망 수업 시간대</h3>
+          <div className="bg-white/70 rounded-xl px-3 py-2">
+            <div className="flex flex-wrap gap-2">
+              {form.wish_time_slots.map((slot: string, i: number) => (
+                <span key={i} className="text-xs px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full font-semibold">
+                  {String(slot)}
+                </span>
+              ))}
+            </div>
+            {form.saturday_option ? (
+              <div className="mt-2 pt-2 border-t border-blue-100 text-xs text-slate-600">
+                <span className="font-semibold">📆 토요일 선택: </span>
+                <span>{String(form.saturday_option)}</span>
+              </div>
+            ) : null}
           </div>
-          {form.saturday_option && (
-            <Row label="토요일 선택" value={form.saturday_option} icon="📆" />
-          )}
-        </Section>
-      )}
+        </div>
+      ) : null}
 
       {/* 원본 JSON (개발자용, 접힘) */}
       <details className="mt-6">
         <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">
           🔧 원본 데이터 (JSON) 보기
         </summary>
-        <pre className="mt-2 p-3 bg-slate-50 rounded-lg text-[10px] text-slate-600 overflow-x-auto">
+        <pre className="mt-2 p-3 bg-slate-50 rounded-lg text-[10px] text-slate-600 overflow-x-auto whitespace-pre-wrap">
           {JSON.stringify(form, null, 2)}
         </pre>
       </details>
