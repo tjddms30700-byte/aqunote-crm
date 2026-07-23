@@ -223,8 +223,16 @@ export default function AttendancePage() {
           patch.deducted_at = null;
           patch.deduction_mode = null;
         }
-        const { error } = await supabase.from("attendance").update(patch).eq("id", existing.id);
-        if (error) errors.push(memberId + ": " + error.message);
+        // ✅ v3.13.6: 신규 컴럼 4개가 DB에 없어도 이전 스키마로 재시도 (자동 fallback)
+        let up = await supabase.from("attendance").update(patch).eq("id", existing.id);
+        if (up.error && (up.error.code === "42703" || up.error.code === "PGRST204" ||
+            up.error.message?.includes("column") || up.error.message?.includes("saved_at") ||
+            up.error.message?.includes("deducted_at") || up.error.message?.includes("deduction_mode") ||
+            up.error.message?.includes("membership_id"))) {
+          const legacyPatch: any = { status: draft, slot_id: patch.slot_id };
+          up = await supabase.from("attendance").update(legacyPatch).eq("id", existing.id);
+        }
+        if (up.error) errors.push(memberId + ": " + up.error.message);
       } else {
         // 신규
         const insertPayload: any = {
@@ -243,8 +251,23 @@ export default function AttendancePage() {
           insertPayload.deduction_mode = "auto";
           deductedCount++;
         }
-        const { error } = await supabase.from("attendance").insert(insertPayload);
-        if (error) errors.push(memberId + ": " + error.message);
+        // ✅ v3.13.6: 신규 컴럼 4개가 DB에 없어도 이전 스키마로 재시도 (자동 fallback)
+        let ins = await supabase.from("attendance").insert(insertPayload);
+        if (ins.error && (ins.error.code === "42703" || ins.error.code === "PGRST204" ||
+            ins.error.message?.includes("column") || ins.error.message?.includes("saved_at") ||
+            ins.error.message?.includes("deducted_at") || ins.error.message?.includes("deduction_mode") ||
+            ins.error.message?.includes("membership_id"))) {
+          const legacyPayload: any = {
+            org_id: orgId,
+            member_id: memberId,
+            attend_date: date,
+            status: draft,
+            slot_id: slot?.id || null,
+            time_slot: slot?.time_slot || null,
+          };
+          ins = await supabase.from("attendance").insert(legacyPayload);
+        }
+        if (ins.error) errors.push(memberId + ": " + ins.error.message);
       }
 
       // 시간표에도 상태 동기화 (있는 경우에만)
