@@ -620,38 +620,36 @@ export default function MemberDetail() {
                 )}
               </div>
               {!editingBasic ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <InfoRow label="이름" value={member.name || "-"} />
-                  <InfoRow label="유형" value={member.member_type === "child" ? "🧒 아동" : "👤 성인"} />
-                  <InfoRow label="진단명" value={member.extra?.diagnosis || "-"} />
-                  <InfoRow label="생년월일" value={member.birth ? `${member.birth} (만 ${calcAge(member.birth)}세)` : "-"} />
-                  <InfoRow label="연락처" value={member.phone || member.guardian_phone || "-"} />
-                  <InfoRow label="성별" value={["F","female","여","여자"].includes(member.gender) ? "여" : ["M","male","남","남자"].includes(member.gender) ? "남" : (member.gender || "-")} />
-                  <InfoRow label="주소" value={member.address || "-"} />
-                  <InfoRow label="유입경로" value={member.source || "-"} />
-                  <InfoRow label="상태" value={getStatusLabel(member.status)} highlight />
-                  {member.member_type === "child" && member.guardian_name && (
-                    <InfoRow label="보호자" value={`${member.guardian_name} (${member.guardian_relation || ""})`} />
-                  )}
-                </div>
-              )}
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <InfoRow label="이름" value={member.name || "-"} />
+                    <InfoRow label="유형" value={member.member_type === "child" ? "🧒 아동" : "👤 성인"} />
+                    <InfoRow label="진단명" value={member.extra?.diagnosis || "-"} />
+                    <InfoRow label="생년월일" value={member.birth ? `${member.birth} (만 ${calcAge(member.birth)}세)` : "-"} />
+                    <InfoRow label="연락처" value={member.phone || member.guardian_phone || "-"} />
+                    <InfoRow label="성별" value={["F","female","여","여자"].includes(member.gender) ? "여" : ["M","male","남","남자"].includes(member.gender) ? "남" : (member.gender || "-")} />
+                    <InfoRow label="주소" value={member.address || "-"} />
+                    <InfoRow label="유입경로" value={member.source || "-"} />
+                    <InfoRow label="상태" value={getStatusLabel(member.status)} highlight />
+                    {member.member_type === "child" && member.guardian_name && (
+                      <InfoRow label="보호자" value={`${member.guardian_name} (${member.guardian_relation || ""})`} />
+                    )}
+                  </div>
 
-              {/* ✅ v3.13.2: 희망 시간대 자동 계산 + 수정 */}
-              {!editingBasic && (
-                <div className="mt-4">
-                  <WishScheduleCard
-                    memberId={member.id}
-                    wishDays={member.wish_days}
-                    wishTimeSlots={member.wish_time_slots}
-                    onSaved={async () => {
-                      const { data } = await supabase.from("members").select("*").eq("id", member.id).single();
-                      if (data) setMember(data as any);
-                    }}
-                  />
-                </div>
-              )}
-
-              {editingBasic && (
+                  {/* ✅ v3.13.3: 희망 시간대 자동 계산 + 수정 */}
+                  <div className="mt-4">
+                    <WishScheduleCard
+                      memberId={member.id}
+                      wishDays={member.wish_days}
+                      wishTimeSlots={member.wish_time_slots}
+                      onSaved={async () => {
+                        const { data } = await supabase.from("members").select("*").eq("id", member.id).single();
+                        if (data) setMember(data as any);
+                      }}
+                    />
+                  </div>
+                </>
+              ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
                     <label className="text-xs font-semibold text-gray-600 block mb-1">이름 *</label>
@@ -880,12 +878,8 @@ export default function MemberDetail() {
           </div>
         )}
 
-        {tab === "consult_form" && (
-          <ConsultFormPanel member={member} />
-        )}
-
         {tab === "chart" && (
-          <ConsultationChartPanel memberId={id as string} member={m} />
+          <ConsultationChartPanel memberId={id as string} member={member} />
         )}
 
         {tab === "history" && (
