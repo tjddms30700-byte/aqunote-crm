@@ -29,6 +29,7 @@ const GROUPS = [
       { href: "/members",         icon: Users,          title: "회원 관리",    desc: "아동·성인 통합" },
       { href: "/consultations",   icon: ClipboardList,  title: "상담 리드",    desc: "칸반보드" },
       { href: "/schedule",        icon: Calendar,       title: "시간표",       desc: "월간·주간·일간" },
+      { href: "/schedule/matching", icon: Calendar,     title: "🎯 고정시간표",  desc: "빈자리·대기자 자동매칭" },
       { href: "/attendance",      icon: ClipboardCheck, title: "회원 출결",    desc: "출석·결석·병결" },
       { href: "/iep",             icon: Target,         title: "IEP 목표",    desc: "장단기·커리큘럼" },
       { href: "/behavior",        icon: AlertTriangle,  title: "행동 중재",    desc: "ABC·빈도·시간" },

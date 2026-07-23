@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
+import KakaoMessageModal from "@/components/KakaoMessageModal";
 import {
   BarChart3, Users, Calendar, CreditCard, MessageCircle,
   TrendingUp, TrendingDown, AlertCircle, Clock, DollarSign,
@@ -15,9 +16,20 @@ export default function DashboardPage() {
     members: [], payments: [], memberships: [], slots: [], attendance: [], staff: [],
   });
   const [loading, setLoading] = useState(true);
+  const [msgTarget, setMsgTarget] = useState<{ member: any; membership: any } | null>(null);
+  const [branch, setBranch] = useState<any>(null);
 
   useEffect(() => { loadAll(); }, []);
-  useBranchWatch(() => loadAll());
+  useBranchWatch(() => { loadAll(); loadBranch(); });
+
+  async function loadBranch() {
+    const bid = getActiveBranchId();
+    if (!bid) { setBranch(null); return; }
+    const { data: b } = await supabase.from("branches").select("*").eq("id", bid).maybeSingle();
+    setBranch(b);
+  }
+
+  useEffect(() => { loadBranch(); }, []);
 
   async function loadAll() {
     setLoading(true);
