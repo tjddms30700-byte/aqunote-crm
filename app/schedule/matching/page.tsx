@@ -90,30 +90,55 @@ export default function ScheduleMatchingPage() {
       .map((m, idx) => ({ ...m, priority: idx + 1 }));
   }, [members]);
 
-  // 대기자의 희망 요일/시간 매칭 판단
+  // 대기자의 희망 요일/시간 매칭 판단 (v3.13.2 개선: 시간구간 + 세미콜론 구분자 지원)
   function matchesWish(w: Waiter, day: number, time: string): boolean {
-    const dayName = DAYS[day - 1]; // "월"..."토"
-    const wishTimes = w.wish_time_slots || [];
-    const wishDays = w.wish_days || [];
+    const dayName = DAYS[day - 1]; // "월".."토"
+    const wishTimes = (w.wish_time_slots || []).map((s: string) => String(s).trim()).filter(Boolean);
+    const wishDays  = (w.wish_days || []).flatMap((s: string) =>
+      String(s).split(/[;,|/\s]+/).map(x => x.trim()).filter(Boolean)
+    );
 
-    // wish_time_slots 형식이 "월요일 15:50" 등일 수도 있음 → 파싱
-    for (const wt of wishTimes) {
-      // 예: "월요일 15:50", "월요일 15:50|월요일 17:00"
-      const parts = wt.split("|");
+    // 셀의 시작시각 (예 "15:50~17:00" → 15)
+    const cellStartHour = parseInt(time.slice(0, 2), 10);
+
+    // 1) 요일 매칭 검사 ("월", "월;목", "목요일", "월・목" 모두 지원)
+    let dayMatched = false;
+    if (wishDays.length > 0) {
+      dayMatched = wishDays.some(d => d.replace("요일", "").includes(dayName));
+    } else if (wishTimes.length > 0) {
+      // wish_time_slots 내에 요일명이 박힌 경우 ("월요일 15:50") 지원
+      dayMatched = wishTimes.some(t => t.includes(dayName));
+    }
+    if (!dayMatched) return false;
+
+    // 2) 시간 매칭
+    for (const raw of wishTimes) {
+      const parts = raw.split(/[|,;]/).map(p => p.trim()).filter(Boolean);
       for (const p of parts) {
-        const trimmed = p.trim();
-        if (trimmed.includes(dayName + "요일") || trimmed.startsWith(dayName)) {
-          // 시간 매칭 - HH:MM 만 추출
-          const timeStart = time.slice(0, 5); // "15:50"
-          if (trimmed.includes(timeStart)) return true;
+        // (a) 정확한 시각 ("15:50", "월요일 15:50")
+        const timeStart = time.slice(0, 5); // "15:50"
+        if (p.includes(timeStart)) return true;
+
+        // (b) 시간구간 ("오전 10~12", "오후 14~17", "저녁 17~20", "점심 12~14", "12~14", "14-17")
+        const rangeMatch = p.match(/(\d{1,2})\s*[~\-]\s*(\d{1,2})/);
+        if (rangeMatch) {
+          const start = parseInt(rangeMatch[1], 10);
+          const end   = parseInt(rangeMatch[2], 10);
+          if (cellStartHour >= start && cellStartHour < end) return true;
         }
+
+        // (c) 키워드 기반
+        if (p.includes("오전") && cellStartHour < 12) return true;
+        if (p.includes("점심") && cellStartHour >= 12 && cellStartHour < 14) return true;
+        if (p.includes("오후") && cellStartHour >= 12 && cellStartHour < 17) return true;
+        if (p.includes("저녁") && cellStartHour >= 17) return true;
+        if (p.includes("밤") && cellStartHour >= 19) return true;
       }
     }
 
-    // wish_days만 있는 경우 (요일만 매칭)
-    if (wishDays.length > 0 && wishTimes.length === 0) {
-      return wishDays.some(d => d.includes(dayName));
-    }
+    // 3) 희망시간이 비어있으면 요일만 맞으면 매칭 (운영시간 전체)
+    if (wishTimes.length === 0 && dayMatched) return true;
+
     return false;
   }
 

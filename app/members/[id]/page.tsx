@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
+import WishScheduleCard from "@/components/WishScheduleCard";
 import {
   Waves, ArrowLeft, User, Phone, MapPin, Calendar, AlertCircle,
   Activity, Award, MessageCircle, Save, Plus, Star, Trash2, Edit,
@@ -633,7 +634,24 @@ export default function MemberDetail() {
                     <InfoRow label="보호자" value={`${member.guardian_name} (${member.guardian_relation || ""})`} />
                   )}
                 </div>
-              ) : (
+              )}
+
+              {/* ✅ v3.13.2: 희망 시간대 자동 계산 + 수정 */}
+              {!editingBasic && (
+                <div className="mt-4">
+                  <WishScheduleCard
+                    memberId={member.id}
+                    wishDays={member.wish_days}
+                    wishTimeSlots={member.wish_time_slots}
+                    onSaved={async () => {
+                      const { data } = await supabase.from("members").select("*").eq("id", member.id).single();
+                      if (data) setMember(data as any);
+                    }}
+                  />
+                </div>
+              )}
+
+              {editingBasic && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
                     <label className="text-xs font-semibold text-gray-600 block mb-1">이름 *</label>
