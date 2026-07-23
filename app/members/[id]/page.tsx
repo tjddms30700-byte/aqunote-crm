@@ -444,12 +444,21 @@ export default function MemberDetail() {
     const r5 = await supabase.from("memberships").delete().eq("member_id", memberId);
     if (r5.error) errors.push("회원권: " + r5.error.message);
 
-    // 6) 상담차트 / IEP / 행동기록 / 문서 등 (있는 경우에만 시도)
+    // 6) 상담차트 / IEP / 행동기록 / 문서 등 (있는 경우에만 시도 - 테이블/컴럼 없으면 조용히 스킵)
     for (const tbl of ["consultation_charts", "iep_goals", "behavior_records", "documents", "leads_inbox"]) {
-      const r = await supabase.from(tbl).delete().eq("member_id", memberId);
-      // 테이블 없음(42P01) 또는 컴럼 없음(42703)은 무시
-      if (r.error && !(["42P01", "42703"].includes(r.error.code || ""))) {
-        errors.push(tbl + ": " + r.error.message);
+      try {
+        const r = await supabase.from(tbl).delete().eq("member_id", memberId);
+        // 테이블 없음(42P01) / 컴럼 없음(42703) / schema cache miss(PGRST205) / not found 모두 무시
+        if (r.error) {
+          const code = r.error.code || "";
+          const msg = (r.error.message || "").toLowerCase();
+          const ignoreCodes = ["42P01", "42703", "PGRST205", "PGRST204", "PGRST202"];
+          const ignoreMsgs = ["could not find the table", "could not find the", "schema cache", "does not exist", "not found"];
+          const shouldIgnore = ignoreCodes.includes(code) || ignoreMsgs.some(m => msg.includes(m));
+          if (!shouldIgnore) errors.push(tbl + ": " + r.error.message);
+        }
+      } catch (e: any) {
+        // 네트워크 에러 등도 조용히 스킵
       }
     }
 

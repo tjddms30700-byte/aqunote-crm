@@ -31,14 +31,21 @@ function parseWishDays(raw: string[] | null | undefined): string[] {
   return Array.from(out);
 }
 
-// 시간 문자열 → 매칭되는 시간표 슬롯 배열
+// ✅ v3.13.8: HH:MM → 분 변환
+function parseTimeToMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map(x => parseInt(x, 10));
+  return (h || 0) * 60 + (m || 0);
+}
+
+// 시간 문자열 → 매칭되는 시간표 슬롯 배열 (v3.13.8: 분 단위 정밀 매칭)
 function calcMatchedSlots(wishTimes: string[], wishDays: string[]): { day: string; slot: string }[] {
   const matched: { day: string; slot: string }[] = [];
   const days = wishDays.length > 0 ? wishDays : DAYS_KO;
 
   for (const day of days) {
     for (const slot of TIME_SLOTS) {
-      const cellStartHour = parseInt(slot.slice(0, 2), 10);
+      const cellStart = parseTimeToMinutes(slot.slice(0, 5));
+      const cellStartHour = Math.floor(cellStart / 60);
       let hit = false;
 
       if (wishTimes.length === 0) {
@@ -48,13 +55,25 @@ function calcMatchedSlots(wishTimes: string[], wishDays: string[]): { day: strin
         for (const raw of wishTimes) {
           const parts = String(raw).split(/[|,;]/).map(p => p.trim()).filter(Boolean);
           for (const p of parts) {
+            // (a) 정확한 시작시각 일치 ("13:30")
             if (p.includes(slot.slice(0, 5))) { hit = true; break; }
+            // (b) HH:MM ~ HH:MM 구간 ("13:30~14:40")
+            const rangeMinMatch = p.match(/(\d{1,2}):(\d{2})\s*[~\-]\s*(\d{1,2}):(\d{2})/);
+            if (rangeMinMatch) {
+              const rStart = parseInt(rangeMinMatch[1], 10) * 60 + parseInt(rangeMinMatch[2], 10);
+              const rEnd   = parseInt(rangeMinMatch[3], 10) * 60 + parseInt(rangeMinMatch[4], 10);
+              if (cellStart >= rStart && cellStart < rEnd) { hit = true; break; }
+              if (cellStart === rStart) { hit = true; break; }
+              continue; // HH:MM 패턴이 있다면 숫자 구간 무시
+            }
+            // (c) 숫자 시간구간 ("12~14", "14-17")
             const range = p.match(/(\d{1,2})\s*[~\-]\s*(\d{1,2})/);
             if (range) {
               const s = parseInt(range[1], 10);
               const e = parseInt(range[2], 10);
               if (cellStartHour >= s && cellStartHour < e) { hit = true; break; }
             }
+            // (d) 키워드
             if (p.includes("오전") && cellStartHour < 12) { hit = true; break; }
             if (p.includes("점심") && cellStartHour >= 12 && cellStartHour < 14) { hit = true; break; }
             if (p.includes("오후") && cellStartHour >= 12 && cellStartHour < 17) { hit = true; break; }

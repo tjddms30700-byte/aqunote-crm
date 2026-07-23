@@ -98,15 +98,16 @@ export default function ScheduleMatchingPage() {
       String(s).split(/[;,|/\s]+/).map(x => x.trim()).filter(Boolean)
     );
 
-    // 셀의 시작시각 (예 "15:50~17:00" → 15)
-    const cellStartHour = parseInt(time.slice(0, 2), 10);
+    // ✅ v3.13.8: 셀 시작시각을 분 단위까지 파싱 (예 "15:50~17:00" → 15*60+50=950분)
+    const cellStart = parseTimeToMinutes(time.slice(0, 5));   // "15:50" → 950
+    const cellEnd   = parseTimeToMinutes(time.slice(-5));      // "17:00" → 1020
+    const cellStartHour = Math.floor(cellStart / 60);
 
-    // 1) 요일 매칭 검사 ("월", "월;목", "목요일", "월・목" 모두 지원)
+    // 1) 요일 매칭 검사
     let dayMatched = false;
     if (wishDays.length > 0) {
       dayMatched = wishDays.some(d => d.replace("요일", "").includes(dayName));
     } else if (wishTimes.length > 0) {
-      // wish_time_slots 내에 요일명이 박힌 경우 ("월요일 15:50") 지원
       dayMatched = wishTimes.some(t => t.includes(dayName));
     }
     if (!dayMatched) return false;
@@ -115,19 +116,33 @@ export default function ScheduleMatchingPage() {
     for (const raw of wishTimes) {
       const parts = raw.split(/[|,;]/).map(p => p.trim()).filter(Boolean);
       for (const p of parts) {
-        // (a) 정확한 시각 ("15:50", "월요일 15:50")
+        // (a) 정확한 시작 시각 ("15:50") → 셀 시작과 일치
         const timeStart = time.slice(0, 5); // "15:50"
         if (p.includes(timeStart)) return true;
 
-        // (b) 시간구간 ("오전 10~12", "오후 14~17", "저녁 17~20", "점심 12~14", "12~14", "14-17")
-        const rangeMatch = p.match(/(\d{1,2})\s*[~\-]\s*(\d{1,2})/);
-        if (rangeMatch) {
-          const start = parseInt(rangeMatch[1], 10);
-          const end   = parseInt(rangeMatch[2], 10);
-          if (cellStartHour >= start && cellStartHour < end) return true;
+        // (b) HH:MM ~ HH:MM 또는 HH:MM-HH:MM 구간 ("13:30~14:40", "14:40-15:50")
+        const rangeMinMatch = p.match(/(\d{1,2}):(\d{2})\s*[~\-]\s*(\d{1,2}):(\d{2})/);
+        if (rangeMinMatch) {
+          const rStart = parseInt(rangeMinMatch[1], 10) * 60 + parseInt(rangeMinMatch[2], 10);
+          const rEnd   = parseInt(rangeMinMatch[3], 10) * 60 + parseInt(rangeMinMatch[4], 10);
+          // 셀과 희망구간이 겹치면 매칭 (시작이 구간 내 또는 구간 경계와 같음)
+          if (cellStart >= rStart && cellStart < rEnd) return true;
+          // 정확히 일치하는 예약 슬롯 (예: "13:30~14:40" ≡ 셀 "13:30~14:40")
+          if (cellStart === rStart) return true;
         }
 
-        // (c) 키워드 기반
+        // (c) 시간구간 ("오전 10~12", "오후 14~17", "저녁 17~20", "점심 12~14", "12~14", "14-17")
+        //     이전 정규식과 겹치지 않도록 HH:MM 패턴 없는 경우에만 시도
+        if (!rangeMinMatch) {
+          const rangeMatch = p.match(/(\d{1,2})\s*[~\-]\s*(\d{1,2})/);
+          if (rangeMatch) {
+            const start = parseInt(rangeMatch[1], 10);
+            const end   = parseInt(rangeMatch[2], 10);
+            if (cellStartHour >= start && cellStartHour < end) return true;
+          }
+        }
+
+        // (d) 키워드 기반
         if (p.includes("오전") && cellStartHour < 12) return true;
         if (p.includes("점심") && cellStartHour >= 12 && cellStartHour < 14) return true;
         if (p.includes("오후") && cellStartHour >= 12 && cellStartHour < 17) return true;
@@ -140,6 +155,12 @@ export default function ScheduleMatchingPage() {
     if (wishTimes.length === 0 && dayMatched) return true;
 
     return false;
+  }
+
+  // ✅ v3.13.8: HH:MM → 분 변환 헬퍼
+  function parseTimeToMinutes(hhmm: string): number {
+    const [h, m] = hhmm.split(":").map(x => parseInt(x, 10));
+    return (h || 0) * 60 + (m || 0);
   }
 
   // 해당 셀에 매칭되는 대기자 리스트 (우선순위 순)
