@@ -81,13 +81,19 @@ export default function ScheduleMatchingPage() {
     return matrix.find(c => c.day_of_week === day && c.time_slot === time);
   }
 
-  // 대기자 = 상태가 'waiting' or 'new' 인 회원
+  // ✅ v3.13.9: 대기자 = 상태가 'waiting' or 'new' 인 회원 (폼 접수순 = created_at 오름차순 정렬)
+  //   priority 필드는 이제 사용하지 않고, 셀별로 로컬 순위를 계산
   const waiters: Waiter[] = useMemo(() => {
     return members
       .filter(m => m.status === "waiting" || m.status === "new")
-      .map((m: any, idx) => ({ ...m, priority: idx + 1, created_at: m.created_at || "" }))
-      .sort((a, b) => (a.created_at > b.created_at ? 1 : -1))
-      .map((m, idx) => ({ ...m, priority: idx + 1 }));
+      .map((m: any) => ({ ...m, priority: 0, created_at: m.created_at || "" }))
+      .sort((a, b) => {
+        // created_at 오름차순 (오래된 신청이 1순위)
+        if (!a.created_at && !b.created_at) return 0;
+        if (!a.created_at) return 1;
+        if (!b.created_at) return -1;
+        return a.created_at.localeCompare(b.created_at);
+      });
   }, [members]);
 
   // 대기자의 희망 요일/시간 매칭 판단 (v3.13.2 개선: 시간구간 + 세미콜론 구분자 지원)
@@ -163,9 +169,13 @@ export default function ScheduleMatchingPage() {
     return (h || 0) * 60 + (m || 0);
   }
 
-  // 해당 셀에 매칭되는 대기자 리스트 (우선순위 순)
+  // ✅ v3.13.9: 해당 셀에 매칭되는 대기자 리스트 (로컬 순위 재계산)
+  //   waiters 배열은 이미 created_at 오름차순 정렬된 상태
+  //   셀별로 필터링 후 idx+1 로 순위를 다시 발행 → 1, 2, 3...
   function getMatchedWaiters(day: number, time: string): Waiter[] {
-    return waiters.filter(w => matchesWish(w, day, time));
+    return waiters
+      .filter(w => matchesWish(w, day, time))
+      .map((w, idx) => ({ ...w, priority: idx + 1 }));
   }
 
   // 셀 저장
