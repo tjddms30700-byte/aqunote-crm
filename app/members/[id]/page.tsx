@@ -796,27 +796,55 @@ export default function MemberDetail() {
                     type="button"
                     onClick={async () => {
                       const mode = confirm(
-                        "상담폼 데이터로 상세 정보를 자동 채움니다.\n\n✅ 확인: 비어있는 칸만 채우기 (기존 값 보존)\n❌ 취소: 작업 중단"
+                        "상담폼 데이터로 상세 정보 + 희망 시간대를 자동 채움니다.\n\n✅ 확인: 비어있는 칸만 채우기 (기존 값 보존)\n❌ 취소: 작업 중단"
                       );
                       if (!mode) return;
                       try {
-                        const { mapConsultFormToMemberInfo, mergeMappedInfo } = await import("@/lib/consultFormMapper");
-                        const mapped = mapConsultFormToMemberInfo(member.extra.consult_form, member.member_type);
+                        const { mapConsultFormToMemberInfo, mergeMappedInfo, extractWishFieldsForMember } = await import("@/lib/consultFormMapper");
+                        const consultForm = member.extra.consult_form;
+                        const mapped = mapConsultFormToMemberInfo(consultForm, member.member_type);
                         const merged = mergeMappedInfo(extInfo, mapped, "fill_empty");
                         setExtInfo(merged);
-                        // 진단명도 extra에 보완 (기존이 비어있을 때만)
-                        if (mapped.diagnosis && !member?.extra?.diagnosis) {
-                          const newExtra = { ...(member.extra || {}), diagnosis: mapped.diagnosis };
-                          await supabase.from("members").update({ extra: newExtra }).eq("id", member.id);
-                          setMember({ ...member, extra: newExtra });
+
+                        // ✅ v3.13.11: 희망 요일/시간대 자동 파싱 + 즉시 저장
+                        const parsedWish = extractWishFieldsForMember(consultForm);
+                        const wishPatch: any = {};
+                        // 기존 값이 비어있을 때만 채우기 (수정한 값 보존)
+                        if (parsedWish.wish_days && (!member.wish_days || member.wish_days.length === 0)) {
+                          wishPatch.wish_days = parsedWish.wish_days;
                         }
-                        alert("✅ 상담폼 데이터가 상세 정보 칸에 채워졌습니다.\n검토 후 [상세 정보 저장] 버튼을 눌러 저장해주세요.");
+                        if (parsedWish.wish_time_slots && (!member.wish_time_slots || member.wish_time_slots.length === 0)) {
+                          wishPatch.wish_time_slots = parsedWish.wish_time_slots;
+                        }
+
+                        // 진단명도 extra에 보완 (기존이 비어있을 때만)
+                        let newExtra = member.extra || {};
+                        let extraChanged = false;
+                        if (mapped.diagnosis && !member?.extra?.diagnosis) {
+                          newExtra = { ...newExtra, diagnosis: mapped.diagnosis };
+                          extraChanged = true;
+                        }
+
+                        // 통합 저장 (wish + extra)
+                        const updatePayload: any = { ...wishPatch };
+                        if (extraChanged) updatePayload.extra = newExtra;
+                        if (Object.keys(updatePayload).length > 0) {
+                          await supabase.from("members").update(updatePayload).eq("id", member.id);
+                          setMember({ ...member, ...updatePayload });
+                        }
+
+                        const summary: string[] = [];
+                        summary.push("상세 정보가 매핑되었습니다");
+                        if (wishPatch.wish_days) summary.push(`희망 요일 ${wishPatch.wish_days.length}개 자동 저장 (${wishPatch.wish_days.join(", ")})`);
+                        if (wishPatch.wish_time_slots) summary.push(`희망 시간 ${wishPatch.wish_time_slots.length}개 자동 저장`);
+                        summary.push("검토 후 [상세 정보 저장] 버튼으로 마무리해주세요.");
+                        alert("✅ " + summary.join("\n• "));
                       } catch (e: any) {
                         alert("자동 채우기 실패: " + (e?.message || e));
                       }
                     }}
                     className="text-xs px-3 py-1.5 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-500 text-white font-semibold hover:opacity-90 shadow-sm flex items-center gap-1"
-                    title="상담폼(네이버폼/구글폼)에서 수집한 데이터로 자동 채움">
+                    title="상담폼(네이버폼/구글폼)에서 수집한 데이터로 자동 채움 + 희망시간대 생성">
                     🔄 상담폼에서 자동 채우기
                   </button>
                 )}

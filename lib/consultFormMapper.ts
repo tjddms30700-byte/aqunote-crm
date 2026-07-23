@@ -231,6 +231,85 @@ export function mergeMappedInfo(
   return result;
 }
 
+// ✅ v3.13.11: 상담폼 → wish_days/wish_time_slots 자동 파싱
+// 해당 함수는 다양한 폼택(구글폼, 네이버폼, 자체폼)에서 수집된
+// 희망 요일/시간을 members 테이블의 wish_days/wish_time_slots 배열로 변환시켜
+// 대기자 시간표 매칭에 자동 반영되도록 함.
+
+const DAYS_KO = ["월", "화", "수", "목", "금", "토", "일"];
+
+/** 희망 요일 파싱 - "월;목", "목요일", "월・목", "월/목" 모두 지원 */
+export function parseWishDaysFromForm(form: ConsultFormRaw | null | undefined): string[] {
+  if (!form) return [];
+  const raw: any[] = [];
+  // 수집되는 모든 후보 필드
+  for (const k of ["wish_days", "wish_day", "available_days", "prefer_days", "희망요일"]) {
+    if (form[k]) raw.push(form[k]);
+  }
+  // wish_time_slots 내부에 요일명이 들어있는 경우도 수집
+  if (form.wish_time_slots) raw.push(form.wish_time_slots);
+  if (form.saturday_option) raw.push(form.saturday_option);
+
+  const collected = new Set<string>();
+  const walk = (v: any) => {
+    if (v === null || v === undefined) return;
+    if (Array.isArray(v)) { v.forEach(walk); return; }
+    const s = String(v);
+    // 구분자로 분리
+    const parts = s.split(/[;,|/\s・]+/).map(x => x.trim().replace("요일", "")).filter(Boolean);
+    for (const p of parts) {
+      for (const d of DAYS_KO) {
+        if (p.includes(d)) { collected.add(d); break; }
+      }
+    }
+  };
+  raw.forEach(walk);
+
+  // 월화수목금토일 순서로 정렬해서 반환
+  return DAYS_KO.filter(d => collected.has(d));
+}
+
+/** 희망 시간대 파싱 - 문자열/배열/파이프 다양한 형태 지원 */
+export function parseWishTimeSlotsFromForm(form: ConsultFormRaw | null | undefined): string[] {
+  if (!form) return [];
+  const candidates: any[] = [];
+  for (const k of ["wish_time_slots", "wish_times", "wish_time", "prefer_times", "available_times", "희망시간"]) {
+    if (form[k]) candidates.push(form[k]);
+  }
+  if (form.saturday_option) candidates.push(form.saturday_option);
+
+  const collected = new Set<string>();
+  const walk = (v: any) => {
+    if (v === null || v === undefined) return;
+    if (Array.isArray(v)) { v.forEach(walk); return; }
+    const s = String(v).trim();
+    if (!s) return;
+    // 파이프/세미콜론/쉬프/콤마로 분리
+    const parts = s.split(/[|;,]/).map(x => x.trim()).filter(Boolean);
+    for (const p of parts) {
+      // 상담폼 샘플: "오전 10~12", "오후 14~17", "저녁 17~20", "점심 12~14", "밤 20~", "12~14", "14-17"
+      //             "월요일 15:50", "15:50", "13:30~14:40"
+      collected.add(p);
+    }
+  };
+  candidates.forEach(walk);
+
+  return Array.from(collected);
+}
+
+/** 파싱된 값이 비어있으면 null, 값이 있으면 배열 반환 (Supabase update payload용) */
+export function extractWishFieldsForMember(form: ConsultFormRaw | null | undefined): {
+  wish_days: string[] | null;
+  wish_time_slots: string[] | null;
+} {
+  const days  = parseWishDaysFromForm(form);
+  const times = parseWishTimeSlotsFromForm(form);
+  return {
+    wish_days: days.length > 0 ? days : null,
+    wish_time_slots: times.length > 0 ? times : null,
+  };
+}
+
 /**
  * 상담폼에서 채워질 수 있는 필드가 하나라도 있는지 확인
  */

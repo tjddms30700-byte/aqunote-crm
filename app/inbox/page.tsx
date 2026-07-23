@@ -7,6 +7,7 @@ import {
   Inbox, RefreshCw, UserPlus, Phone, Calendar, Check, X,
   ExternalLink, AlertCircle, Users, Trash2
 } from "lucide-react";
+import { extractWishFieldsForMember } from "@/lib/consultFormMapper";
 
 type InboxLead = {
   id: string;
@@ -86,6 +87,16 @@ export default function InboxPage() {
       activeBranchId = typeof window !== "undefined" ? window.localStorage.getItem("aqu_active_branch_id") : null;
     } catch {}
 
+    // ✅ v3.13.11: raw_payload와 lead.wish_* 모두 둘러보면서 희망 요일/시간 자동 파싱
+    //   상담폼의 다양한 포맷("오후 14~17", "월;목", "13:30~14:40" 등)을 통일 시키보기 위해
+    //   raw_payload + lead 기존 값 + saturday_option 까지 종합해 추출
+    const wishSource: any = {
+      ...(raw || {}),
+      wish_days: raw?.wish_days ?? lead.wish_days,
+      wish_time_slots: raw?.wish_time_slots ?? lead.wish_time_slots,
+    };
+    const parsedWish = extractWishFieldsForMember(wishSource);
+
     // 기본 필드
     const payload: any = {
       org_id: orgId,
@@ -94,8 +105,9 @@ export default function InboxPage() {
       member_type: lead.member_type || "adult",
       status: "new",
       source: lead.source || "웹신청",
-      wish_days: lead.wish_days,
-      wish_time_slots: lead.wish_time_slots,
+      // 파싱된 값이 있으면 사용, 없으면 lead 원본 fallback
+      wish_days: parsedWish.wish_days ?? lead.wish_days ?? null,
+      wish_time_slots: parsedWish.wish_time_slots ?? lead.wish_time_slots ?? null,
       wish_start_date: lead.wish_start_date,
     };
 
