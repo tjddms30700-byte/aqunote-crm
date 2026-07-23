@@ -865,26 +865,38 @@ function DedupeModal({ members, onClose, onDone }: { members: any[]; onClose: ()
   async function executeDelete() {
     const ids = Object.entries(checked).filter(([, v]) => v).map(([id]) => id);
     if (ids.length === 0) { alert("삭제할 회원을 선택하세요"); return; }
-    if (!confirm(`⚠️ 선택된 ${ids.length}명의 회원을 삭제하시겠습니까?\n\n• soft-delete로 처리됩니다 (deleted_at 표시)\n• 관련 결제/출석 기록은 유지됩니다\n• 되돌리려면 Supabase에서 직접 복구 필요`)) return;
+    if (!confirm(`⚠️ 선택된 ${ids.length}명의 회원을 완전 삭제하시겠습니까?\n\n• 회원 기본정보 영구 삭제\n• 시간표·출결·결제·회원권 데이터 모두 삭제\n• 고정시간표 배정 자동 복구(OPEN)\n• 상담차트·IEP·행동기록 삭제\n• 복구 불가`)) return;
+    if (!confirm(`마지막 확인: ${ids.length}명 완전 삭제 진행?`)) return;
 
     setDeleting(true);
-    // 500명 이상이면 배치로 나눠서 처리
     const BATCH = 100;
     let done = 0;
     let errCount = 0;
+
     for (let i = 0; i < ids.length; i += BATCH) {
       const batch = ids.slice(i, i + BATCH);
-      const { error } = await supabase.from("members")
-        .update({ deleted_at: new Date().toISOString() })
-        .in("id", batch);
+
+      // ✅ v3.13.7: 연관 데이터 전체 hard delete
+      await supabase.from("schedule_slots").delete().in("member_id", batch);
+      await supabase.from("slot_matrix").update({ status: "open", fixed_name: null, member_id: null }).in("member_id", batch);
+      await supabase.from("attendance").delete().in("member_id", batch);
+      await supabase.from("payments").delete().in("member_id", batch);
+      await supabase.from("memberships").delete().in("member_id", batch);
+      // 선택 테이블들 (없을 수 있으니 에러 무시)
+      for (const tbl of ["consultation_charts", "iep_goals", "behavior_records", "documents", "leads_inbox"]) {
+        await supabase.from(tbl).delete().in("member_id", batch);
+      }
+
+      const { error } = await supabase.from("members").delete().in("id", batch);
       if (error) { errCount++; console.error(error); }
       else done += batch.length;
     }
+
     setDeleting(false);
     if (errCount > 0) {
-      alert(`⚠️ 부분 성공: ${done}명 삭제됨, ${errCount}배치 실패\n\n실패 원인이 UI에 표시되지 않으면 브라우저 콘솔에서 확인하세요.`);
+      alert(`⚠️ 부분 성공: ${done}명 삭제됨, ${errCount}배치 실패\n\n실패 원인은 브라우저 콘솔에서 확인하세요.`);
     } else {
-      alert(`✅ ${done}명이 삭제되었습니다`);
+      alert(`✅ ${done}명이 완전 삭제되었습니다 (모든 연관 데이터 동시 삭제)`);
     }
     onDone();
   }

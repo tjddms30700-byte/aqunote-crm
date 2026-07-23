@@ -415,14 +415,57 @@ export default function MemberDetail() {
   }
 
   async function deleteMember() {
-    if (!confirm(`정말 '${member.name}'님을 삭제하시겠습니까?\n(복구 가능한 soft delete입니다)`)) return;
-    const { error } = await supabase.from('members').update({ deleted_at: new Date().toISOString() }).eq('id', member.id);
-    if (!error) {
-      alert('회원이 삭제되었습니다.');
-      router.push('/members');
-    } else {
-      alert('삭제 실패: ' + error.message);
+    if (!confirm(`⚠️ '${member.name}'님을 완전 삭제하시겠습니까?\n\n다음 데이터가 영구 삭제됩니다:\n· 회원 기본/상세정보\n· 시간표 예약/수업 기록\n· 출결 기록\n· 회원권/결제 내역\n· 상담차트/IEP/행동기록\n· 고정시간표 배정\n\n복구할 수 없습니다. 계속하시겠습니까?`)) return;
+    if (!confirm(`마지막 확인: '${member.name}'님 완전 삭제 진행?`)) return;
+
+    const memberId = member.id;
+    const errors: string[] = [];
+
+    // ✅ v3.13.7: 연관 데이터 전체 하드 삭제 (삭제된 회원이 다른 페이지에 남지 않도록)
+    // 1) 시간표 예약/수업 (member_id 참조)
+    const r1 = await supabase.from("schedule_slots").delete().eq("member_id", memberId);
+    if (r1.error) errors.push("시간표: " + r1.error.message);
+
+    // 2) 고정시간표 배정 (slot_matrix.member_id 참조 → OPEN으로 복원)
+    const r2 = await supabase.from("slot_matrix").update({
+      status: "open", fixed_name: null, member_id: null,
+    }).eq("member_id", memberId);
+    if (r2.error && r2.error.code !== "42703") errors.push("고정시간표: " + r2.error.message);
+
+    // 3) 출결 기록
+    const r3 = await supabase.from("attendance").delete().eq("member_id", memberId);
+    if (r3.error) errors.push("출결: " + r3.error.message);
+
+    // 4) 결제 내역
+    const r4 = await supabase.from("payments").delete().eq("member_id", memberId);
+    if (r4.error) errors.push("결제: " + r4.error.message);
+
+    // 5) 회원권
+    const r5 = await supabase.from("memberships").delete().eq("member_id", memberId);
+    if (r5.error) errors.push("회원권: " + r5.error.message);
+
+    // 6) 상담차트 / IEP / 행동기록 / 문서 등 (있는 경우에만 시도)
+    for (const tbl of ["consultation_charts", "iep_goals", "behavior_records", "documents", "leads_inbox"]) {
+      const r = await supabase.from(tbl).delete().eq("member_id", memberId);
+      // 테이블 없음(42P01) 또는 컴럼 없음(42703)은 무시
+      if (r.error && !(["42P01", "42703"].includes(r.error.code || ""))) {
+        errors.push(tbl + ": " + r.error.message);
+      }
     }
+
+    // 7) 마지막으로 members 자체 완전 삭제
+    const rFinal = await supabase.from("members").delete().eq("id", memberId);
+    if (rFinal.error) {
+      alert("삭제 실패: " + rFinal.error.message + (errors.length > 0 ? "\n\n연관 데이터 삭제 에러:\n" + errors.join("\n") : ""));
+      return;
+    }
+
+    if (errors.length > 0) {
+      alert(`⚠️ '${member.name}'님은 삭제되었으나 일부 연관 데이터 삭제에 실패:\n${errors.join("\n")}`);
+    } else {
+      alert(`✅ '${member.name}'님이 완전 삭제되었습니다.\n(모든 연관 데이터 동시 삭제)`);
+    }
+    router.push('/members');
   }
 
   async function saveAssessment() {
