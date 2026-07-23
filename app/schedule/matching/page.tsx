@@ -81,11 +81,23 @@ export default function ScheduleMatchingPage() {
     return matrix.find(c => c.day_of_week === day && c.time_slot === time);
   }
 
-  // ✅ v3.13.9: 대기자 = 상태가 'waiting' or 'new' 인 회원 (폼 접수순 = created_at 오름차순 정렬)
-  //   priority 필드는 이제 사용하지 않고, 셀별로 로컬 순위를 계산
+  // ✅ v3.13.12: 대기자 = 상태가 'waiting' 인 회원 만 (정규등록/체험예정/대기종료/종결/보류/체험완료 제외)
+  //   + 고정 배정된 회원(slot_matrix.member_id 있음) 제외
+  //   priority 필드는 셀별로 로컬 순위를 계산하므로 여기서는 0
+  const fixedMemberIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const cell of matrix) {
+      if (cell.status === "fixed" && cell.member_id) s.add(cell.member_id);
+    }
+    return s;
+  }, [matrix]);
+
   const waiters: Waiter[] = useMemo(() => {
     return members
-      .filter(m => m.status === "waiting" || m.status === "new")
+      // 오직 status='waiting' 인 회원만 대기자로 인정
+      .filter(m => m.status === "waiting")
+      // 이미 어느 셀이든 고정 배정된 회원은 제외
+      .filter(m => !fixedMemberIds.has(m.id))
       .map((m: any) => ({ ...m, priority: 0, created_at: m.created_at || "" }))
       .sort((a, b) => {
         // created_at 오름차순 (오래된 신청이 1순위)
@@ -94,7 +106,7 @@ export default function ScheduleMatchingPage() {
         if (!b.created_at) return -1;
         return a.created_at.localeCompare(b.created_at);
       });
-  }, [members]);
+  }, [members, fixedMemberIds]);
 
   // 대기자의 희망 요일/시간 매칭 판단 (v3.13.2 개선: 시간구간 + 세미콜론 구분자 지원)
   function matchesWish(w: Waiter, day: number, time: string): boolean {
