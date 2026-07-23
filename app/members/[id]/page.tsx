@@ -81,7 +81,7 @@ export default function MemberDetail() {
   const id = params?.id as string;
   const [member, setMember] = useState<Member | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"info" | "chart" | "history" | "assessment" | "bodymap" | "sessions" | "documents">("info");
+  const [tab, setTab] = useState<"info" | "consult_form" | "chart" | "history" | "assessment" | "bodymap" | "sessions" | "documents">("info");
 
   // Documents state
   const [docs, setDocs] = useState<any[]>([]);
@@ -956,6 +956,10 @@ export default function MemberDetail() {
               </div>
             </div>
           </div>
+        )}
+
+        {tab === "consult_form" && (
+          <ConsultFormPanel member={member} />
         )}
 
         {tab === "chart" && (
