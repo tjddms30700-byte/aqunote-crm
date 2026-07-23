@@ -23,6 +23,7 @@ type Member = {
 };
 
 const STATUS_OPTIONS = [
+  { key: "new", label: "🆕 신규", bgColor: "bg-pink-100", textColor: "text-pink-700" },
   { key: "waiting", label: "⏳ 대기중", bgColor: "bg-yellow-100", textColor: "text-yellow-700" },
   { key: "trial_scheduled", label: "📅 체험예정", bgColor: "bg-blue-100", textColor: "text-blue-700" },
   { key: "trial_done", label: "✅ 체험완료", bgColor: "bg-purple-100", textColor: "text-purple-700" },
@@ -380,7 +381,7 @@ export default function MembersPage() {
                       className="w-4 h-4 accent-indigo-500 cursor-pointer" />
                   </th>
                   <th className="text-left px-4 py-3">이름</th>
-                  <th className="text-left px-4 py-3">구분</th>
+                  <th className="px-2 py-3 text-center w-14 whitespace-nowrap">구분</th>
                   <th className="text-left px-4 py-3 hidden md:table-cell">보호자</th>
                   <th className="text-left px-4 py-3 hidden md:table-cell">연락처</th>
                   <th className="text-left px-4 py-3 hidden lg:table-cell">진단명</th>

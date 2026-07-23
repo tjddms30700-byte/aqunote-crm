@@ -107,8 +107,14 @@ export function mapConsultFormToMemberInfo(
       ["악화 요인", form.worsening_factor],
     ]);
   } else {
-    // form1 통합
-    current_status = arrOrStr(form.current_status || form.main_symptom);
+    // form1 통합 : 현재 상태는 방문이유/상황설명 전용 (주증상과 중복 방지)
+    current_status = arrOrStr(
+      form.current_status ||
+      form.visit_reason ||
+      form.current_condition ||
+      form.chief_complaint ||
+      ""
+    );
   }
 
   // ⚠️ 주 증상
@@ -130,6 +136,7 @@ export function mapConsultFormToMemberInfo(
       ["악화 요인", form.worsening_factor],
     ]);
   } else {
+    // form1 통합 : 주 증상은 main_symptom 전용
     main_symptom = arrOrStr(form.main_symptom);
   }
 

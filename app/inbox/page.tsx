@@ -31,6 +31,7 @@ export default function InboxPage() {
   const [filter, setFilter] = useState<"pending" | "processed" | "archived" | "all">("pending");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [processing, setProcessing] = useState(false);
+  const [previewLead, setPreviewLead] = useState<InboxLead | null>(null);
 
   useEffect(() => { loadAll(); }, []);
 
@@ -91,7 +92,7 @@ export default function InboxPage() {
       name: lead.name,
       phone: lead.phone,
       member_type: lead.member_type || "adult",
-      status: "waiting",
+      status: "new",
       source: lead.source || "웹신청",
       wish_days: lead.wish_days,
       wish_time_slots: lead.wish_time_slots,
@@ -115,9 +116,13 @@ export default function InboxPage() {
     if (raw.treatment_history) payload.treatment_history = raw.treatment_history;
     if (raw.expected_change) payload.expected_change = raw.expected_change;
 
-    // 현재 상태 = 주 증상 (동일 필드)
+    // 현재 상태 ≠ 주 증상 (서로 다른 필드)
+    // 현재 상태 = 방문 이유 / 상황 설명
     if (raw.current_status) payload.current_status = raw.current_status;
-    else if (raw.main_symptom) payload.current_status = raw.main_symptom;
+    else if (raw.visit_reason) payload.current_status = raw.visit_reason;
+    else if (raw.current_condition) payload.current_status = raw.current_condition;
+    else if (raw.chief_complaint) payload.current_status = raw.chief_complaint;
+    // main_symptom은 주 증상 필드에만 들어감 (중복 쓰지 않음)
 
     // 특이사항
     const specialParts: string[] = [];
@@ -342,44 +347,32 @@ export default function InboxPage() {
         </div>
       </div>
 
-      {/* 공개 신청 URL 안내 카드 (NEW!) */}
-      <div className="max-w-7xl mx-auto mb-6 bg-gradient-to-r from-purple-500 via-pink-500 to-blue-500 rounded-2xl p-5 text-white shadow-lg">
-        <div className="flex items-start justify-between flex-wrap gap-4">
-          <div>
-            <h2 className="text-lg font-bold mb-1">🎉 자체 신청폼 URL 생성됨! (구글폼 완전 대체)</h2>
-            <p className="text-xs opacity-90">이 URL을 부모님/회원들께 보내주세요. 응답이 즉시 이 페이지에 자동 등장합니다.</p>
+      {/* 신청폼 URL 바로가기 (심플) */}
+      <div className="max-w-7xl mx-auto mb-5 bg-white border border-aqu-100 rounded-xl p-4 shadow-sm">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="text-sm text-gray-700">
+            <span className="font-semibold text-aqu-700">📝 자체 신청폼</span>
+            <span className="text-gray-500 ml-2">아래 URL을 안내하면 응답이 자동으로 수집됩니다.</span>
           </div>
           <div className="flex gap-2 flex-wrap">
             <button
               onClick={() => {
                 navigator.clipboard.writeText(window.location.origin + "/apply-child");
-                alert("✅ 아동 신청 URL이 복사되었습니다!");
+                alert("✅ 아동 신청 URL이 복사되었습니다");
               }}
-              className="px-4 py-2 bg-white/20 backdrop-blur border border-white/30 rounded-lg text-sm hover:bg-white/30 flex items-center gap-2"
-            >
-              🧒 아동 신청 URL 복사
-            </button>
+              className="px-3 py-1.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100"
+            >🧒 아동 URL 복사</button>
             <button
               onClick={() => {
                 navigator.clipboard.writeText(window.location.origin + "/apply-adult");
-                alert("✅ 성인 신청 URL이 복사되었습니다!");
+                alert("✅ 성인 신청 URL이 복사되었습니다");
               }}
-              className="px-4 py-2 bg-white/20 backdrop-blur border border-white/30 rounded-lg text-sm hover:bg-white/30 flex items-center gap-2"
-            >
-              👤 성인 신청 URL 복사
-            </button>
+              className="px-3 py-1.5 text-xs bg-purple-50 text-purple-700 border border-purple-200 rounded-lg hover:bg-purple-100"
+            >👤 성인 URL 복사</button>
             <Link href="/apply-child" target="_blank"
-              className="px-4 py-2 bg-white text-purple-600 rounded-lg text-sm font-medium hover:bg-gray-50 flex items-center gap-2">
+              className="px-3 py-1.5 text-xs bg-gray-50 text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-100">
               👁️ 미리보기
             </Link>
-          </div>
-        </div>
-        <div className="mt-3 pt-3 border-t border-white/20 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-          <div className="bg-white/10 backdrop-blur rounded-lg p-2 font-mono">
-            🧒 <strong>아동:</strong> aqunote.vercel.app<span className="opacity-80">/apply-child</span>
-          </div>
-          <div className="bg-white/10 backdrop-blur rounded-lg p-2 font-mono">
-            👤 <strong>성인:</strong> aqunote.vercel.app<span className="opacity-80">/apply-adult</span>
           </div>
         </div>
       </div>
@@ -502,6 +495,11 @@ export default function InboxPage() {
                   <td className="p-3">
                     {!l.processed ? (
                       <div className="flex gap-1 justify-center">
+                        <button onClick={() => setPreviewLead(l)}
+                          className="px-2 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600 flex items-center gap-1"
+                          title="승격 전 상세 내용 미리보기">
+                          👁️ 미리보기
+                        </button>
                         <button onClick={() => promoteOne(l)} disabled={processing}
                           className="px-2 py-1 bg-emerald-500 text-white text-xs rounded hover:bg-emerald-600 flex items-center gap-1 disabled:opacity-50">
                           <Check className="w-3 h-3" /> 승격
@@ -512,7 +510,12 @@ export default function InboxPage() {
                         </button>
                       </div>
                     ) : (
-                      <span className="text-emerald-600 text-xs">✅ 완료</span>
+                      <div className="flex gap-1 justify-center items-center">
+                        <button onClick={() => setPreviewLead(l)}
+                          className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded hover:bg-gray-200 border border-gray-200"
+                          title="유입 원본 데이터 상세보기">👁️ 보기</button>
+                        <span className="text-emerald-600 text-xs">✅ 완료</span>
+                      </div>
                     )}
                   </td>
                 </tr>
@@ -522,20 +525,97 @@ export default function InboxPage() {
         )}
       </div>
 
-      {/* 하단 안내 */}
-      <div className="max-w-7xl mx-auto mt-6">
-        <div className="bg-purple-50 border border-purple-200 rounded-xl p-4">
-          <h3 className="font-medium text-purple-900 flex items-center gap-2 mb-2">
-            💡 사용 방법
-          </h3>
-          <ol className="text-xs text-purple-800 space-y-1 list-decimal list-inside">
-            <li>상담 신청 URL(<code className="bg-purple-100 px-1 rounded">/apply-child</code>, <code className="bg-purple-100 px-1 rounded">/apply-adult</code>)을 공유해 주세요</li>
-            <li>부모님/회원이 작성한 신청서가 이 페이지에 자동으로 쌓입니다</li>
-            <li>내용 확인 후 적절한 항목을 <strong>승격</strong> 버튼으로 정식 회원으로 이동시키세요</li>
-            <li>승격 시 진단명/증상/복용약 등 상세정보가 회원 카드의 각 필드로 자동 분리됩니다</li>
-          </ol>
+      {/* 하단 간략 가이드 */}
+      <div className="max-w-7xl mx-auto mt-5 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+        <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+          <div className="font-semibold text-orange-800 mb-1">⏳ 미처리</div>
+          <div className="text-orange-700">신청서 도착 후 아직 상담/승격하지 않은 건. 승격 버튼으로 정식 회원 등록.</div>
+        </div>
+        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+          <div className="font-semibold text-emerald-800 mb-1">✅ 승격완료</div>
+          <div className="text-emerald-700">정식 회원으로 이동된 유입. 상세정보는 회원 카드에서 확인 가능.</div>
+        </div>
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+          <div className="font-semibold text-gray-800 mb-1">🗄️ 아카이브</div>
+          <div className="text-gray-700">오래된 승격완료/중복/불필요 항목 보관함. 목록을 짧게 유지해 집중력 확보.</div>
         </div>
       </div>
+
+      {/* ✅ v3.13: 승격 전 미리보기 모달 */}
+      {previewLead && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setPreviewLead(null)}>
+          <div className="bg-white rounded-2xl max-w-3xl w-full max-h-[85vh] overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
+            {/* 헤더 */}
+            <div className="sticky top-0 bg-gradient-to-r from-blue-500 to-purple-500 text-white px-6 py-4 flex justify-between items-center">
+              <div>
+                <h2 className="text-lg font-bold">👁️ 신청서 상세보기</h2>
+                <p className="text-xs opacity-90">{previewLead.name} · {previewLead.member_type === "child" ? "🧒 아동" : "👤 성인"} · {new Date(previewLead.created_at).toLocaleString("ko-KR")}</p>
+              </div>
+              <button onClick={() => setPreviewLead(null)} className="text-white/80 hover:text-white text-2xl leading-none">✕</button>
+            </div>
+
+            {/* 기본 정보 */}
+            <div className="p-6 space-y-4">
+              <section className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h3 className="font-semibold text-blue-900 text-sm mb-2">📌 기본 정보</h3>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div><span className="text-gray-500">이름:</span> <strong>{previewLead.name}</strong></div>
+                  <div><span className="text-gray-500">연락처:</span> {previewLead.phone || "-"}</div>
+                  <div><span className="text-gray-500">유형:</span> {previewLead.member_type === "child" ? "🧒 아동" : "👤 성인"}</div>
+                  <div><span className="text-gray-500">유입경로:</span> {previewLead.source || "-"}</div>
+                  {previewLead.wish_start_date && <div><span className="text-gray-500">희망시작일:</span> {previewLead.wish_start_date}</div>}
+                  {previewLead.wish_days && previewLead.wish_days.length > 0 && <div><span className="text-gray-500">희망요일:</span> {previewLead.wish_days.join(", ")}</div>}
+                  {previewLead.wish_time_slots && previewLead.wish_time_slots.length > 0 && <div className="col-span-2"><span className="text-gray-500">희망시간:</span> {previewLead.wish_time_slots.join(", ")}</div>}
+                  {previewLead.memo && <div className="col-span-2"><span className="text-gray-500">메모:</span> {previewLead.memo}</div>}
+                </div>
+              </section>
+
+              {/* 신청폼 원본 데이터 */}
+              {previewLead.raw_payload && Object.keys(previewLead.raw_payload).length > 0 && (
+                <section className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                  <h3 className="font-semibold text-purple-900 text-sm mb-3">📝 신청폼 원본 내용</h3>
+                  <div className="space-y-2 text-sm">
+                    {Object.entries(previewLead.raw_payload).map(([k, v]) => {
+                      if (v === null || v === undefined || v === "") return null;
+                      const displayValue = Array.isArray(v) ? v.join(", ") : typeof v === "object" ? JSON.stringify(v) : String(v);
+                      const labelMap: Record<string, string> = {
+                        diagnosis: "진단명", main_symptom: "주 증상", current_status: "현재 상태", visit_reason: "방문 이유",
+                        medication: "복용 약", treatment_history: "치료 이력", expected_change: "기대하는 변화",
+                        special_notes: "특이사항", pain_area: "통증 부위", pain_scale: "통증 도", pain_onset: "통증 시작",
+                        surgery_history: "수술 이력", allergy: "알레르기", underlying_disease: "기저질환",
+                        height_weight: "키/체중", institution: "이용 기관", gender: "성별", birth: "생년월일",
+                        address: "주소", guardian_name: "보호자명", guardian_relation: "관계", email: "이메일",
+                        preferences: "좋아하는 것", dislikes: "싫어하는 것", walking: "보행", communication: "의사소통",
+                        wish_treatment: "희망 치료", aggravating_factor: "악화 요인", waterproof_diaper: "방수 기저귀",
+                      };
+                      const label = labelMap[k] || k;
+                      return (
+                        <div key={k} className="grid grid-cols-[140px_1fr] gap-2 border-b border-purple-100 pb-1.5">
+                          <div className="text-xs text-purple-700 font-medium">{label}</div>
+                          <div className="text-sm text-gray-800 whitespace-pre-wrap break-words">{displayValue}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+            </div>
+
+            {/* 하단 액션 */}
+            <div className="sticky bottom-0 bg-white border-t px-6 py-3 flex justify-end gap-2">
+              <button onClick={() => setPreviewLead(null)}
+                className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">닫기</button>
+              {!previewLead.processed && (
+                <button onClick={() => { const lead = previewLead; setPreviewLead(null); promoteOne(lead); }}
+                  disabled={processing}
+                  className="px-4 py-2 text-sm bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 disabled:opacity-50 flex items-center gap-1">
+                  <Check className="w-4 h-4" /> 이 내용으로 승격
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
