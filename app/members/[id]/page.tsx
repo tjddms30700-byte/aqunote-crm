@@ -824,10 +824,10 @@ export default function MemberDetail() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <EditableField label="🚑 현재 상태" fieldKey="current_status"
                   value={extInfo.current_status} onChange={(v) => setExtInfo({...extInfo, current_status: v})}
-                  placeholder="예: 걸음이 늘어났으나 계단 오르내림이 불안정함" />
+                  placeholder="예: 걸음이 늘어났으나 계단 오르내림이 불안정함" large fullWidth />
                 <EditableField label="⚠️ 주 증상" fieldKey="main_symptom"
                   value={extInfo.main_symptom} onChange={(v) => setExtInfo({...extInfo, main_symptom: v})}
-                  placeholder="예: 오른쪽 다리 근력 약화, 균형 잡기 어려움" />
+                  placeholder="예: 오른쪽 다리 근력 약화, 균형 잡기 어려움" large fullWidth />
                 <EditableField label="💊 복용 약" fieldKey="medication"
                   value={extInfo.medication} onChange={(v) => setExtInfo({...extInfo, medication: v})}
                   placeholder="예: 항경련제(케프라), 학복약물" />
@@ -1441,15 +1441,22 @@ export default function MemberDetail() {
   );
 }
 
-function EditableField({ label, fieldKey, value, onChange, placeholder, fullWidth }: any) {
+function EditableField({ label, fieldKey, value, onChange, placeholder, fullWidth, large }: any) {
+  // ✅ v3.13.10: large=true 이면 회원메모 급 크기 (rows 8, min-height 200px, resize 허용)
+  const rows = large ? 8 : (fullWidth ? 2 : 2);
+  const charCount = (value || "").length;
   return (
     <div className={fullWidth ? "md:col-span-2" : ""}>
-      <label className="block text-xs font-semibold text-gray-600 mb-1">{label}</label>
+      <div className="flex items-center justify-between mb-1">
+        <label className="block text-xs font-semibold text-gray-600">{label}</label>
+        {large && <span className="text-[10px] text-gray-400">{charCount}자</span>}
+      </div>
       <textarea value={value || ""}
         onChange={e => onChange(e.target.value)}
-        rows={fullWidth ? 2 : 2}
+        rows={rows}
         placeholder={placeholder}
-        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none resize-none" />
+        style={large ? { minHeight: 200 } : {}}
+        className={`w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none ${large ? "resize-y leading-relaxed" : "resize-none"}`} />
     </div>
   );
 }
