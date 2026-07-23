@@ -5,6 +5,7 @@ import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import { supabase } from "@/lib/supabase";
+import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import {
   DollarSign, TrendingUp, Calendar, Home, Users,
   BarChart3, ArrowUpRight, ArrowDownRight, AlertTriangle, Clock
@@ -68,22 +69,48 @@ function RevenueDashboardPage() {
   const [loading, setLoading]   = useState(true);
   const [period, setPeriod]     = useState<"month" | "week">("month");
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      const [payRes, slotRes, memRes, mshipRes] = await Promise.all([
-        supabase.from("payments").select("*").order("created_at", { ascending: false }),
-        supabase.from("schedule_slots").select("*").eq("event_type", "revenue").neq("status", "cancelled"),
-        supabase.from("members").select("id, name, member_type").is("deleted_at", null),
-        supabase.from("memberships").select("*").neq("status", "cancelled").order("end_date", { ascending: true }),
-      ]);
-      setPayments(payRes.data || []);
-      setSlots(slotRes.data || []);
-      setMembers(memRes.data || []);
-      setMemberships(mshipRes.data || []);
-      setLoading(false);
-    })();
-  }, []);
+  async function loadAll() {
+    setLoading(true);
+    const branchId = getActiveBranchId();
+    // ✅ v3.12.4: 지점 필터 (branch_id 컬럼 미존재 시 폴백)
+    const safeQ = async (baseFn: () => any, filterFn: (q: any) => any) => {
+      if (!branchId) return await baseFn();
+      const r = await filterFn(baseFn());
+      if (r.error && (r.error.code === "42703" || r.error.message?.includes("branch_id"))) return await baseFn();
+      return r;
+    };
+    const [payRes, slotRes, memRes, mshipRes] = await Promise.all([
+      safeQ(
+        () => supabase.from("payments").select("*").order("created_at", { ascending: false }),
+        (q: any) => q.eq("branch_id", branchId).order("created_at", { ascending: false })
+      ),
+      safeQ(
+        () => supabase.from("schedule_slots").select("*").eq("event_type", "revenue").neq("status", "cancelled"),
+        (q: any) => q.eq("branch_id", branchId).eq("event_type", "revenue").neq("status", "cancelled")
+      ),
+      safeQ(
+        () => supabase.from("members").select("id, name, member_type, branch_id").is("deleted_at", null),
+        (q: any) => q.eq("branch_id", branchId).is("deleted_at", null)
+      ),
+      (async () => {
+        // memberships는 members의 branch를 따름
+        const r = await supabase.from("memberships").select("*, members(branch_id)").neq("status", "cancelled").order("end_date", { ascending: true });
+        if (branchId && r.data) {
+          r.data = r.data.filter((x: any) => !x.members?.branch_id || x.members.branch_id === branchId);
+        }
+        return r;
+      })(),
+    ]);
+    setPayments(payRes.data || []);
+    setSlots(slotRes.data || []);
+    setMembers(memRes.data || []);
+    setMemberships(mshipRes.data || []);
+    setLoading(false);
+  }
+
+  useEffect(() => { loadAll(); }, []);
+  // ✅ 지점 전환 시 자동 재로드
+  useBranchWatch(() => loadAll());
 
   // Combine payments + revenue slots into a unified revenue array
   // ✅ 취소된 결제(status='cancelled')는 제외, 부분 환불액 차감

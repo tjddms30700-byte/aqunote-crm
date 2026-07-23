@@ -411,9 +411,9 @@ export default function MembersPage() {
                         onClick={() => router.push(`/members/${m.id}`)}>
                         {m.name}
                       </td>
-                      <td className="px-4 py-3 cursor-pointer"
+                      <td className="px-2 py-3 cursor-pointer w-14"
                         onClick={() => router.push(`/members/${m.id}`)}>
-                        <span className={`px-2 py-0.5 rounded text-xs ${m.member_type === "child" ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"}`}>
+                        <span className={`inline-block px-2 py-0.5 rounded text-xs whitespace-nowrap font-semibold ${m.member_type === "child" ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"}`}>
                           {m.member_type === "child" ? "아동" : "성인"}
                         </span>
                       </td>

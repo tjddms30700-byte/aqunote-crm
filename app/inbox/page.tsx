@@ -74,10 +74,16 @@ export default function InboxPage() {
     }
   }
 
-  // raw_payload에서 members 테이블 실제 컬럼으로 매핑
+  // ✅ v3.12.4: raw_payload를 members 컬럼 + extra.consult_form으로 자동 매핑
   function buildMemberPayload(lead: InboxLead, orgId: string) {
     const raw = lead.raw_payload || {};
     const isChild = lead.member_type === "child";
+
+    // ✅ 현재 지점 ID (activeBranchId) 불러오기
+    let activeBranchId: string | null = null;
+    try {
+      activeBranchId = typeof window !== "undefined" ? window.localStorage.getItem("aqu_active_branch_id") : null;
+    } catch {}
 
     // 기본 필드
     const payload: any = {
@@ -92,8 +98,15 @@ export default function InboxPage() {
       wish_start_date: lead.wish_start_date,
     };
 
+    // ✅ 지점 자동 태깅
+    if (activeBranchId) payload.branch_id = activeBranchId;
+
     // 날짜 필드
     if (raw.birth) payload.birth = raw.birth;
+    if (raw.gender) payload.gender = raw.gender === "여" ? "female" : raw.gender === "남" ? "male" : raw.gender;
+    if (raw.address) payload.address = raw.address;
+    if (isChild && raw.guardian_name) payload.guardian_name = raw.guardian_name;
+    if (isChild && raw.guardian_relation) payload.guardian_relation = raw.guardian_relation;
 
     // 상세 의학 정보 (v2.8에서 추가된 컬럼에 직접 저장)
     if (raw.diagnosis) payload.diagnosis = raw.diagnosis;
@@ -113,12 +126,18 @@ export default function InboxPage() {
     if (raw.surgery_history) specialParts.push(`[수술이력]\n${raw.surgery_history}`);
     if (isChild) {
       if (raw.height_weight) specialParts.push(`[키/체중] ${raw.height_weight}`);
-      if (raw.guardian_name) specialParts.push(`[보호자] ${raw.guardian_name} (${raw.guardian_relation || "?"})`);
       if (raw.institution) specialParts.push(`[이용기관] ${raw.institution}`);
     }
-    if (raw.address) specialParts.push(`[주소] ${raw.address}`);
-    if (raw.gender) specialParts.push(`[성별] ${raw.gender}`);
     if (specialParts.length > 0) payload.special_notes = specialParts.join("\n");
+
+    // ✅ v3.12.4: raw_payload 전체를 extra.consult_form에 저장 (자동 매핑 연동용)
+    const consultForm: any = {
+      source: isChild ? "self_form_child" : "self_form_adult",
+      member_type: lead.member_type || "adult",
+      submitted_at: lead.created_at,
+      ...raw,  // 원본 필드 모두 먹짐 (자체폼 제출 데이터)
+    };
+    payload.extra = { consult_form: consultForm };
 
     // 메모는 간단한 요약만 (긴 원본 메모는 생략)
     payload.memo = `🌐 온라인 신청서 접수 (${new Date(lead.created_at).toLocaleDateString("ko-KR")})`;
