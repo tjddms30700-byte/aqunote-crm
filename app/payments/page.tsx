@@ -548,6 +548,7 @@ export default function PaymentsPage() {
                   <th className="p-2 md:p-3 text-left font-semibold text-aqu-800">회원</th>
                   <th className="p-2 md:p-3 text-left font-semibold text-aqu-800">회원권</th>
                   <th className="p-2 md:p-3 text-center font-semibold text-aqu-800">잔여</th>
+                  <th className="p-2 md:p-3 text-left font-semibold text-aqu-800 hidden md:table-cell">결제일</th>
                   <th className="p-2 md:p-3 text-left font-semibold text-aqu-800 hidden md:table-cell">기간</th>
                   <th className="p-2 md:p-3 text-right font-semibold text-aqu-800">금액</th>
                   <th className="p-2 md:p-3"></th>
@@ -591,6 +592,12 @@ export default function PaymentsPage() {
                             className="w-6 h-6 rounded bg-green-50 text-green-600 hover:bg-green-100 flex items-center justify-center font-bold"
                             title="회차 추가">+</button>
                         </div>
+                      </td>
+                      <td className="p-2 md:p-3 hidden md:table-cell text-gray-600 text-[11px] font-medium">
+                        {(() => {
+                          const pay = payments.find((p: any) => p.membership_id === m.id);
+                          return pay?.paid_at ? String(pay.paid_at).slice(0, 10) : (m.created_at ? String(m.created_at).slice(0, 10) : "-");
+                        })()}
                       </td>
                       <td className="p-2 md:p-3 hidden md:table-cell text-gray-500 text-[11px]">
                         {m.start_date} ~ {m.end_date}
@@ -759,8 +766,7 @@ export default function PaymentsPage() {
 
       {/* ═══ Modal ═══ */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3"
-          onClick={() => !saving && setShowModal(false)}>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3">
           <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-5 md:p-6 max-h-[95vh] overflow-y-auto"
             onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
@@ -1092,7 +1098,7 @@ function RefundModal({ membership, payments, onClose, onDone }: any) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3">
       <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         {/* 헤더 */}
         <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-orange-50 to-yellow-50 flex items-center justify-between sticky top-0 z-10">

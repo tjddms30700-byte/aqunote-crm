@@ -990,6 +990,7 @@ export default function SchedulePage() {
               date={selectedDate}
               slots={slotsByDate[selectedDate] || []}
               members={members}
+              staff={staff}
               staffName={staffName}
               onAdd={() => openNewModal(selectedDate)}
               onEdit={openEditModal}
@@ -1069,7 +1070,7 @@ export default function SchedulePage() {
 }
 
 /* ═════ 선택 날짜 상세 패널 (회원 이름 → 링크) ═════ */
-function SelectedDayPanel({ date, slots, members, staffName, onAdd, onEdit, onQuickStatus, onDelete }: any) {
+function SelectedDayPanel({ date, slots, members, staff, staffName, onAdd, onEdit, onQuickStatus, onDelete }: any) {
   const d = new Date(date);
   const dayLabel = `${d.getMonth()+1}월 ${d.getDate()}일 (${DAYS_KR[d.getDay()]})`;
   const memberMap = useMemo(() => {
@@ -1077,6 +1078,12 @@ function SelectedDayPanel({ date, slots, members, staffName, onAdd, onEdit, onQu
     members.forEach((mem: any) => m[mem.id] = mem);
     return m;
   }, [members]);
+  // ✅ v3.13.5: 강사별 칼러 매핑
+  const staffMap = useMemo(() => {
+    const m: Record<string, any> = {};
+    (staff || []).forEach((st: any) => { m[st.id] = st; });
+    return m;
+  }, [staff]);
 
   return (
     <div className="bg-white rounded-2xl shadow-md border border-aqu-100 p-3">
@@ -1097,8 +1104,16 @@ function SelectedDayPanel({ date, slots, members, staffName, onAdd, onEdit, onQu
           {slots.map((s: any) => {
             const meta = statusMeta(s.status || "scheduled");
             const mem = memberMap[s.member_id];
+            const staffP = staffMap[s.staff_id];
+            const staffColor = staffP?.color;
             return (
-              <div key={s.id} className={`border rounded-lg p-2 ${meta.color} border-opacity-50`}>
+              <div key={s.id}
+                style={staffColor ? {
+                  backgroundColor: staffColor + "22",
+                  borderLeftColor: staffColor,
+                  borderLeftWidth: 4,
+                } : {}}
+                className={`border rounded-lg p-2 ${staffColor ? "" : meta.color + " border-opacity-50"}`}>
                 <div className="flex items-center justify-between gap-1 mb-1">
                   <span className="font-mono text-xs font-bold">{s.time_slot?.slice(0,5)}</span>
                   <div className="flex items-center gap-1">

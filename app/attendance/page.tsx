@@ -154,41 +154,96 @@ export default function AttendancePage() {
     setChanged(new Set());
   }
 
-  /* 저장 - 변경된 항목만 upsert/insert/delete */
+  /* 저장 - 변경된 항목만 upsert/insert/delete + 회원권 자동차감 */
   async function saveAll() {
     if (changed.size === 0) { alert("변경된 내용이 없습니다"); return; }
     setSaving(true);
 
     const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
 
+    // 멤버십 로드 (자동차감용)
+    const memberIds = Array.from(changed);
+    const { data: allMs } = await supabase.from("memberships").select("*")
+      .in("member_id", memberIds)
+      .or("status.is.null,status.neq.cancelled");
+
     const errors: string[] = [];
-    for (const memberId of Array.from(changed)) {
+    let deductedCount = 0;
+    let restoredCount = 0;
+
+    for (const memberId of memberIds) {
       const draft = drafts[memberId];
       const existing = attendance.find((a: any) => a.member_id === memberId && a.attend_date === date);
       const slot = scheduleSlots.find(s => s.member_id === memberId);
 
+      // 해당 회원의 활성 회원권 (수업일 포함)
+      const activeMs = (allMs || [])
+        .filter((ms: any) => ms.member_id === memberId)
+        .filter((ms: any) => (!ms.start_date || ms.start_date <= date) && (!ms.end_date || ms.end_date >= date))
+        .sort((a: any, b: any) => (b.created_at || "").localeCompare(a.created_at || ""))[0];
+
+      const prevStatus = existing?.status || null;
+      const prevCounted = prevStatus === "present" || prevStatus === "sick";
+      const newCounted = draft === "present" || draft === "sick";
+      const nowIso = new Date().toISOString();
+
       if (!draft) {
-        // 해제 → 삭제
+        // 해제 → 삭제 + (이전이 차감되었다면) 회원권 복원
         if (existing) {
           const { error } = await supabase.from("attendance").delete().eq("id", existing.id);
           if (error) errors.push(memberId + ": " + error.message);
+          else if (prevCounted && existing.membership_id) {
+            const ms = (allMs || []).find((x: any) => x.id === existing.membership_id);
+            if (ms) {
+              await supabase.from("memberships").update({ used_sessions: Math.max(0, (ms.used_sessions || 0) - 1) }).eq("id", ms.id);
+              restoredCount++;
+            }
+          }
         }
       } else if (existing) {
         // 업데이트
-        const { error } = await supabase.from("attendance")
-          .update({ status: draft, slot_id: slot?.id || existing.slot_id })
-          .eq("id", existing.id);
+        const patch: any = {
+          status: draft,
+          slot_id: slot?.id || existing.slot_id,
+          saved_at: nowIso,
+        };
+        // 상태 전환에 따른 회원권 차감/복원
+        if (!prevCounted && newCounted && activeMs) {
+          await supabase.from("memberships").update({ used_sessions: (activeMs.used_sessions || 0) + 1 }).eq("id", activeMs.id);
+          patch.membership_id = activeMs.id;
+          patch.deducted_at = nowIso;
+          patch.deduction_mode = "auto";
+          deductedCount++;
+        } else if (prevCounted && !newCounted && existing.membership_id) {
+          const ms = (allMs || []).find((x: any) => x.id === existing.membership_id);
+          if (ms) {
+            await supabase.from("memberships").update({ used_sessions: Math.max(0, (ms.used_sessions || 0) - 1) }).eq("id", ms.id);
+            restoredCount++;
+          }
+          patch.deducted_at = null;
+          patch.deduction_mode = null;
+        }
+        const { error } = await supabase.from("attendance").update(patch).eq("id", existing.id);
         if (error) errors.push(memberId + ": " + error.message);
       } else {
         // 신규
-        const { error } = await supabase.from("attendance").insert({
+        const insertPayload: any = {
           org_id: orgId,
           member_id: memberId,
           attend_date: date,
           status: draft,
           slot_id: slot?.id || null,
           time_slot: slot?.time_slot || null,
-        });
+          saved_at: nowIso,
+        };
+        if (newCounted && activeMs) {
+          await supabase.from("memberships").update({ used_sessions: (activeMs.used_sessions || 0) + 1 }).eq("id", activeMs.id);
+          insertPayload.membership_id  = activeMs.id;
+          insertPayload.deducted_at    = nowIso;
+          insertPayload.deduction_mode = "auto";
+          deductedCount++;
+        }
+        const { error } = await supabase.from("attendance").insert(insertPayload);
         if (error) errors.push(memberId + ": " + error.message);
       }
 
@@ -204,12 +259,21 @@ export default function AttendancePage() {
       }
     }
 
+    // ✅ v3.13.5 버그 수정: 저장 증시 changed 플래그만 초기화 → draft 값은 유지시켜 UI 리셋 방지
+    setChanged(new Set());
     setSaving(false);
+
     if (errors.length > 0) {
       alert("일부 저장 실패:\n" + errors.join("\n"));
     } else {
-      alert(`✅ ${changed.size}건 저장 완료 (시간표에도 자동 반영)`);
+      const parts: string[] = [`✅ ${changed.size}건 저장 완료`];
+      if (deductedCount > 0) parts.push(`회원권 ${deductedCount}회 자동차감`);
+      if (restoredCount > 0) parts.push(`${restoredCount}회 복원`);
+      parts.push("(시간표에도 자동 반영)");
+      alert(parts.join(" · "));
     }
+    // 저장 성공 후 무조건 재로드 → 및 상태도 필터링 기준이 달라지지 않도록 loadAll은 유지하되
+    // drafts는 loadAll 내에서 유지되어야 함 (이미 저장되었으므로 initDrafts 재적용 = 저장한 값 그대로 복원)
     await loadAll();
   }
 
@@ -360,6 +424,7 @@ export default function AttendancePage() {
                 <th className="p-3 text-left font-semibold text-aqu-800">유형</th>
                 <th className="p-3 text-left font-semibold text-aqu-800">이 날 수업</th>
                 <th className="p-3 text-center font-semibold text-aqu-800" colSpan={3}>{date} 출결</th>
+                <th className="p-3 text-center font-semibold text-aqu-800">저장/차감</th>
                 <th className="p-3 text-center font-semibold text-aqu-800">30일 출석률</th>
               </tr>
             </thead>
@@ -398,6 +463,31 @@ export default function AttendancePage() {
                         </button>
                       </td>
                     ))}
+                    {/* ✅ v3.13.5: 저장일 / 차감일 / 수동·자동 배지 */}
+                    <td className="p-2 text-center text-[10px]">
+                      {(() => {
+                        const rec = attendance.find((a: any) => a.member_id === m.id && a.attend_date === date);
+                        if (!rec) return <span className="text-gray-300">-</span>;
+                        const savedAt  = rec.saved_at    ? String(rec.saved_at).slice(5, 16).replace("T", " ")  : (rec.created_at ? String(rec.created_at).slice(5, 16).replace("T", " ") : null);
+                        const deducted = rec.deducted_at ? String(rec.deducted_at).slice(5, 16).replace("T", " ") : null;
+                        const mode     = rec.deduction_mode || (rec.membership_id ? "auto" : null);
+                        return (
+                          <div className="flex flex-col items-center gap-0.5">
+                            {savedAt && (
+                              <div className="text-gray-600">💾 {savedAt}</div>
+                            )}
+                            {deducted && (
+                              <div className="text-orange-600 font-medium">🔻 {deducted}</div>
+                            )}
+                            {mode && (
+                              <span className={`px-1.5 py-0.5 rounded font-semibold ${mode === "auto" ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"}`}>
+                                {mode === "auto" ? "🤖 자동" : "✋ 수동"}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </td>
                     <td className="p-3 text-center">
                       <div className="inline-flex items-center gap-2">
                         <div className="w-16 bg-gray-100 rounded-full h-2 overflow-hidden">
