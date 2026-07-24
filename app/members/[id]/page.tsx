@@ -2111,6 +2111,55 @@ function ConsultationChartPanel({ memberId, member }: { memberId: string; member
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [f, setF] = useState<any>({});
+  // ✅ v3.15.3: 상담폼 자동채우기
+  const [autofilling, setAutofilling] = useState(false);
+
+  async function autoFillFromConsultForm(overwrite = false) {
+    setAutofilling(true);
+    try {
+      const { mapConsultFormToChart, mergeChartData, hasFillableData } = await import("@/lib/consultFormMapper");
+
+      // 1) member.consult_form 우선, 없으면 leads_inbox에서 조회
+      let formData: any = member?.consult_form;
+      if (!formData || Object.keys(formData).length === 0) {
+        const { data: lead } = await supabase
+          .from("leads_inbox")
+          .select("consult_form")
+          .eq("promoted_member_id", memberId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        formData = lead?.consult_form;
+      }
+      if (!formData || !hasFillableData(formData)) {
+        alert("⚠️ 상담폼 데이터가 없습니다.\n상담폼 탭이나 신규 유입(inbox)에서 데이터를 먼저 등록해주세요.");
+        return;
+      }
+
+      // 2) 매핑 및 병합
+      const mapped = mapConsultFormToChart(formData, member?.member_type === "child" ? "child" : "adult");
+      const { merged, filledCount, filledFields } = mergeChartData(f, mapped, !overwrite);
+
+      if (filledCount === 0) {
+        if (!overwrite) {
+          if (confirm("ℹ️ 이미 모든 필드에 데이터가 들어있습니다.\n모두 상담폼 값으로 덮어쓸까요? (기존 입력 내용 유지 불가)")) {
+            await autoFillFromConsultForm(true);
+          }
+          return;
+        } else {
+          alert("상담폼에서 채울 수 있는 데이터가 없습니다.");
+          return;
+        }
+      }
+
+      setF(merged);
+      alert(`✅ 상담폼에서 ${filledCount}개 필드 자동 채우기 완료\n\n• 채워진 필드: ${filledFields.slice(0, 8).join(", ")}${filledFields.length > 8 ? ` 외 ${filledFields.length - 8}개` : ""}\n\n확인 후 상단 "💾 저장" 버튼을 눌러주세요.`);
+    } catch (e: any) {
+      alert("자동 채우기 실패: " + (e?.message || e));
+    } finally {
+      setAutofilling(false);
+    }
+  }
 
   useEffect(() => { loadChart(); }, [memberId]);
 
@@ -2289,12 +2338,18 @@ function ConsultationChartPanel({ memberId, member }: { memberId: string; member
           <h3 className="text-lg font-bold text-purple-900">
             📝 상담차트 ({isChild ? "아동" : "성인"})
           </h3>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <select value={f.chart_type} onChange={e => setF({ ...f, chart_type: e.target.value })}
               className="px-3 py-1.5 border border-purple-200 rounded-lg text-sm bg-white">
               <option value="adult">👤 성인 차트</option>
               <option value="child">🧒 아동 차트</option>
             </select>
+            {/* ✅ v3.15.3: 상담폼에서 자동 채우기 */}
+            <button onClick={() => autoFillFromConsultForm(false)} disabled={autofilling}
+              className="px-3 py-1.5 bg-gradient-to-r from-yellow-400 to-amber-500 hover:from-yellow-500 hover:to-amber-600 text-white rounded-lg text-sm font-bold shadow-sm disabled:opacity-50 flex items-center gap-1"
+              title="상담폼(유입 데이터)에서 빈 필드를 자동으로 채웁니다">
+              {autofilling ? "생성 중..." : "✨ 상담폼 → 자동채우기"}
+            </button>
             <button onClick={printChart}
               className="px-4 py-1.5 bg-white border border-purple-300 text-purple-700 rounded-lg text-sm hover:bg-purple-50">
               🖨️ 프린트

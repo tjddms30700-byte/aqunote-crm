@@ -310,6 +310,215 @@ export function extractWishFieldsForMember(form: ConsultFormRaw | null | undefin
   };
 }
 
+/* ============================================================
+   v3.15.3 - 상담폼 → 상담차트(consultation_charts) 자동 매핑
+============================================================ */
+
+export type MappedChart = {
+  // 기본 정보
+  member_name?: string;
+  gender?: string;
+  birth_date?: string;
+  guardian_name?: string;
+  guardian_relation?: string;
+  phone?: string;
+  address?: string;
+  source?: string;
+  institution?: string;
+  current_therapy?: string;
+  wish_days?: string[];
+  wish_time_slots?: string[];
+  // 의학적
+  diagnosis?: string;
+  main_symptoms?: string;
+  special_behavior?: string;
+  physical_spec?: string;
+  surgery_history?: string;
+  medication?: string;
+  pain_status?: string;
+  attention_level?: string;
+  // Body Map
+  body_map_notes?: string;
+  // 감각/정서
+  water_reaction?: string;
+  emotion_status?: string;
+  // 니즈
+  avoid_situations?: string;
+  expected_change?: string;
+  water_expected_effect?: string;
+  recommended_frequency?: string;
+  // 결론
+  conclusion?: string;
+  memo?: string;
+};
+
+const pick = (form: ConsultFormRaw, ...keys: string[]): string | undefined => {
+  for (const k of keys) {
+    const v = form?.[k];
+    if (v !== null && v !== undefined && String(v).trim() !== "") {
+      if (Array.isArray(v)) return v.filter(Boolean).join(", ");
+      return String(v).trim();
+    }
+  }
+  return undefined;
+};
+
+const joinNonEmpty = (parts: (string | undefined)[], sep = "\n"): string | undefined => {
+  const filtered = parts.filter((p) => p && p.trim());
+  return filtered.length ? filtered.join(sep) : undefined;
+};
+
+/**
+ * 상담폼 → 상담차트 자동 매핑
+ * @param form leads_inbox.consult_form JSON
+ * @param memberType "child" | "adult"
+ */
+export function mapConsultFormToChart(
+  form: ConsultFormRaw | null | undefined,
+  memberType: "child" | "adult" = "adult"
+): MappedChart {
+  if (!form || typeof form !== "object") return {};
+
+  const isChild = memberType === "child";
+
+  // 예상 결론 자동 생성 (자주 쓰는 단서들)
+  const diagnosis = pick(form, "diagnosis", "disease", "condition");
+  const mainSymptoms = pick(form, "main_symptom", "symptoms", "chief_complaint");
+  const expectedChange = pick(form, "expected_change", "expected_goal", "goal");
+
+  // 주의도 자동 판정
+  let attentionLevel: string | undefined;
+  const cautionSrc = joinNonEmpty([
+    pick(form, "caution", "special_notes", "allergy"),
+    pick(form, "surgery_history", "medical_history")
+  ], " ");
+  if (cautionSrc) {
+    if (/쇼크|응급|수술|암|심각|생명|압사|발작/.test(cautionSrc)) attentionLevel = "고주의";
+    else if (/알레르기|천식|고혈압|당뇨|약복용|증상/.test(cautionSrc)) attentionLevel = "주의";
+  }
+
+  // 물 반응 키워드 감지
+  let waterReaction: string | undefined;
+  const waterExp = pick(form, "water_experience", "water_exp");
+  if (waterExp) {
+    if (/매우 좋|적극|즐거|자주/.test(waterExp)) waterReaction = "매우 긍정";
+    else if (/대체로|보통|좀/.test(waterExp)) waterReaction = "보통";
+    else if (/긴장|무서워|불안/.test(waterExp)) waterReaction = "긴장";
+    else if (/싫어|거부|공포|허종/.test(waterExp)) waterReaction = "거부";
+  }
+
+  // Body Map 메모
+  const bodyMapNotes = joinNonEmpty([
+    pick(form, "pain_area") && `⚠️ 통증 부위: ${pick(form, "pain_area")}`,
+    pick(form, "pain_scale") && `통증 강도: ${pick(form, "pain_scale")}`,
+    pick(form, "pain_start") && `시작 시기: ${pick(form, "pain_start")}`,
+    pick(form, "worsening_factor") && `악화 요인: ${pick(form, "worsening_factor")}`,
+    pick(form, "current_status") && `현재 상태: ${pick(form, "current_status")}`,
+  ]);
+
+  // 피해야 할 상황
+  const avoidSituations = joinNonEmpty([
+    pick(form, "dislikes") && `싫어하는 것: ${pick(form, "dislikes")}`,
+    pick(form, "avoid") && `피해야 할 상황: ${pick(form, "avoid")}`,
+    pick(form, "caution") && `주의사항: ${pick(form, "caution")}`,
+  ]);
+
+  // 종합 결론 자동 생성
+  const conclusionParts: string[] = [];
+  if (diagnosis) conclusionParts.push(`• 진단: ${diagnosis}`);
+  if (mainSymptoms) conclusionParts.push(`• 주증상: ${mainSymptoms}`);
+  if (expectedChange) conclusionParts.push(`• 기대 변화: ${expectedChange}`);
+  const wishTreatment = pick(form, "wish_treatment", "requests");
+  if (wishTreatment) conclusionParts.push(`• 희망 치료/요청: ${wishTreatment}`);
+  if (attentionLevel === "고주의") conclusionParts.push(`⚠️ 고주의 회원 - 수업 전 안전 확인 필수`);
+  const conclusion = conclusionParts.length ? conclusionParts.join("\n") : undefined;
+
+  // 메모 (기타 상담폼 정보)
+  const memo = joinNonEmpty([
+    pick(form, "likes") && `💙 좋아하는 것: ${pick(form, "likes")}`,
+    pick(form, "siblings") && `가족/형제: ${pick(form, "siblings")}`,
+    pick(form, "visit_reason") && `내원 사유: ${pick(form, "visit_reason")}`,
+  ]);
+
+  const { wish_days, wish_time_slots } = extractWishFieldsForMember(form);
+
+  const chart: MappedChart = {
+    // 기본
+    member_name: pick(form, "name", "member_name", "child_name"),
+    gender: pick(form, "gender", "sex"),
+    birth_date: pick(form, "birth_date", "birthdate", "birth"),
+    guardian_name: pick(form, "guardian_name", "parent_name"),
+    guardian_relation: pick(form, "guardian_relation", "parent_relation"),
+    phone: pick(form, "phone", "guardian_phone", "contact"),
+    address: pick(form, "address", "addr"),
+    source: pick(form, "source", "inflow", "channel"),
+    institution: pick(form, "current_institution", "school", "institution"),
+    current_therapy: pick(form, "current_therapy", "ongoing_treatment"),
+    wish_days: wish_days || undefined,
+    wish_time_slots: wish_time_slots || undefined,
+    // 의학적
+    diagnosis,
+    main_symptoms: mainSymptoms,
+    physical_spec: isChild ? pick(form, "height_weight", "physical_spec") : undefined,
+    special_behavior: isChild ? pick(form, "special_notes", "caution", "dislikes") : undefined,
+    surgery_history: !isChild ? pick(form, "surgery_history", "medical_history") : undefined,
+    medication: !isChild ? pick(form, "medication") : undefined,
+    pain_status: !isChild ? joinNonEmpty([
+      pick(form, "pain_area") && `부위: ${pick(form, "pain_area")}`,
+      pick(form, "pain_scale") && `강도: ${pick(form, "pain_scale")}`,
+    ], " / ") : undefined,
+    attention_level: attentionLevel,
+    // Body Map
+    body_map_notes: bodyMapNotes,
+    // 감각
+    water_reaction: waterReaction,
+    // 니즈
+    avoid_situations: avoidSituations,
+    expected_change: expectedChange,
+    water_expected_effect: pick(form, "water_expected_effect", "expected_effect"),
+    // 결론
+    conclusion,
+    memo,
+  };
+
+  // undefined 값 제거
+  Object.keys(chart).forEach((k) => {
+    if ((chart as any)[k] === undefined) delete (chart as any)[k];
+  });
+
+  return chart;
+}
+
+/**
+ * 기존 차트와 매핑된 차트 병합 (기존 값 우선)
+ * emptyOnly=true 면 기존이 빈 값일 때만 덮어씨
+ */
+export function mergeChartData(
+  existing: Record<string, any>,
+  mapped: MappedChart,
+  emptyOnly = true
+): { merged: Record<string, any>; filledCount: number; filledFields: string[] } {
+  const merged = { ...existing };
+  const filledFields: string[] = [];
+
+  for (const [k, v] of Object.entries(mapped)) {
+    if (v === undefined || v === null || v === "") continue;
+    const existingVal = merged[k];
+    const isEmpty =
+      existingVal === null ||
+      existingVal === undefined ||
+      existingVal === "" ||
+      (Array.isArray(existingVal) && existingVal.length === 0);
+
+    if (!emptyOnly || isEmpty) {
+      merged[k] = v;
+      filledFields.push(k);
+    }
+  }
+
+  return { merged, filledCount: filledFields.length, filledFields };
+}
+
 /**
  * 상담폼에서 채워질 수 있는 필드가 하나라도 있는지 확인
  */
