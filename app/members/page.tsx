@@ -383,6 +383,7 @@ export default function MembersPage() {
                   <th className="text-left px-4 py-3">이름</th>
                   <th className="px-2 py-3 text-center w-14 whitespace-nowrap">구분</th>
                   <th className="text-left px-4 py-3 hidden md:table-cell">보호자</th>
+                  <th className="text-left px-4 py-3 hidden md:table-cell">진단명</th>
                   <th className="text-left px-4 py-3 hidden md:table-cell whitespace-nowrap">연락처</th>
                   <th className="text-left px-4 py-3 hidden lg:table-cell">메모</th>
                   <th className="text-left px-4 py-3">상태 (클릭변경)</th>
@@ -421,6 +422,11 @@ export default function MembersPage() {
                       <td className="px-4 py-3 text-gray-600 hidden md:table-cell cursor-pointer"
                         onClick={() => router.push(`/members/${m.id}`)}>
                         {m.guardian_name || "-"}
+                      </td>
+                      <td className="px-4 py-3 text-gray-600 text-xs hidden md:table-cell cursor-pointer max-w-[180px]"
+                        onClick={() => router.push(`/members/${m.id}`)}
+                        title={m.extra?.diagnosis || ""}>
+                        <div className="truncate">{m.extra?.diagnosis || "-"}</div>
                       </td>
                       <td className="px-4 py-3 text-gray-600 hidden md:table-cell cursor-pointer whitespace-nowrap font-mono text-[13px]"
                         onClick={() => router.push(`/members/${m.id}`)}>
