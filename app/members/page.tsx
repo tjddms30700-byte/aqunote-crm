@@ -383,8 +383,8 @@ export default function MembersPage() {
                   <th className="text-left px-4 py-3">이름</th>
                   <th className="px-2 py-3 text-center w-14 whitespace-nowrap">구분</th>
                   <th className="text-left px-4 py-3 hidden md:table-cell">보호자</th>
-                  <th className="text-left px-4 py-3 hidden md:table-cell">연락처</th>
-                  <th className="text-left px-4 py-3 hidden lg:table-cell">진단명</th>
+                  <th className="text-left px-4 py-3 hidden md:table-cell whitespace-nowrap">연락처</th>
+                  <th className="text-left px-4 py-3 hidden lg:table-cell">메모</th>
                   <th className="text-left px-4 py-3">상태 (클릭변경)</th>
                   <th className="text-center px-2 py-3">메모</th>
                   <th className="w-8"></th>
@@ -422,13 +422,16 @@ export default function MembersPage() {
                         onClick={() => router.push(`/members/${m.id}`)}>
                         {m.guardian_name || "-"}
                       </td>
-                      <td className="px-4 py-3 text-gray-600 hidden md:table-cell cursor-pointer"
+                      <td className="px-4 py-3 text-gray-600 hidden md:table-cell cursor-pointer whitespace-nowrap font-mono text-[13px]"
                         onClick={() => router.push(`/members/${m.id}`)}>
                         {m.phone || "-"}
                       </td>
-                      <td className="px-4 py-3 text-gray-500 text-xs hidden lg:table-cell cursor-pointer"
-                        onClick={() => router.push(`/members/${m.id}`)}>
-                        {m.extra?.diagnosis || "-"}
+                      <td className="px-4 py-3 text-gray-500 text-xs hidden lg:table-cell cursor-pointer max-w-[240px]"
+                        onClick={() => router.push(`/members/${m.id}`)}
+                        title={m.memo || m.extra?.diagnosis || ""}>
+                        <div className="truncate">
+                          {m.memo || (m.extra?.diagnosis ? <span className="text-gray-400 italic">{m.extra.diagnosis}</span> : "-")}
+                        </div>
                       </td>
                       {/* 상태 드롭다운 */}
                       <td className="px-4 py-3 relative min-w-[140px]">
