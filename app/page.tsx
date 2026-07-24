@@ -27,9 +27,9 @@ const GROUPS = [
     items: [
       { href: "/inbox",           icon: Inbox,          title: "📥 신규 유입",  desc: "구글시트 자동 연동", badgeKey: "inbox_pending" },
       { href: "/members",         icon: Users,          title: "회원 관리",    desc: "아동·성인 통합" },
-      { href: "/consultations",   icon: ClipboardList,  title: "상담 리드",    desc: "칸반보드" },
+      { href: "/consultations",   icon: ClipboardList,  title: "🎯 상담·매칭",   desc: "칸반·시간표·대기자 통합" },
       { href: "/schedule",        icon: Calendar,       title: "시간표",       desc: "월간·주간·일간" },
-      { href: "/schedule/matching", icon: Calendar,     title: "🎯 고정시간표",  desc: "빈자리·대기자 자동매칭" },
+
       { href: "/attendance",      icon: ClipboardCheck, title: "회원 출결",    desc: "출석·결석·병결" },
       { href: "/iep-behavior",    icon: Target,         title: "IEP · 행동중재", desc: "목표 · ABC기록 통합" },
       { href: "/documents",       icon: FileText,       title: "문서 관리",    desc: "영수증·계약서" },
