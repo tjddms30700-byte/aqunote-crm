@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import WishScheduleCard from "@/components/WishScheduleCard";
+import KakaoImportModal from "@/components/KakaoImportModal";
 import {
   Waves, ArrowLeft, User, Phone, MapPin, Calendar, AlertCircle,
   Activity, Award, MessageCircle, Save, Plus, Star, Trash2, Edit,
@@ -160,6 +161,8 @@ export default function MemberDetail() {
   const [labelLib, setLabelLib] = useState<any[]>([]);   // 전체 라벨 (공용 + 개인)
   const [customLabel, setCustomLabel] = useState("");
   const [customCat, setCustomCat] = useState("aquatic");
+  // ✅ v3.15.1: 카카오톡 자동 세션 등록
+  const [showKakaoImport, setShowKakaoImport] = useState(false);
 
   async function loadLabels() {
     // 공용 라벨 + 이 회원 전용 라벨
@@ -1167,7 +1170,16 @@ export default function MemberDetail() {
 
         {tab === "sessions" && (
           <div>
-            <h3 className="text-lg font-bold text-aqu-900 mb-4">📝 세션 기록 & 라벨링</h3>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+              <h3 className="text-lg font-bold text-aqu-900">📝 세션 기록 & 라벨링</h3>
+              {/* ✅ v3.15.1: 카카오톡 파일 자동 등록 */}
+              <button
+                onClick={() => setShowKakaoImport(true)}
+                className="px-3 py-1.5 bg-gradient-to-r from-yellow-400 to-yellow-500 hover:from-yellow-500 hover:to-yellow-600 text-yellow-900 rounded-lg text-sm font-bold flex items-center gap-1.5 shadow-sm"
+                title="카카오톡 대화 파일(.txt)을 업로드하면 자동으로 세션이 생성됩니다">
+                💬 카톡 파일 → 자동 세션 등록
+              </button>
+            </div>
 
             <div className="mb-6 p-4 bg-aqu-50 rounded-xl">
               <div className="text-sm font-medium text-aqu-900 mb-3">🆕 오늘 세션 활동 선택</div>
@@ -1297,6 +1309,24 @@ export default function MemberDetail() {
                 ))
               )}
             </div>
+
+            {/* ✅ v3.15.1: 카카오톡 파일 자동 세션 등록 모달 */}
+            {showKakaoImport && member && (
+              <KakaoImportModal
+                memberId={member.id}
+                memberName={member.name}
+                onClose={() => setShowKakaoImport(false)}
+                onImported={async () => {
+                  setShowKakaoImport(false);
+                  const { data: newSess } = await supabase
+                    .from("sessions")
+                    .select("*")
+                    .eq("member_id", member.id)
+                    .order("session_date", { ascending: false });
+                  setSessions(newSess || []);
+                }}
+              />
+            )}
           </div>
         )}
 
