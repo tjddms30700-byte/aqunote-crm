@@ -175,15 +175,12 @@ export default function DocumentsPage() {
             <option key={c.value} value={c.value}>{c.label}</option>
           ))}
         </select>
-        <select value={filterMember} onChange={e => setFilterMember(e.target.value)}
-          className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none">
-          <option value="">전체 회원</option>
-          {members.map(m => (
-            <option key={m.id} value={m.id}>
-              {m.name} ({m.member_type === "child" ? "아동" : "성인"})
-            </option>
-          ))}
-        </select>
+        {/* ✅ v3.14.1: 이름·전화 검색 가능한 콤보박스 */}
+        <MemberFilterCombo
+          members={members}
+          value={filterMember}
+          onChange={setFilterMember}
+        />
         <div className="flex-1 min-w-[200px] relative">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
@@ -310,6 +307,83 @@ function KPI({ title, val, color }: any) {
     <div className="bg-white p-3 rounded-xl shadow-sm border border-aqu-100">
       <div className="text-xs text-gray-500">{title}</div>
       <div className={`text-lg md:text-xl font-bold ${color || "text-aqu-900"}`}>{val}</div>
+    </div>
+  );
+}
+
+/* ✅ v3.14.1: 이름/전화 검색 가능한 회원 필터 콤보박스 */
+function MemberFilterCombo({ members, value, onChange }: any) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const selected = members.find((m: any) => m.id === value);
+
+  const filtered = (() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return members.slice(0, 100);
+    const digits = q.replace(/\D/g, "");
+    return members
+      .filter((m: any) => {
+        if (m.name.toLowerCase().includes(q)) return true;
+        if (digits && m.phone) {
+          const p = m.phone.replace(/\D/g, "");
+          if (p.includes(digits)) return true;
+        }
+        return false;
+      })
+      .slice(0, 100);
+  })();
+
+  return (
+    <div className="relative min-w-[200px]">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between gap-1 px-3 py-1.5 border border-gray-200 rounded-lg text-sm bg-white hover:border-aqu-400"
+      >
+        <span className={selected ? "text-gray-900" : "text-gray-500"}>
+          {selected ? `${selected.name} (${selected.member_type === "child" ? "아동" : "성인"})` : "전체 회원"}
+        </span>
+        <span className="text-[10px] text-gray-400">▼</span>
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => { setOpen(false); setQuery(""); }} />
+          <div className="absolute z-40 mt-1 w-full min-w-[260px] bg-white border border-gray-200 rounded-lg shadow-lg max-h-72 overflow-hidden flex flex-col">
+            <div className="p-2 border-b border-gray-100">
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                <input
+                  autoFocus
+                  type="text"
+                  value={query}
+                  onChange={e => setQuery(e.target.value)}
+                  placeholder="이름 또는 전화번호 뒷자리..."
+                  className="w-full pl-7 pr-2 py-1.5 text-sm border border-gray-200 rounded focus:outline-none focus:border-aqu-500"
+                />
+              </div>
+            </div>
+            <div className="overflow-y-auto">
+              <button
+                onClick={() => { onChange(""); setOpen(false); setQuery(""); }}
+                className={`w-full text-left px-3 py-2 text-sm hover:bg-aqu-50 border-b border-gray-100 ${!value ? "bg-aqu-50 font-semibold text-aqu-700" : ""}`}
+              >📂 전체 회원</button>
+              {filtered.map((m: any) => (
+                <button
+                  key={m.id}
+                  onClick={() => { onChange(m.id); setOpen(false); setQuery(""); }}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-aqu-50 flex items-center gap-2 ${value === m.id ? "bg-aqu-50 font-semibold text-aqu-700" : ""}`}
+                >
+                  <span className="text-xs">{m.member_type === "child" ? "🧒" : "👤"}</span>
+                  <span className="flex-1 truncate">{m.name}</span>
+                  {m.phone && <span className="text-[10px] text-gray-500 font-mono">{m.phone.slice(-4)}</span>}
+                </button>
+              ))}
+              {filtered.length === 0 && (
+                <div className="px-3 py-4 text-xs text-gray-400 text-center">검색 결과 없음</div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

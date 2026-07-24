@@ -1,7 +1,7 @@
 "use client";
 export const dynamic = "force-dynamic";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import { supabase } from "@/lib/supabase";
@@ -39,6 +39,9 @@ export default function AttendancePage() {
 
   // 모드: 시간표 연동 (그날 수업이 있는 회원만) OR 전체 회원
   const [mode, setMode] = useState<"schedule" | "all">("schedule");
+  // ✅ v3.14.1: 뷰 모드 — 기본 출결장 / 태블릿용 사인 출석부
+  const [view, setView] = useState<"list" | "sign">("list");
+  const [signTarget, setSignTarget] = useState<any | null>(null);
 
   useEffect(() => { loadAll(); }, [date]);
 
@@ -329,7 +332,21 @@ export default function AttendancePage() {
         </div>
       </div>
 
-      {/* 모드 전환 */}
+      {/* ✅ v3.14.1: 뷰 전환 (출결장 vs 사인입장) */}
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <div className="flex bg-white border border-teal-200 rounded-lg p-1 text-xs">
+          <button onClick={() => setView("list")}
+            className={`px-3 py-1.5 rounded flex items-center gap-1 ${view === "list" ? "bg-teal-600 text-white shadow" : "text-gray-600"}`}>
+            📋 출결장
+          </button>
+          <button onClick={() => setView("sign")}
+            className={`px-3 py-1.5 rounded flex items-center gap-1 ${view === "sign" ? "bg-purple-600 text-white shadow" : "text-gray-600"}`}>
+            ✍️ 태블릿 사인 입장
+          </button>
+        </div>
+      </div>
+
+      {/* 모드 전환 (대상 회원 범위) */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <div className="flex bg-white border border-aqu-100 rounded-lg p-1 text-xs">
           <button onClick={() => setMode("schedule")}
@@ -350,17 +367,42 @@ export default function AttendancePage() {
         </div>
       </div>
 
-      {/* KPI */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3 mb-4">
-        <KPI title="대상 회원"    val={stat.total + "명"}     color="text-aqu-700" />
-        <KPI title="✓ 출석"      val={stat.present + "명"}   color="text-green-600" />
-        <KPI title="✗ 결석"      val={stat.absent + "명"}    color="text-red-600" />
-        <KPI title="🏥 병결"     val={stat.sick + "명"}      color="text-orange-600" />
-        <KPI title="미체크"       val={stat.unchecked + "명"} color="text-gray-500" />
-      </div>
+      {/* ✅ v3.14.1: 사인 입장 모드 */}
+      {view === "sign" && (
+        <SignInBoard
+          date={date}
+          members={todayMembers}
+          attendance={attendance}
+          onOpenSign={(m: any) => setSignTarget(m)}
+        />
+      )}
 
-      {/* Save bar */}
-      {changed.size > 0 && (
+      {/* 사인 모달 */}
+      {signTarget && (
+        <SignaturePadModal
+          member={signTarget}
+          date={date}
+          orgId={null}
+          existingAttendance={attendance.find((a: any) => a.member_id === signTarget.id && a.attend_date === date) || null}
+          scheduleSlot={scheduleSlots.find((s: any) => s.member_id === signTarget.id) || null}
+          onClose={() => setSignTarget(null)}
+          onSaved={async () => { setSignTarget(null); await loadAll(); }}
+        />
+      )}
+
+      {/* KPI (리스트 뷰에서만 표시) */}
+      {view === "list" && (
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3 mb-4">
+          <KPI title="대상 회원"    val={stat.total + "명"}     color="text-aqu-700" />
+          <KPI title="✓ 출석"      val={stat.present + "명"}   color="text-green-600" />
+          <KPI title="✗ 결석"      val={stat.absent + "명"}    color="text-red-600" />
+          <KPI title="🏥 병결"     val={stat.sick + "명"}      color="text-orange-600" />
+          <KPI title="미체크"       val={stat.unchecked + "명"} color="text-gray-500" />
+        </div>
+      )}
+
+      {/* Save bar (리스트 뷰에서만) */}
+      {view === "list" && changed.size > 0 && (
         <div className="mb-4 p-3 bg-yellow-50 border-2 border-yellow-300 rounded-xl flex items-center justify-between animate-pulse">
           <div className="text-sm text-yellow-900 flex items-center gap-2">
             <AlertCircle className="w-4 h-4" />
@@ -379,7 +421,7 @@ export default function AttendancePage() {
         </div>
       )}
 
-      {loading ? (
+      {view === "list" && (loading ? (
         <div className="text-center py-10 text-gray-500">로딩 중...</div>
       ) : memberStats.length === 0 ? (
         <div className="text-center py-16 bg-white rounded-2xl border border-aqu-100 text-gray-400">
@@ -527,10 +569,10 @@ export default function AttendancePage() {
             </tbody>
           </table>
         </div>
-      )}
+      ))}
 
       {/* Bottom save button (모바일 편의) */}
-      {changed.size > 0 && (
+      {view === "list" && changed.size > 0 && (
         <div className="fixed bottom-4 right-4 z-40 md:hidden">
           <button onClick={saveAll} disabled={saving}
             className="px-5 py-3 bg-yellow-500 hover:bg-yellow-600 text-white rounded-full shadow-2xl text-sm font-bold flex items-center gap-1">
@@ -540,9 +582,11 @@ export default function AttendancePage() {
       )}
 
       {/* 시간표 → 출결 자동 반영 안내 */}
-      <div className="mt-4 p-3 bg-aqu-50/50 border border-aqu-100 rounded-xl text-xs text-aqu-800">
-        🔗 <b>연동 정보</b>: 출결을 저장하면 시간표에도 자동으로 반영됩니다 (출석→완료, 결석→노쇼, 병결→병결)
-      </div>
+      {view === "list" && (
+        <div className="mt-4 p-3 bg-aqu-50/50 border border-aqu-100 rounded-xl text-xs text-aqu-800">
+          🔗 <b>연동 정보</b>: 출결을 저장하면 시간표에도 자동으로 반영됩니다 (출석→완료, 결석→노쇼, 병결→병결)
+        </div>
+      )}
     </main>
   );
 }
@@ -552,6 +596,288 @@ function KPI({ title, val, color }: any) {
     <div className="bg-white p-2 md:p-3 rounded-xl shadow-sm border border-aqu-100 text-center">
       <div className="text-[10px] md:text-xs text-gray-500">{title}</div>
       <div className={`text-base md:text-xl font-bold ${color}`}>{val}</div>
+    </div>
+  );
+}
+
+/* ✅ v3.14.1: 태블릿 출석부 – 큰 카드로 모든 회원을 나열해 놀고, 학부모/직원이 파드에 사인 */
+function SignInBoard({ date, members, attendance, onOpenSign }: any) {
+  const [search, setSearch] = useState("");
+  const todayRecs = (attendance || []).filter((a: any) => a.attend_date === date);
+  const recMap = new Map<string, any>();
+  todayRecs.forEach((r: any) => recMap.set(r.member_id, r));
+
+  const filtered = (members || []).filter((m: any) =>
+    !search.trim() || (m.name || "").toLowerCase().includes(search.trim().toLowerCase())
+  );
+
+  return (
+    <div className="bg-white rounded-2xl shadow-md border border-purple-100 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div>
+          <div className="text-lg font-bold text-purple-700 flex items-center gap-2">
+            ✍️ 태블릿 출석부
+          </div>
+          <div className="text-xs text-gray-500">
+            회원 카드를 터치해 사인으로 출석을 기록하세요 (학부모/직원 사인 저장)
+          </div>
+        </div>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="🔍 회원명 검색..."
+          className="px-3 py-2 border border-purple-200 rounded-lg text-sm w-full md:w-64 focus:outline-none focus:ring-2 focus:ring-purple-300"
+        />
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="text-center py-16 text-gray-400">
+          <ClipboardCheck className="w-12 h-12 mx-auto mb-2 opacity-30" />
+          <p>표시할 회원이 없습니다.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+          {filtered.map((m: any) => {
+            const rec = recMap.get(m.id);
+            const signed = !!rec?.signature;
+            const status = rec?.status;
+            const bgClass = signed
+              ? "bg-purple-50 border-purple-400"
+              : status === "present"
+              ? "bg-green-50 border-green-300"
+              : status === "absent"
+              ? "bg-red-50 border-red-300"
+              : status === "sick"
+              ? "bg-orange-50 border-orange-300"
+              : "bg-white border-gray-200 hover:bg-purple-50";
+            return (
+              <button
+                key={m.id}
+                onClick={() => onOpenSign(m)}
+                className={`p-4 rounded-2xl border-2 transition-all text-left shadow-sm hover:shadow-md ${bgClass}`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-base font-bold text-gray-800 truncate">{m.name}</div>
+                  {signed && <span className="text-xs text-purple-600">✓ 사인</span>}
+                </div>
+                <div className="text-[10px] text-gray-500 mb-2">
+                  {m.member_type === "child" ? "🧒 아동" : "👤 성인"}
+                  {m.guardian_name ? ` · ${m.guardian_name}` : ""}
+                </div>
+                <div className="text-xs text-purple-700 font-semibold">
+                  {signed ? "사인 수정" : status ? statusMeta(status).label : "터치해서 사인"}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ✅ v3.14.1: 사인패드 모달 (Canvas 기반) */
+function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSlot, onClose, onSaved }: any) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [drawing, setDrawing] = useState(false);
+  const [hasStroke, setHasStroke] = useState(false);
+  const [status, setStatus] = useState<"present" | "absent" | "sick">(existingAttendance?.status || "present");
+  const [signer, setSigner] = useState<"parent" | "self" | "staff">(member?.member_type === "child" ? "parent" : "self");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const c = canvasRef.current;
+    if (!c) return;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.strokeStyle = "#1a1a1a";
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    if (existingAttendance?.signature) {
+      const img = new Image();
+      img.onload = () => { ctx.drawImage(img, 0, 0, c.width, c.height); setHasStroke(true); };
+      img.src = existingAttendance.signature;
+    }
+  }, [existingAttendance]);
+
+  const getPos = (e: any) => {
+    const c = canvasRef.current!;
+    const rect = c.getBoundingClientRect();
+    const scaleX = c.width / rect.width;
+    const scaleY = c.height / rect.height;
+    if (e.touches && e.touches[0]) {
+      return { x: (e.touches[0].clientX - rect.left) * scaleX, y: (e.touches[0].clientY - rect.top) * scaleY };
+    }
+    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+  };
+
+  const start = (e: any) => {
+    e.preventDefault();
+    const ctx = canvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    const { x, y } = getPos(e);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    setDrawing(true);
+  };
+  const move = (e: any) => {
+    if (!drawing) return;
+    e.preventDefault();
+    const ctx = canvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    const { x, y } = getPos(e);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    setHasStroke(true);
+  };
+  const end = () => setDrawing(false);
+
+  const clear = () => {
+    const c = canvasRef.current;
+    if (!c) return;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, c.width, c.height);
+    setHasStroke(false);
+  };
+
+  async function save() {
+    if (!hasStroke) { alert("사인을 입력해주세요"); return; }
+    setSaving(true);
+    try {
+      const dataUrl = canvasRef.current!.toDataURL("image/png");
+      const nowIso = new Date().toISOString();
+
+      let realOrgId = orgId;
+      if (!realOrgId) {
+        realOrgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
+      }
+
+      const basePayload: any = {
+        status,
+        signature: dataUrl,
+        signer_role: signer,
+        signed_at: nowIso,
+        slot_id: scheduleSlot?.id || existingAttendance?.slot_id || null,
+        time_slot: scheduleSlot?.time_slot || existingAttendance?.time_slot || null,
+      };
+
+      if (existingAttendance) {
+        const { error } = await supabase.from("attendance").update(basePayload).eq("id", existingAttendance.id);
+        if (error && (error.message?.includes("signature") || error.message?.includes("signer_role") || error.message?.includes("signed_at"))) {
+          // 컴럼 미존재 → 안전 재시도
+          delete basePayload.signature;
+          delete basePayload.signer_role;
+          delete basePayload.signed_at;
+          await supabase.from("attendance").update(basePayload).eq("id", existingAttendance.id);
+          alert("⚠️ DB에 signature 컴럼이 없어 출석만 저장되었습니다.\nSQL: alter table attendance add column signature text, signer_role text, signed_at timestamptz;");
+        } else if (error) {
+          throw error;
+        }
+      } else {
+        const insertPayload: any = {
+          org_id: realOrgId,
+          member_id: member.id,
+          attend_date: date,
+          ...basePayload,
+        };
+        const { error } = await supabase.from("attendance").insert(insertPayload);
+        if (error && (error.message?.includes("signature") || error.message?.includes("signer_role") || error.message?.includes("signed_at"))) {
+          delete insertPayload.signature;
+          delete insertPayload.signer_role;
+          delete insertPayload.signed_at;
+          await supabase.from("attendance").insert(insertPayload);
+          alert("⚠️ DB에 signature 컴럼이 없어 출석만 저장되었습니다.\nSQL: alter table attendance add column signature text, signer_role text, signed_at timestamptz;");
+        } else if (error) {
+          throw error;
+        }
+      }
+
+      // 시간표 상태 동기화
+      if (scheduleSlot?.id) {
+        const statusMap: Record<string, string> = { present: "done", absent: "noshow", sick: "sick" };
+        await supabase.from("schedule_slots").update({ status: statusMap[status] }).eq("id", scheduleSlot.id);
+      }
+
+      onSaved && (await onSaved());
+    } catch (e: any) {
+      alert("저장 실패: " + (e?.message || e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[95vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b bg-purple-50 rounded-t-2xl">
+          <div>
+            <div className="text-lg font-bold text-purple-800">✍️ 출석 사인</div>
+            <div className="text-xs text-gray-600">{member?.name} · {date}</div>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-800 text-2xl leading-none">×</button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {/* 출결 상태 선택 */}
+          <div>
+            <div className="text-xs font-semibold text-gray-700 mb-2">출결 상태</div>
+            <div className="flex gap-2">
+              {STATUS_OPTIONS.map((opt) => (
+                <button key={opt.value} onClick={() => setStatus(opt.value as any)}
+                  className={`flex-1 px-3 py-2 rounded-lg text-sm font-semibold border-2 ${status === opt.value ? opt.color + " border-current" : "bg-white text-gray-500 border-gray-200"}`}>
+                  {opt.icon} {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 서명자 구분 */}
+          <div>
+            <div className="text-xs font-semibold text-gray-700 mb-2">서명자</div>
+            <div className="flex gap-2">
+              {[
+                { v: "parent", label: "👪 학부모" },
+                { v: "self", label: "🙋 본인" },
+                { v: "staff", label: "👨‍🏫 직원" },
+              ].map((s) => (
+                <button key={s.v} onClick={() => setSigner(s.v as any)}
+                  className={`flex-1 px-3 py-2 rounded-lg text-sm border-2 ${signer === s.v ? "bg-purple-100 text-purple-800 border-purple-400" : "bg-white text-gray-500 border-gray-200"}`}>
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 사인 캠버스 */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <div className="text-xs font-semibold text-gray-700">사인 입력</div>
+              <button onClick={clear} className="text-[11px] px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded text-gray-700">다시 그리기</button>
+            </div>
+            <canvas
+              ref={canvasRef}
+              width={640} height={220}
+              className="w-full h-[220px] bg-white border-2 border-dashed border-purple-300 rounded-lg touch-none cursor-crosshair"
+              onMouseDown={start} onMouseMove={move} onMouseUp={end} onMouseLeave={end}
+              onTouchStart={start} onTouchMove={move} onTouchEnd={end}
+            />
+            <div className="text-[10px] text-gray-400 mt-1">💡 태블릿에서는 손가락/펄으로 직접 서명해주세요</div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2 border-t">
+            <button onClick={onClose} className="px-4 py-2 border border-gray-300 rounded-lg text-sm">취소</button>
+            <button onClick={save} disabled={saving || !hasStroke}
+              className="px-5 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white rounded-lg text-sm font-bold">
+              {saving ? "저장 중..." : "✓ 서명 완료"}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
