@@ -2119,22 +2119,65 @@ function ConsultationChartPanel({ memberId, member }: { memberId: string; member
     try {
       const { mapConsultFormToChart, mergeChartData, hasFillableData } = await import("@/lib/consultFormMapper");
 
-      // 1) member.consult_form 우선, 없으면 leads_inbox에서 조회
-      let formData: any = member?.consult_form;
-      if (!formData || Object.keys(formData).length === 0) {
-        const { data: lead } = await supabase
+      // ✅ v3.15.4: 상담폼 탭과 동일한 순서로 검색
+      // 1) member.extra.consult_form (상담폼 탭이 사용하는 소스)
+      let formData: any = member?.extra?.consult_form;
+      let foundSource = "member.extra";
+
+      // 2) member.consult_form (리거시 호환)
+      if (!formData || Object.keys(formData || {}).length === 0) {
+        formData = member?.consult_form;
+        if (formData) foundSource = "member.consult_form";
+      }
+
+      // 3) leads_inbox (promoted_member_id 또는 phone 매칭)
+      if (!formData || Object.keys(formData || {}).length === 0) {
+        // promoted_member_id 매칭
+        let { data: lead } = await supabase
           .from("leads_inbox")
           .select("consult_form")
           .eq("promoted_member_id", memberId)
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
+
+        // 없으면 phone 기준 검색
+        if (!lead?.consult_form && member?.phone) {
+          const clean = String(member.phone).replace(/[^0-9]/g, "");
+          if (clean) {
+            const alt = await supabase
+              .from("leads_inbox")
+              .select("consult_form")
+              .ilike("consult_form->>phone", `%${clean.slice(-8)}%`)
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            lead = alt.data as any;
+          }
+        }
+
         formData = lead?.consult_form;
+        if (formData) foundSource = "leads_inbox";
       }
-      if (!formData || !hasFillableData(formData)) {
+
+      if (!formData || Object.keys(formData).length === 0) {
         alert("⚠️ 상담폼 데이터가 없습니다.\n상담폼 탭이나 신규 유입(inbox)에서 데이터를 먼저 등록해주세요.");
         return;
       }
+
+      // hasFillableData 검사는 약간 보수적이므로 실패 시에도 진행 (이름/진단 등 핵심 필드 있으면 진행)
+      if (!hasFillableData(formData)) {
+        const keys = Object.keys(formData);
+        const hasAny = keys.some((k) => {
+          const v = formData[k];
+          return v !== null && v !== undefined && String(v).trim() !== "";
+        });
+        if (!hasAny) {
+          alert("⚠️ 상담폼에 채울 수 있는 데이터가 없습니다.");
+          return;
+        }
+      }
+      console.log("[자동채우기] 소스:", foundSource, "필드수:", Object.keys(formData).length);
 
       // 2) 매핑 및 병합
       const mapped = mapConsultFormToChart(formData, member?.member_type === "child" ? "child" : "adult");
