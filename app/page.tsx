@@ -8,7 +8,7 @@ import {
   LogIn, LogOut, User as UserIcon, CreditCard, DollarSign, Briefcase, FileText,
   ClipboardCheck, TrendingUp, Ticket, Settings,
   Target, AlertTriangle, Clock, FileCheck, MessageSquare,
-  Waves, Wallet, UserCog, PieChart, Inbox, RefreshCw
+  Waves, Wallet, UserCog, PieChart, Inbox, RefreshCw, Database
 } from "lucide-react";
 import Logo from "@/components/Logo";
 import BranchSwitcher from "@/components/BranchSwitcher";
@@ -33,6 +33,7 @@ const GROUPS = [
       { href: "/attendance",      icon: ClipboardCheck, title: "회원 출결",    desc: "출석·결석·병결" },
       { href: "/iep-behavior",    icon: Target,         title: "IEP · 행동중재", desc: "목표 · ABC기록 통합" },
       { href: "/documents",       icon: FileText,       title: "문서 관리",    desc: "영수증·계약서" },
+      { href: "/incidents",       icon: AlertTriangle,  title: "🚨 안전사고 로그", desc: "응급기록·보험 리포트" },
     ],
   },
   {
@@ -94,6 +95,7 @@ const GROUPS = [
     bg: "bg-slate-50",
     items: [
       { href: "/settings", icon: Settings, title: "환경 설정", desc: "로고·지점·센터명" },
+      { href: "/backup",   icon: Database, title: "💾 자동 백업", desc: "DB 스냅샷·Drive/S3" },
     ],
   },
 ];
