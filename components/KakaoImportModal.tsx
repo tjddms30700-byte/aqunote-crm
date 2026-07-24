@@ -97,20 +97,71 @@ export default function KakaoImportModal({ memberId, memberName, staffId, onClos
     setImporting(true);
     setError("");
     try {
-      const res = await fetch("/api/kakao/import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          member_id: memberId,
-          sessions: chosen,
-          staff_id: staffId,
-          skip_duplicates: skipDup,
-        }),
+      // ✅ v3.15.2: raw_body 제거 + parent_messages 길이 제한 (payload 슬림화)
+      const slim = chosen.map((s) => ({
+        date: s.date,
+        weekday: s.weekday,
+        status: s.status,
+        activities: s.activities,
+        tags: s.tags,
+        memo: (s.memo || "").slice(0, 2000),
+        parent_messages: (s.parent_messages || []).slice(0, 3).map((m) => m.slice(0, 300)),
+      }));
+
+      // ✅ 50개씩 배치 분할 (Vercel 4.5MB 제한 회피)
+      const BATCH_SIZE = 50;
+      let totalSessions = 0;
+      let totalAttendance = 0;
+      let totalSkipped = 0;
+      const allErrors: string[] = [];
+      let memberNameResp = memberName;
+
+      for (let i = 0; i < slim.length; i += BATCH_SIZE) {
+        const batch = slim.slice(i, i + BATCH_SIZE);
+        setError(`진행 중... ${i + 1} ~ ${Math.min(i + BATCH_SIZE, slim.length)} / ${slim.length}건`);
+
+        const res = await fetch("/api/kakao/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            member_id: memberId,
+            sessions: batch,
+            staff_id: staffId,
+            skip_duplicates: skipDup,
+          }),
+        });
+
+        // ✅ JSON 안전 파싱 (서버가 HTML 에러 페이지 반환하는 경우 대응)
+        const contentType = res.headers.get("content-type") || "";
+        let data: any = null;
+        if (contentType.includes("application/json")) {
+          data = await res.json();
+        } else {
+          const text = await res.text();
+          throw new Error(
+            `서버 오류 (HTTP ${res.status}) - ${text.slice(0, 200)}\n` +
+            `힘트: Vercel 환경변수 SUPABASE_SERVICE_ROLE_KEY 를 등록했는지 확인하세요.`
+          );
+        }
+
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+
+        totalSessions += data.inserted_sessions || 0;
+        totalAttendance += data.inserted_attendance || 0;
+        totalSkipped += data.skipped_duplicates || 0;
+        if (data.errors?.length) allErrors.push(...data.errors);
+        if (data.member_name) memberNameResp = data.member_name;
+      }
+
+      setError("");
+      setImported({
+        member_name: memberNameResp,
+        inserted_sessions: totalSessions,
+        inserted_attendance: totalAttendance,
+        skipped_duplicates: totalSkipped,
+        errors: Array.from(new Set(allErrors)),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "임포트 실패");
-      setImported(data);
-      setTimeout(() => onImported(), 1500);
+      setTimeout(() => onImported(), 2000);
     } catch (e: any) {
       setError(e.message || String(e));
     } finally {

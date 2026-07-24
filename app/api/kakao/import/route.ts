@@ -1,91 +1,139 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import type { ParsedSession } from "@/lib/kakaoParser";
 
 /* ============================================================
-   v3.15.1 - 카카오톡 파싱 결과 → DB 실제 저장
-   POST JSON {
-     member_id: string,
-     sessions: ParsedSession[],
-     staff_id?: string,
-     skip_duplicates?: boolean
-   }
+   v3.15.2 - 카카오톡 파싱 결과 → DB 실제 저장 (안전 강화판)
+   - 어떤 예외 상황에서도 JSON 응답 보장
+   - service_role_key 없으면 anon_key 폴백
+   - 배치 처리 최적화
 ============================================================ */
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+export const runtime = "nodejs";
+
+interface SlimSession {
+  date: string;
+  weekday: string;
+  status: "attended" | "cancelled" | "sick" | "absent" | "makeup";
+  activities: string[];
+  tags: string[];
+  memo: string;
+  parent_messages?: string[];
+}
+
+// 어떤 상황에서도 JSON 응답을 반환하기 위한 헬퍼
+function jsonError(msg: string, status = 500, extra: any = {}) {
+  return NextResponse.json(
+    { error: msg, ...extra },
+    { status, headers: { "Content-Type": "application/json" } }
+  );
+}
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    // 1) 요청 파싱
+    let body: any;
+    try {
+      body = await req.json();
+    } catch (e: any) {
+      return jsonError("요청 본문 파싱 실패: " + (e.message || e), 400);
+    }
+
     const { member_id, sessions, staff_id, skip_duplicates = true } = body as {
       member_id: string;
-      sessions: ParsedSession[];
+      sessions: SlimSession[];
       staff_id?: string;
       skip_duplicates?: boolean;
     };
 
-    if (!member_id) return NextResponse.json({ error: "member_id 필수" }, { status: 400 });
+    if (!member_id) return jsonError("member_id 필수", 400);
     if (!Array.isArray(sessions) || sessions.length === 0) {
-      return NextResponse.json({ error: "세션 목록이 비어있습니다" }, { status: 400 });
+      return jsonError("세션 목록이 비어있습니다", 400);
     }
 
+    // 2) Supabase 클라이언트 (service_role 우선, 없으면 anon)
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!url || !key) return NextResponse.json({ error: "supabase env 누락" }, { status: 500 });
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const key = serviceKey || anonKey;
+
+    if (!url || !key) {
+      return jsonError(
+        "Supabase 환경변수 누락 - NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY 확인 필요",
+        500
+      );
+    }
 
     const admin = createClient(url, key);
+    const usingServiceKey = !!serviceKey;
 
-    // 조직 ID 조회
-    const orgId = (await admin.from("organizations").select("id").limit(1).single()).data?.id;
-
-    // 회원 존재 확인
-    const { data: mem, error: memErr } = await admin.from("members").select("id, name").eq("id", member_id).single();
-    if (memErr || !mem) return NextResponse.json({ error: "회원 조회 실패" }, { status: 404 });
-
-    // 중복 체크: 같은 회원의 같은 날짜 세션
-    let existingDates = new Set<string>();
-    if (skip_duplicates) {
-      const { data: exist } = await admin
-        .from("sessions")
-        .select("session_date")
-        .eq("member_id", member_id);
-      existingDates = new Set((exist || []).map((s: any) => s.session_date));
+    // 3) 조직 ID 조회 (실패해도 계속 진행)
+    let orgId: string | null = null;
+    try {
+      const org = await admin.from("organizations").select("id").limit(1).single();
+      orgId = org.data?.id || null;
+    } catch {
+      // 무시
     }
 
-    // attendance에도 병결/결석 이력 반영
-    const attendancePayload: any[] = [];
+    // 4) 회원 존재 확인
+    const { data: mem, error: memErr } = await admin
+      .from("members")
+      .select("id, name")
+      .eq("id", member_id)
+      .maybeSingle();
+
+    if (memErr) return jsonError("회원 조회 실패: " + memErr.message, 500);
+    if (!mem) return jsonError("회원을 찾을 수 없습니다 (id=" + member_id + ")", 404);
+
+    // 5) 중복 체크 - 이 회원의 기존 세션 날짜 목록
+    let existingDates = new Set<string>();
+    if (skip_duplicates) {
+      try {
+        const { data: exist } = await admin
+          .from("sessions")
+          .select("session_date")
+          .eq("member_id", member_id);
+        existingDates = new Set(
+          (exist || []).map((s: any) => s.session_date).filter(Boolean)
+        );
+      } catch {
+        // sessions 테이블이 없을 수도 있음 - 무시
+      }
+    }
+
+    // 6) 세션 & 출결 payload 준비
+    const statusMap: Record<string, string> = {
+      attended: "present",
+      makeup: "present",
+      sick: "sick",
+      cancelled: "absent",
+      absent: "absent",
+    };
+
     const sessionsPayload: any[] = [];
+    const attendancePayload: any[] = [];
     let skipped = 0;
 
     for (const s of sessions) {
+      if (!s.date) continue;
       if (skip_duplicates && existingDates.has(s.date)) {
         skipped++;
         continue;
       }
-
-      // sessions 테이블 (세션 기록)
       if (s.status === "attended" || s.status === "makeup") {
         sessionsPayload.push({
           org_id: orgId,
           member_id,
           staff_id: staff_id || null,
           session_date: s.date,
-          activities: s.activities,
-          memo: s.memo,
-          tags: s.tags,
+          activities: s.activities || [],
+          tags: s.tags || [],
+          memo: (s.memo || "").slice(0, 2000),
           source: "kakao_import",
         });
       }
-
-      // attendance 테이블 (출결)
-      const statusMap: Record<string, string> = {
-        attended: "present",
-        makeup: "present",
-        sick: "sick",
-        cancelled: "absent",
-        absent: "absent",
-      };
       attendancePayload.push({
         org_id: orgId,
         member_id,
@@ -94,28 +142,49 @@ export async function POST(req: Request) {
       });
     }
 
-    // 배치 저장
+    // 7) sessions 배치 저장
     let insertedSessions = 0;
-    let insertedAttendance = 0;
     const errors: string[] = [];
 
     if (sessionsPayload.length > 0) {
-      const { error } = await admin.from("sessions").insert(sessionsPayload);
-      if (error) {
-        // sessions 테이블이 없으면 스킵 (attendance만 저장)
-        if (error.code === "42P01" || error.code === "PGRST205" || error.message?.includes("does not exist")) {
-          errors.push("sessions 테이블 없음 - AQUNOTE_V315_SESSIONS.sql 실행 필요");
+      const CHUNK = 100;
+      for (let i = 0; i < sessionsPayload.length; i += CHUNK) {
+        const chunk = sessionsPayload.slice(i, i + CHUNK);
+        const { error } = await admin.from("sessions").insert(chunk);
+        if (error) {
+          if (
+            error.code === "42P01" ||
+            error.code === "PGRST205" ||
+            error.message?.includes("does not exist") ||
+            error.message?.includes("schema cache")
+          ) {
+            errors.push(
+              "sessions 테이블 없음 또는 스키마 오류 - AQUNOTE_V315_SESSIONS_FIXED.sql 실행 필요"
+            );
+            break; // 이후 청크도 실패할 것이므로 중단
+          } else if (
+            error.code === "42501" ||
+            error.message?.toLowerCase().includes("permission") ||
+            error.message?.toLowerCase().includes("policy") ||
+            error.message?.toLowerCase().includes("row-level security")
+          ) {
+            errors.push(
+              "RLS 정책으로 인해 저장 거부됨 - Vercel 환경변수 SUPABASE_SERVICE_ROLE_KEY 등록 필요"
+            );
+            break;
+          } else {
+            errors.push(`세션 저장 실패 (${i}~${i + chunk.length}): ${error.message}`);
+          }
         } else {
-          errors.push("세션 저장 실패: " + error.message);
+          insertedSessions += chunk.length;
         }
-      } else {
-        insertedSessions = sessionsPayload.length;
       }
     }
 
-    // attendance는 upsert (중복 방지)
-    if (attendancePayload.length > 0) {
-      for (const a of attendancePayload) {
+    // 8) attendance 저장 (개별 upsert - 중복 체크)
+    let insertedAttendance = 0;
+    for (const a of attendancePayload) {
+      try {
         const { data: exist } = await admin
           .from("attendance")
           .select("id")
@@ -125,6 +194,8 @@ export async function POST(req: Request) {
         if (exist) continue;
         const { error } = await admin.from("attendance").insert(a);
         if (!error) insertedAttendance++;
+      } catch {
+        // 개별 실패는 무시
       }
     }
 
@@ -134,10 +205,11 @@ export async function POST(req: Request) {
       inserted_sessions: insertedSessions,
       inserted_attendance: insertedAttendance,
       skipped_duplicates: skipped,
+      using_service_key: usingServiceKey,
       errors,
     });
   } catch (e: any) {
-    console.error("[kakao/import] error:", e);
-    return NextResponse.json({ error: e.message || String(e) }, { status: 500 });
+    console.error("[kakao/import] fatal error:", e);
+    return jsonError("서버 예외: " + (e?.message || String(e)), 500);
   }
 }
