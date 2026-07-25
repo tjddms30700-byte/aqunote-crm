@@ -898,6 +898,8 @@ export default function SchedulePage() {
                 return (
                   <div key={idx}
                     onClick={() => { setSelectedDate(cellStr); if (!isOtherMonth) setActionSheet({ date: cellStr }); }}
+                    onDoubleClick={(e) => { e.stopPropagation(); if (!isOtherMonth) { setActionSheet(null); openNewModal(cellStr); } }}
+                    title="클릭: 유형 선택 · 더블클릭: 바로 새 일정 등록"
                     onDragOver={(e) => handleDragOver(cellStr, e)}
                     onDragLeave={() => dragOverDate === cellStr && setDragOverDate(null)}
                     onDrop={(e) => handleDrop(cellStr, e)}
@@ -1033,6 +1035,7 @@ export default function SchedulePage() {
           members={members}
           staff={staff}
           onCellClick={(date, time) => openDateActionSheet(date, time)}
+          onCellDoubleClick={(date, time) => openNewModal(date, time)}
           onEdit={openEditModal}
           memberName={memberName}
         />
@@ -1044,6 +1047,7 @@ export default function SchedulePage() {
           members={members}
           staff={staff}
           onCellClick={(date, time) => openDateActionSheet(date, time)}
+          onCellDoubleClick={(date, time) => openNewModal(date, time)}
           onEdit={openEditModal}
           memberName={memberName}
         />
@@ -1301,7 +1305,7 @@ function BigStat({ label, val, sub, color }: any) {
 }
 
 /* ═════ 주간 뷰 ═════ */
-function WeekView({ slots, members, staff, onCellClick, onEdit, memberName }: any) {
+function WeekView({ slots, members, staff, onCellClick, onCellDoubleClick, onEdit, memberName }: any) {
   const staffMap = useMemo(() => {
     const m: Record<string, any> = {};
     (staff || []).forEach((s: any) => m[s.id] = s);
@@ -1428,7 +1432,10 @@ function WeekView({ slots, members, staff, onCellClick, onEdit, memberName }: an
                             </div>
                           );
                         })}
-                        <button onClick={() => onCellClick(dateStr, time)}
+                        <button
+                          onClick={() => onCellClick(dateStr, time)}
+                          onDoubleClick={() => onCellDoubleClick && onCellDoubleClick(dateStr, time)}
+                          title="클릭: 유형 선택 · 더블클릭: 바로 새 일정"
                           className="w-full text-gray-400 hover:text-aqu-600 hover:bg-aqu-50 rounded border border-dashed border-gray-200 py-0.5">
                           <Plus className="w-3 h-3 inline" />
                         </button>
@@ -1446,7 +1453,7 @@ function WeekView({ slots, members, staff, onCellClick, onEdit, memberName }: an
 }
 
 /* ═════ 일간 뷰 (강사별 컬럼) ═════ */
-function DayView({ date, setDate, slots, members, staff, onCellClick, onEdit, memberName }: any) {
+function DayView({ date, setDate, slots, members, staff, onCellClick, onCellDoubleClick, onEdit, memberName }: any) {
   const dayDate = new Date(date);
   // 해당 날짜에 재직 중인 직원만 표시 (퇴사일 이후엔 숨김)
   const workingStaff = (staff || []).filter((s: any) => {
@@ -1545,7 +1552,10 @@ function DayView({ date, setDate, slots, members, staff, onCellClick, onEdit, me
                             </div>
                           );
                         })}
-                        <button onClick={() => onCellClick(date, time)}
+                        <button
+                          onClick={() => onCellClick(date, time)}
+                          onDoubleClick={() => onCellDoubleClick && onCellDoubleClick(date, time)}
+                          title="클릭: 유형 선택 · 더블클릭: 바로 새 일정"
                           className="w-full text-gray-400 hover:text-aqu-600 hover:bg-aqu-50 rounded border border-dashed border-gray-200 py-0.5">
                           <Plus className="w-3 h-3 inline" />
                         </button>
@@ -1656,9 +1666,10 @@ function SlotModal({ f, setF, modal, members, staff, plans, onClose, onSave, onD
               <Field label="유형">
                 <select value={f.event_type} onChange={e => setF({ ...f, event_type: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none bg-white">
+                  {/* ✅ v3.17.0: 매출등록 제거, 보강 추가 */}
                   <option value="lesson">🏊 수업</option>
                   <option value="trial">🎯 체험</option>
-                  <option value="revenue">💰 매출 등록</option>
+                  <option value="makeup">🔄 보강</option>
                   <option value="staff_work">👤 직원 근무</option>
                   <option value="staff_off">🏖️ 직원 휴무</option>
                   <option value="other">📌 기타</option>
