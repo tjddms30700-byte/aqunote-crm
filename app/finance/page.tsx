@@ -82,9 +82,28 @@ function FinancePage() {
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
           <Waves className="w-8 h-8 text-aqu-600" />
-          <h1 className="text-2xl md:text-3xl font-bold text-aqu-900">💰 재무 관리</h1>
+          <h1 className="text-2xl md:text-3xl font-bold text-aqu-900">💰 재무 관리 · 자동 정산</h1>
         </div>
         <HomeButton />
+      </div>
+
+      {/* ✅ v3.18.0: 정기 결제 · 강사 수당 바로가기 */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-4">
+        <Link href="/renewals" className="bg-gradient-to-br from-blue-50 to-cyan-50 border border-blue-200 rounded-lg p-3 hover:shadow-md hover:border-blue-400 transition group">
+          <div className="text-[10px] text-blue-600 font-semibold">🔄 정기 결제</div>
+          <div className="text-xs md:text-sm font-bold text-slate-800 mt-1">자동갱신 · 만료임박</div>
+          <div className="text-[10px] text-gray-500 mt-0.5 group-hover:text-blue-600">→</div>
+        </Link>
+        <Link href="/staff" className="bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-200 rounded-lg p-3 hover:shadow-md hover:border-indigo-400 transition group">
+          <div className="text-[10px] text-indigo-600 font-semibold">👨‍⚕️ 강사 수당</div>
+          <div className="text-xs md:text-sm font-bold text-slate-800 mt-1">자동 계산 · 지급 내역</div>
+          <div className="text-[10px] text-gray-500 mt-0.5 group-hover:text-indigo-600">→</div>
+        </Link>
+        <Link href="/dashboard/revenue" className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 rounded-lg p-3 hover:shadow-md hover:border-emerald-400 transition group">
+          <div className="text-[10px] text-emerald-600 font-semibold">📈 매출 통계</div>
+          <div className="text-xs md:text-sm font-bold text-slate-800 mt-1">수익 · 상세 보기</div>
+          <div className="text-[10px] text-gray-500 mt-0.5 group-hover:text-emerald-600">→</div>
+        </Link>
       </div>
 
       {/* Month selector + Add expense */}

@@ -293,6 +293,20 @@ export default function ConsultationsPage() {
         </div>
       </div>
 
+      {/* ✅ v3.18.0: 신규유입 통합 베너 */}
+      <div className="max-w-7xl mx-auto mb-4">
+        <Link href="/inbox" className="block bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-xl px-4 py-3 hover:shadow-md transition">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white text-xl">📥</div>
+            <div className="flex-1">
+              <div className="text-sm font-bold text-purple-800">신규 유입 바로가기</div>
+              <div className="text-xs text-purple-600">구글시트 자동 연동으로 들어온 상담 신청을 바로 매칭에 반영하세요</div>
+            </div>
+            <span className="text-purple-500">→</span>
+          </div>
+        </Link>
+      </div>
+
       {/* 탭 전환 */}
       <div className="max-w-7xl mx-auto mb-5 flex gap-1 border-b border-aqu-100">
         <TabBtn active={tab === "kanban"} onClick={() => setTab("kanban")} icon="📋" label="칸반 (파이프라인)" />
@@ -371,11 +385,29 @@ export default function ConsultationsPage() {
 
 function KanbanView({ members, stats, onMove, matrix }: any) {
   const [draggedId, setDraggedId] = useState<string | null>(null);
+  // ✅ v3.18.0: 검색 + 요일 필터 + 컬럼 접기
+  const [q, setQ] = useState("");
+  const [dayFilter, setDayFilter] = useState<string>("");
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ ended: true });
 
   function isFixedInMatrix(memberId: string): { day: number; time: string } | null {
     const cell = matrix.find((c: MatrixCell) => c.member_id === memberId && c.status === "fixed");
     if (!cell) return null;
     return { day: cell.day_of_week, time: cell.time_slot };
+  }
+
+  function passesFilter(m: Member): boolean {
+    if (q.trim()) {
+      const kw = q.trim().toLowerCase();
+      const digits = kw.replace(/\D/g, "");
+      const nameHit = (m.name || "").toLowerCase().includes(kw);
+      const phoneHit = digits.length >= 2 && (m.phone || "").replace(/-/g, "").includes(digits);
+      if (!nameHit && !phoneHit) return false;
+    }
+    if (dayFilter) {
+      if (!Array.isArray(m.wish_days) || !m.wish_days.includes(dayFilter)) return false;
+    }
+    return true;
   }
 
   return (
@@ -390,13 +422,35 @@ function KanbanView({ members, stats, onMove, matrix }: any) {
         ))}
       </div>
 
+      {/* ✅ v3.18.0: 검색 + 요일 필터 */}
+      <div className="mb-3 flex flex-wrap items-center gap-2 bg-white border border-aqu-100 rounded-xl p-2">
+        <div className="flex items-center gap-1.5 flex-1 min-w-[180px]">
+          <Search className="w-4 h-4 text-aqu-500" />
+          <input
+            value={q}
+            onChange={e => setQ(e.target.value)}
+            placeholder="이름 · 연락처 검색"
+            className="flex-1 bg-transparent text-sm outline-none"
+          />
+          {q && <button onClick={() => setQ("")} className="text-gray-400 hover:text-gray-600"><X className="w-3.5 h-3.5" /></button>}
+        </div>
+        <div className="flex items-center gap-1 flex-wrap">
+          <span className="text-[10px] text-gray-500 mr-1">희망요일</span>
+          <button onClick={() => setDayFilter("")} className={`px-2 py-1 text-[11px] rounded-full border ${dayFilter === "" ? "bg-aqu-600 text-white border-aqu-600" : "bg-white text-gray-600 border-gray-200 hover:border-aqu-300"}`}>전체</button>
+          {["월", "화", "수", "목", "금", "토"].map(d => (
+            <button key={d} onClick={() => setDayFilter(dayFilter === d ? "" : d)} className={`px-2 py-1 text-[11px] rounded-full border ${dayFilter === d ? "bg-aqu-600 text-white border-aqu-600" : "bg-white text-gray-600 border-gray-200 hover:border-aqu-300"}`}>{d}</button>
+          ))}
+        </div>
+      </div>
+
       {/* 칸반 보드 */}
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
         {COLUMNS.map(col => {
-          const cards = members.filter((m: Member) => (m.status || "waiting") === col.key);
+          const isCollapsed = !!collapsed[col.key];
+          const cards = members.filter((m: Member) => (m.status || "waiting") === col.key).filter(passesFilter);
           return (
             <div key={col.key}
-              className={`${col.bg} border-2 border-dashed rounded-xl p-2 min-h-[400px]`}
+              className={`${col.bg} border-2 border-dashed rounded-xl p-2 ${isCollapsed ? "" : "min-h-[400px]"}`}
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();
@@ -405,49 +459,65 @@ function KanbanView({ members, stats, onMove, matrix }: any) {
                 setDraggedId(null);
               }}>
               <div className="flex items-center justify-between mb-2 px-1">
-                <span className={`text-xs font-semibold ${col.accent}`}>{col.label}</span>
+                <button onClick={() => setCollapsed({ ...collapsed, [col.key]: !isCollapsed })} className={`text-xs font-semibold ${col.accent} flex items-center gap-1 hover:opacity-70`}>
+                  <span>{isCollapsed ? "▸" : "▾"}</span>
+                  {col.label}
+                </button>
                 <span className={`text-[10px] px-1.5 py-0.5 rounded-full bg-white ${col.accent} font-bold`}>{cards.length}</span>
               </div>
-              <div className="space-y-1.5 max-h-[560px] overflow-y-auto">
-                {cards.map((m: Member) => {
-                  const fixed = isFixedInMatrix(m.id);
-                  return (
-                    <div key={m.id}
-                      draggable
-                      onDragStart={(e) => { setDraggedId(m.id); e.dataTransfer.setData("text/plain", m.id); }}
-                      className="bg-white border border-gray-200 rounded-lg p-2 shadow-sm hover:shadow-md cursor-move transition-shadow">
-                      <Link href={`/members/${m.id}`} className="block">
-                        <div className="flex items-center justify-between gap-1 mb-1">
-                          <span className="font-medium text-sm text-aqu-900 truncate">{m.name}</span>
-                          <span className="text-[9px] flex-shrink-0">{m.member_type === "child" ? "🧒" : "👤"}</span>
-                        </div>
-                        {m.phone && <div className="text-[10px] text-gray-500 font-mono">{m.phone}</div>}
-                        {(m.wish_days && m.wish_days.length > 0) && (
-                          <div className="text-[10px] text-gray-600 mt-0.5">📅 {m.wish_days.join(",")}</div>
-                        )}
-                        {fixed && (
-                          <div className="mt-1 text-[9px] inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-semibold">
-                            <Lock className="w-2.5 h-2.5" /> {DAYS[fixed.day - 1]} {fixed.time.slice(0, 5)}
+              {!isCollapsed && (
+                <div className="space-y-1.5 max-h-[560px] overflow-y-auto">
+                  {cards.map((m: Member) => {
+                    const fixed = isFixedInMatrix(m.id);
+                    return (
+                      <div key={m.id}
+                        draggable
+                        onDragStart={(e) => { setDraggedId(m.id); e.dataTransfer.setData("text/plain", m.id); }}
+                        className="bg-white border border-gray-200 rounded-lg p-2 shadow-sm hover:shadow-md cursor-move transition-shadow">
+                        <Link href={`/members/${m.id}`} className="block">
+                          <div className="flex items-center justify-between gap-1 mb-1">
+                            <span className="font-medium text-sm text-aqu-900 truncate">{m.name}</span>
+                            <span className="text-[9px] flex-shrink-0">{m.member_type === "child" ? "🧒" : "👤"}</span>
                           </div>
-                        )}
-                        {m.memo && (
-                          <div className="text-[10px] text-gray-500 mt-1 truncate italic" title={m.memo}>💬 {m.memo}</div>
-                        )}
-                      </Link>
-                    </div>
-                  );
-                })}
-                {cards.length === 0 && (
-                  <div className="text-center text-[10px] text-gray-400 py-8 italic">비어있음</div>
-                )}
-              </div>
+                          {m.phone && <div className="text-[10px] text-gray-500 font-mono">{m.phone}</div>}
+                          {(m.wish_days && m.wish_days.length > 0) && (
+                            <div className="text-[10px] text-gray-600 mt-0.5">📅 {m.wish_days.join(",")}</div>
+                          )}
+                          {fixed && (
+                            <div className="mt-1 text-[9px] inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-semibold">
+                              <Lock className="w-2.5 h-2.5" /> {DAYS[fixed.day - 1]} {fixed.time.slice(0, 5)}
+                            </div>
+                          )}
+                          {m.memo && (
+                            <div className="text-[10px] text-gray-500 mt-1 truncate italic" title={m.memo}>💬 {m.memo}</div>
+                          )}
+                        </Link>
+                        {/* ✅ v3.18.0: 카드 퀵 액션 (통화 · 예약) */}
+                        <div className="flex items-center gap-1 mt-1.5 pt-1.5 border-t border-gray-100">
+                          {m.phone && (
+                            <a href={`tel:${m.phone}`} onClick={e => e.stopPropagation()} className="flex-1 flex items-center justify-center gap-1 text-[10px] px-1.5 py-1 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-semibold">
+                              <Phone className="w-2.5 h-2.5" /> 통화
+                            </a>
+                          )}
+                          <Link href={`/schedule?member=${m.id}`} onClick={e => e.stopPropagation()} className="flex-1 flex items-center justify-center gap-1 text-[10px] px-1.5 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold">
+                            <Calendar className="w-2.5 h-2.5" /> 예약
+                          </Link>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {cards.length === 0 && (
+                    <div className="text-center text-[10px] text-gray-400 py-8 italic">비어있음</div>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
       </div>
 
       <div className="mt-3 text-[11px] text-gray-500 text-center">
-        💡 카드를 드래그해서 상태를 변경할 수 있습니다 · 카드 클릭 시 회원 상세페이지로 이동
+        💡 카드를 드래그해서 상태를 변경할 수 있습니다 · 컬럼 헤더 클릭으로 접기/펼치기 · 📞/📅 버튼으로 빠른 액션
       </div>
     </div>
   );
@@ -467,6 +537,9 @@ function MatchView({ matrix, members, staff, waiters, stats, getCell, getMatched
     return m;
   }, [members]);
 
+  // ✅ v3.18.0: 담당 선생님 필터
+  const [staffFilter, setStaffFilter] = useState<string>("");
+
   return (
     <div className="max-w-7xl mx-auto">
       {/* KPI */}
@@ -475,6 +548,24 @@ function MatchView({ matrix, members, staff, waiters, stats, getCell, getMatched
         <StatCard color="from-blue-500 to-cyan-500" label="🟢 빈자리(OPEN)" value={`${stats.openCells}칸`} />
         <StatCard color="from-orange-500 to-amber-500" label="⭐ 매칭 가능" value={`${stats.matchedOpen}칸`} />
         <StatCard color="from-purple-500 to-pink-500" label="⏳ 대기자" value={`${stats.waitersCount}명`} />
+      </div>
+
+      {/* ✅ v3.18.0: 담당 선생님 필터 */}
+      <div className="mb-3 flex items-center gap-2 flex-wrap bg-white border border-aqu-100 rounded-xl p-2">
+        <span className="text-xs text-gray-600 font-semibold px-1">👨‍⚕️ 담당 선생님</span>
+        <button onClick={() => setStaffFilter("")} className={`px-2.5 py-1 text-[11px] rounded-full border ${staffFilter === "" ? "bg-aqu-600 text-white border-aqu-600" : "bg-white text-gray-600 border-gray-200 hover:border-aqu-300"}`}>전체</button>
+        {staff.filter((s: any) => !s.is_resigned).map((s: any) => {
+          const isSel = staffFilter === s.id;
+          const color = s.color || "#3b82f6";
+          return (
+            <button key={s.id} onClick={() => setStaffFilter(isSel ? "" : s.id)}
+              style={isSel ? { backgroundColor: color, borderColor: color, color: "#fff" } : { borderColor: color, color: color }}
+              className="px-2.5 py-1 text-[11px] rounded-full border-2 font-semibold hover:shadow flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: isSel ? "#fff" : color }} />
+              {s.name}
+            </button>
+          );
+        })}
       </div>
 
       {/* 매트릭스 */}
@@ -510,7 +601,8 @@ function MatchView({ matrix, members, staff, waiters, stats, getCell, getMatched
                         className={`p-1 border-b border-r border-aqu-100 align-top cursor-pointer min-w-[110px] transition-colors
                           ${status === "fixed" ? "bg-emerald-50 hover:bg-emerald-100" : ""}
                           ${status === "open" ? "bg-blue-50 hover:bg-blue-100" : ""}
-                          ${status === "closed" ? "bg-gray-100 hover:bg-gray-200" : ""}`}
+                          ${status === "closed" ? "bg-gray-100 hover:bg-gray-200" : ""}
+                          ${staffFilter && status === "fixed" && cell?.staff_id !== staffFilter && member?.staff_id !== staffFilter ? "opacity-30" : ""}`}
                         style={status === "fixed" && staffColor ? {
                           backgroundColor: staffColor + "22",
                           borderLeftColor: staffColor,
@@ -519,26 +611,34 @@ function MatchView({ matrix, members, staff, waiters, stats, getCell, getMatched
                       >
                         {status === "fixed" && (
                           <div className="text-[11px]">
-                            <div className="flex items-center gap-0.5 text-emerald-800 font-semibold">
-                              <Lock className="w-2.5 h-2.5" /> {cell?.fixed_name || "고정"}
+                            <div className="flex items-center gap-0.5 text-emerald-800 font-bold">
+                              <Lock className="w-3 h-3" /> {cell?.fixed_name || "고정"}
                             </div>
+                            {(cell?.staff_id && staffMap[cell.staff_id]?.name) && (
+                              <div className="text-[9px] text-emerald-600 mt-0.5">👨‍⚕️ {staffMap[cell.staff_id].name}</div>
+                            )}
                           </div>
                         )}
                         {status === "open" && (
                           <div className="text-[10px]">
-                            <div className="text-blue-700 font-semibold mb-0.5">🟢 OPEN</div>
                             {matched.length === 0 ? (
-                              <div className="text-gray-400 italic">대기자 없음</div>
+                              <>
+                                <div className="text-blue-700 font-bold">🟢 OPEN</div>
+                                <div className="text-gray-400 italic text-[9px]">대기자 없음</div>
+                              </>
                             ) : (
-                              <div className="space-y-0.5">
-                                {matched.slice(0, 3).map((w: any, i: number) => (
-                                  <div key={w.id} className="flex items-center gap-1">
-                                    <span className={`inline-block w-3.5 h-3.5 rounded-full text-white text-[8px] text-center font-bold leading-[14px] ${i === 0 ? "bg-red-500" : i === 1 ? "bg-orange-500" : "bg-gray-400"}`}>{w.priority}</span>
-                                    <span className="truncate">{w.name}</span>
-                                  </div>
-                                ))}
-                                {matched.length > 3 && <div className="text-gray-500 text-[9px]">+{matched.length - 3}명</div>}
-                              </div>
+                              <>
+                                <div className="text-blue-700 font-bold mb-0.5">🟢 OPEN (대기 {matched.length}명)</div>
+                                <div className="space-y-0.5">
+                                  {matched.slice(0, 2).map((w: any, i: number) => (
+                                    <div key={w.id} className="flex items-center gap-1">
+                                      <span className={`inline-block w-3.5 h-3.5 rounded-full text-white text-[8px] text-center font-bold leading-[14px] ${i === 0 ? "bg-red-500" : "bg-orange-500"}`}>{w.priority}</span>
+                                      <span className="truncate">{w.name}</span>
+                                    </div>
+                                  ))}
+                                  {matched.length > 2 && <div className="text-gray-500 text-[9px]">+{matched.length - 2}명</div>}
+                                </div>
+                              </>
                             )}
                           </div>
                         )}
@@ -604,16 +704,36 @@ function DashboardView({ members, stats, onMove }: any) {
             <div className="space-y-1.5 max-h-64 overflow-y-auto">
               {stats.stale.slice(0, 8).map((m: Member) => {
                 const days = m.created_at ? Math.floor((Date.now() - new Date(m.created_at).getTime()) / 86400000) : 0;
+                // ✅ v3.18.0: D+400 장기 대기자는 빨간 배경으로 강조
+                const critical = days >= 400;
                 return (
-                  <Link href={`/members/${m.id}`} key={m.id}
-                    className="flex items-center justify-between bg-red-50 hover:bg-red-100 rounded-lg p-2 border border-red-100">
-                    <div className="flex items-center gap-2 min-w-0">
+                  <div key={m.id}
+                    className={`flex items-center justify-between rounded-lg p-2 border ${critical ? "bg-red-100 border-red-300" : "bg-red-50 border-red-100"}`}>
+                    <Link href={`/members/${m.id}`} className="flex items-center gap-2 min-w-0 flex-1 hover:underline">
                       <span className="text-xs">{m.member_type === "child" ? "🧒" : "👤"}</span>
                       <span className="text-sm font-medium truncate">{m.name}</span>
                       {m.phone && <span className="text-[10px] text-gray-500 font-mono flex-shrink-0">{m.phone}</span>}
+                      <span className={`text-xs font-bold flex-shrink-0 ${critical ? "text-red-800" : "text-red-600"}`}>D+{days}</span>
+                    </Link>
+                    {/* ✅ v3.18.0: 장기 대기자 즉시 처리 버튼 (D+400이상 특별 강조) */}
+                    <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+                      {m.phone && (
+                        <a href={`tel:${m.phone}`}
+                          className="text-[10px] px-2 py-1 bg-emerald-500 text-white rounded hover:bg-emerald-600 font-semibold flex items-center gap-0.5"
+                          title="재연락">
+                          <Phone className="w-2.5 h-2.5" /> 연락
+                        </a>
+                      )}
+                      <button
+                        onClick={() => {
+                          if (confirm(`${m.name} 님을 대기종료 상태로 변경하시겠습니까?`)) onMove(m.id, "ended");
+                        }}
+                        className="text-[10px] px-2 py-1 bg-gray-500 text-white rounded hover:bg-gray-600 font-semibold"
+                        title="대기종료 전환">
+                        대기종료
+                      </button>
                     </div>
-                    <span className="text-xs font-bold text-red-600 flex-shrink-0">D+{days}</span>
-                  </Link>
+                  </div>
                 );
               })}
             </div>

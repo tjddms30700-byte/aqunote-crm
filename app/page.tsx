@@ -12,59 +12,54 @@ import {
 } from "lucide-react";
 import Logo from "@/components/Logo";
 import BranchSwitcher from "@/components/BranchSwitcher";
+import GlobalQuickSearch from "@/components/GlobalQuickSearch";
 
-/* ═════ 6개 대분류 ═════ */
+/* ═════ v3.18.0: 5대분류 재구성 ═════ */
 const GROUPS = [
   {
     key: "members",
     title: "회원 · 수업",
-    subtitle: "회원 관리부터 IEP·행동중재까지",
+    subtitle: "상담 · 회원 · 시간표 · IEP · 안전",
     icon: Users,
     from: "from-purple-500",
     to: "to-fuchsia-600",
     accent: "text-purple-600",
     bg: "bg-purple-50",
     items: [
-      { href: "/inbox",           icon: Inbox,          title: "📥 신규 유입",  desc: "구글시트 자동 연동", badgeKey: "inbox_pending" },
-      { href: "/members",         icon: Users,          title: "회원 관리",    desc: "아동·성인 통합" },
-      { href: "/consultations",   icon: ClipboardList,  title: "🎯 상담·매칭",   desc: "칸반·시간표·대기자 통합" },
-      { href: "/schedule",        icon: Calendar,       title: "시간표",       desc: "월간·주간·일간" },
-
-      { href: "/attendance",      icon: ClipboardCheck, title: "회원 출결",    desc: "출석·결석·병결" },
-      { href: "/iep-behavior",    icon: Target,         title: "IEP · 행동중재", desc: "목표 · ABC기록 통합" },
-      { href: "/documents",       icon: FileText,       title: "문서 관리",    desc: "영수증·계약서" },
-      { href: "/incidents",       icon: AlertTriangle,  title: "🚨 안전사고 로그", desc: "응급기록·보험 리포트" },
+      { href: "/consultations",   icon: ClipboardList,  title: "🎯 상담 · 리드",  desc: "신규유입 + 상담매칭 통합", badgeKey: "inbox_pending" },
+      { href: "/members",         icon: Users,          title: "회원 DB · 출결",   desc: "아동·성인 + 출석 이력" },
+      { href: "/schedule",        icon: Calendar,       title: "통합 시간표",       desc: "월·주·일 + 더블클릭 새 일정" },
+      { href: "/iep-behavior",    icon: Target,         title: "IEP · 행동중재",   desc: "목표·ABC·수업일지" },
+      { href: "/incidents",       icon: AlertTriangle,  title: "🚨 안전사고",       desc: "응급기록·보험 리포트" },
     ],
   },
   {
     key: "finance",
     title: "결제 · 재무",
-    subtitle: "결제부터 매출 분석까지",
+    subtitle: "결제 · 매출 분석 · 수강권 · 자동 정산",
     icon: Wallet,
     from: "from-pink-500",
     to: "to-rose-600",
     accent: "text-pink-600",
     bg: "bg-pink-50",
     items: [
-      { href: "/payments",          icon: CreditCard,  title: "결제 관리",  desc: "결제 수단·이력" },
-      { href: "/sales",             icon: DollarSign,  title: "매출내역",  desc: "총합계·다중수단" },
-      { href: "/plans",             icon: Ticket,      title: "회원권",    desc: "횟수·금액 설정" },
-      { href: "/renewals",          icon: RefreshCw,   title: "정기 결제",  desc: "자동갱신·만료임박" },
-      { href: "/finance",           icon: DollarSign,  title: "재무 관리",  desc: "수입·지출·손익" },
-      { href: "/dashboard/revenue", icon: TrendingUp,  title: "매출 통계",  desc: "월별·주별 추이" },
+      { href: "/payments",          icon: CreditCard,  title: "결제 · 매출 분석",  desc: "결제·매출·통계 통합" },
+      { href: "/plans",             icon: Ticket,      title: "회원권 · 수강권",  desc: "횟수·금액·프로모션" },
+      { href: "/finance",           icon: DollarSign,  title: "센터 재무 · 자동정산", desc: "수입·지출·정기결제" },
+      { href: "/documents?tab=receipt", icon: FileText, title: "영수증 · 결제문서", desc: "결제 관련 문서 자동 분류" },
     ],
   },
   {
     key: "staff",
     title: "직원 · 근무",
-    subtitle: "인사·근태·소통을 한 곳에",
+    subtitle: "인사 · 근태 · 강사별 수당 자동 계산",
     icon: UserCog,
     from: "from-blue-500",
     to: "to-indigo-600",
     accent: "text-blue-600",
     bg: "bg-blue-50",
     items: [
-      { href: "/staff",            icon: Briefcase,     title: "직원 · 급여",  desc: "원장·치료사·관리자" },
+      { href: "/staff",            icon: Briefcase,     title: "직원 · 급여 · 수당",  desc: "출결·시간표 연동 자동계산" },
       { href: "/attendance-staff", icon: Clock,         title: "직원 출퇴근",  desc: "출퇴근·근태 통계" },
       { href: "/leave",            icon: FileCheck,     title: "휴가 · 결재",   desc: "전자결재·휴가 신청" },
       { href: "/board",            icon: MessageSquare, title: "사내 게시판",  desc: "공지·Q&A·건의" },
@@ -80,14 +75,14 @@ const GROUPS = [
     accent: "text-teal-600",
     bg: "bg-teal-50",
     items: [
-      { href: "/dashboard", icon: BarChart3, title: "통합 대시보드", desc: "전체 현황 KPI" },
+      { href: "/dashboard", icon: BarChart3, title: "통합 대시보드", desc: "전체 현황 KPI + D+400 처리" },
       { href: "/reports",   icon: FileText,  title: "보고서 생성",   desc: "IEP·일지·행동 보고서" },
     ],
   },
   {
     key: "settings",
     title: "설정",
-    subtitle: "센터 정보 · 로고 · 지점",
+    subtitle: "센터 정보 · 로고 · 지점 · 백업",
     icon: Settings,
     from: "from-slate-500",
     to: "to-gray-700",
@@ -96,6 +91,7 @@ const GROUPS = [
     items: [
       { href: "/settings", icon: Settings, title: "환경 설정", desc: "로고·지점·센터명" },
       { href: "/backup",   icon: Database, title: "💾 자동 백업", desc: "DB 스냅샷·Drive/S3" },
+      { href: "/documents", icon: FileText, title: "문서 관리", desc: "전체 문서 통합 뷰" },
     ],
   },
 ];
@@ -152,7 +148,11 @@ export default function Home() {
   return (
     <main className="max-w-7xl mx-auto px-4 md:px-6 py-6 md:py-10">
       {/* Top nav */}
-      <div className="flex items-center justify-end mb-6">
+      <div className="flex items-center justify-between mb-6 gap-2">
+        {/* ✅ v3.18.0: 글로벌 퀵 서치 (좌측) */}
+        <div className="flex-1">
+          {user && <GlobalQuickSearch />}
+        </div>
         {user ? (
           <div className="flex items-center gap-3">
             <div className="text-sm text-gray-600 flex items-center gap-1">

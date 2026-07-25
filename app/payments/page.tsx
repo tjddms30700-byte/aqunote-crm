@@ -507,7 +507,7 @@ export default function PaymentsPage() {
             <CreditCard className="w-6 h-6 md:w-7 md:h-7 text-pink-500" /> 결제 · 회원권
           </h1>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Link href="/plans"
             className="px-3 py-2 bg-white border border-aqu-200 text-aqu-700 rounded-lg text-xs md:text-sm hover:bg-aqu-50 flex items-center gap-1">
             <Ticket className="w-4 h-4" /> 회원권 관리
@@ -517,6 +517,30 @@ export default function PaymentsPage() {
             <Plus className="w-4 h-4" /> 결제 등록
           </button>
         </div>
+      </div>
+
+      {/* ✅ v3.18.0: 결제 · 매출 분석 통합 바로가기 */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+        <Link href="/sales" className="bg-gradient-to-br from-pink-50 to-rose-50 border border-pink-200 rounded-lg p-3 hover:shadow-md hover:border-pink-400 transition group">
+          <div className="text-[10px] text-pink-600 font-semibold flex items-center gap-1">📊 매출내역</div>
+          <div className="text-xs md:text-sm font-bold text-slate-800 mt-1">다중수단 상세 보기</div>
+          <div className="text-[10px] text-gray-500 mt-0.5 group-hover:text-pink-600">→</div>
+        </Link>
+        <Link href="/dashboard/revenue" className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 rounded-lg p-3 hover:shadow-md hover:border-emerald-400 transition group">
+          <div className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">📈 매출 통계</div>
+          <div className="text-xs md:text-sm font-bold text-slate-800 mt-1">월별 · 주별 추이</div>
+          <div className="text-[10px] text-gray-500 mt-0.5 group-hover:text-emerald-600">→</div>
+        </Link>
+        <Link href="/renewals" className="bg-gradient-to-br from-blue-50 to-cyan-50 border border-blue-200 rounded-lg p-3 hover:shadow-md hover:border-blue-400 transition group">
+          <div className="text-[10px] text-blue-600 font-semibold flex items-center gap-1">🔄 정기 결제</div>
+          <div className="text-xs md:text-sm font-bold text-slate-800 mt-1">자동갱신 · 만료임박</div>
+          <div className="text-[10px] text-gray-500 mt-0.5 group-hover:text-blue-600">→</div>
+        </Link>
+        <Link href="/finance" className="bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-200 rounded-lg p-3 hover:shadow-md hover:border-purple-400 transition group">
+          <div className="text-[10px] text-purple-600 font-semibold flex items-center gap-1">💼 재무 관리</div>
+          <div className="text-xs md:text-sm font-bold text-slate-800 mt-1">수입 · 지출 · 손익</div>
+          <div className="text-[10px] text-gray-500 mt-0.5 group-hover:text-purple-600">→</div>
+        </Link>
       </div>
 
       {/* KPI */}

@@ -2,6 +2,7 @@
 export const dynamic = "force-dynamic";
 
 import { useEffect, useState, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import MemberSearch from "@/components/MemberSearch";
@@ -25,13 +26,16 @@ function catLabel(cat: string) {
 }
 
 export default function DocumentsPage() {
+  const searchParams = useSearchParams();
   const [docs, setDocs]         = useState<any[]>([]);
   const [members, setMembers]   = useState<any[]>([]);
   const [loading, setLoading]   = useState(true);
   const [uploading, setUploading] = useState(false);
 
   // Filters
-  const [filterCat, setFilterCat]       = useState("");
+  // ✅ v3.18.0: URL 쿼리 ⇒ 자동 분류 (예: ?tab=receipt → 영수증만)
+  const initialCat = searchParams?.get("tab") || searchParams?.get("cat") || "";
+  const [filterCat, setFilterCat]       = useState(initialCat);
   const [filterMember, setFilterMember] = useState("");
   const [search, setSearch]             = useState("");
 

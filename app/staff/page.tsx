@@ -81,7 +81,12 @@ export default function StaffPage() {
   const [filterMonth, setFilterMonth] = useState(new Date().getMonth() + 1);
   const [filterStaffId, setFilterStaffId] = useState("");
 
-  useEffect(() => { loadAll(); checkDirector(); }, []);
+  // ✅ v3.18.0: 강사별 세션 자동 계산용 state (상단에 선언)
+  const [slots, setSlots] = useState<any[]>([]);
+  const [slotsMonth, setSlotsMonth] = useState<string>(new Date().toISOString().slice(0, 7));
+
+  useEffect(() => { loadAll(); }, [slotsMonth]);
+  useEffect(() => { checkDirector(); }, []);
 
   async function checkDirector() {
     const { data: userData } = await supabase.auth.getUser();
@@ -92,14 +97,20 @@ export default function StaffPage() {
 
   async function loadAll() {
     setLoading(true);
-    const [s, ph, al] = await Promise.all([
+    const [s, ph, al, sl] = await Promise.all([
       supabase.from("staff").select("*").order("created_at", { ascending: false }),
       supabase.from("payroll_history").select("*").order("pay_year", { ascending: false }).order("pay_month", { ascending: false }),
       supabase.from("attendance_logs").select("*").order("work_date", { ascending: false }),
+      // ✅ v3.18.0: 이번달 시간표 슬롯 (강사별 수업·수당 계산용)
+      supabase.from("schedule_slots").select("staff_id, status, event_date, event_type")
+        .gte("event_date", slotsMonth + "-01")
+        .lt("event_date", slotsMonth + "-32")
+        .is("deleted_at", null),
     ]);
     setStaff(s.data || []);
     setPayrollHistory(ph.data || []);
     setAttendanceLogs(al.data || []);
+    setSlots(sl.data || []);
     setLoading(false);
   }
 
@@ -321,6 +332,86 @@ export default function StaffPage() {
         <KPI icon="👋" label="퇴사자" val={resignedStaff.length} color="from-gray-400 to-slate-500" />
         <KPI icon="💰" label={`${filterYear}년 급여 지급`} val={`${payrollHistory.filter(p => p.pay_year === filterYear).length}건`} color="from-pink-400 to-rose-500" />
         <KPI icon="⏰" label="이번 달 근태" val={`${attendanceLogs.filter(a => a.work_date?.startsWith(`${filterYear}-${String(filterMonth).padStart(2,"0")}`)).length}건`} color="from-blue-400 to-cyan-500" />
+      </div>
+
+      {/* ✅ v3.18.0: 강사별 수업 · 수당 자동 계산 */}
+      <div className="bg-white border border-aqu-100 rounded-2xl p-4 mb-6 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <div className="flex items-center gap-2">
+            <div className="text-sm font-bold text-aqu-900">📊 강사별 자동 수당 계산</div>
+            <span className="text-[10px] text-gray-500">시간표·출결 연동 자동 집계</span>
+          </div>
+          <input type="month" value={slotsMonth} onChange={e => setSlotsMonth(e.target.value)}
+            className="px-2 py-1 text-xs border border-gray-200 rounded-lg" />
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-aqu-50 text-aqu-800">
+                <th className="px-2 py-2 text-left">강사</th>
+                <th className="px-2 py-2 text-center">예약</th>
+                <th className="px-2 py-2 text-center">완료</th>
+                <th className="px-2 py-2 text-center">노쇼</th>
+                <th className="px-2 py-2 text-center">병결</th>
+                <th className="px-2 py-2 text-right">회당단가</th>
+                <th className="px-2 py-2 text-right">자동 수당</th>
+              </tr>
+            </thead>
+            <tbody>
+              {activeStaff.length === 0 ? (
+                <tr><td colSpan={7} className="text-center py-4 text-gray-400">재직 직원이 없습니다</td></tr>
+              ) : activeStaff.map((s: any) => {
+                const mySlots = slots.filter((sl: any) => sl.staff_id === s.id && (sl.event_type === "lesson" || sl.event_type === "trial" || sl.event_type === "makeup"));
+                const total = mySlots.length;
+                const done = mySlots.filter((sl: any) => ["done", "completed", "present"].includes((sl.status || "").toLowerCase())).length;
+                const noshow = mySlots.filter((sl: any) => ["noshow", "absent"].includes((sl.status || "").toLowerCase())).length;
+                const sick = mySlots.filter((sl: any) => (sl.status || "").toLowerCase() === "sick").length;
+                // 세션당 단가: salary_type='session'이면 salary_amount, 아니면 30000 기본
+                const unit = s.salary_type === "session" ? Number(s.salary_amount || 0) : (Number(s.session_rate) || 30000);
+                const auto = done * unit;
+                const color = s.color || "#3b82f6";
+                return (
+                  <tr key={s.id} className="border-t border-gray-100 hover:bg-aqu-50/30">
+                    <td className="px-2 py-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                        <span className="font-semibold text-slate-800">{s.name}</span>
+                        <span className="text-[10px] text-gray-500">({s.role || "직원"})</span>
+                      </div>
+                    </td>
+                    <td className="px-2 py-2 text-center text-slate-600">{total}</td>
+                    <td className="px-2 py-2 text-center text-emerald-700 font-semibold">{done}</td>
+                    <td className="px-2 py-2 text-center text-red-600">{noshow}</td>
+                    <td className="px-2 py-2 text-center text-orange-600">{sick}</td>
+                    <td className="px-2 py-2 text-right text-gray-500">₩{unit.toLocaleString()}</td>
+                    <td className="px-2 py-2 text-right font-bold text-aqu-800">₩{auto.toLocaleString()}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            {activeStaff.length > 0 && (
+              <tfoot>
+                <tr className="bg-aqu-50 font-bold">
+                  <td colSpan={2} className="px-2 py-2 text-aqu-800">합계</td>
+                  <td className="px-2 py-2 text-center text-emerald-700">
+                    {activeStaff.reduce((sum, s: any) => sum + slots.filter((sl: any) => sl.staff_id === s.id && ["done","completed","present"].includes((sl.status||"").toLowerCase()) && ["lesson","trial","makeup"].includes(sl.event_type)).length, 0)}
+                  </td>
+                  <td colSpan={3}></td>
+                  <td className="px-2 py-2 text-right text-aqu-900">
+                    ₩{activeStaff.reduce((sum, s: any) => {
+                      const done = slots.filter((sl: any) => sl.staff_id === s.id && ["done","completed","present"].includes((sl.status||"").toLowerCase()) && ["lesson","trial","makeup"].includes(sl.event_type)).length;
+                      const unit = s.salary_type === "session" ? Number(s.salary_amount || 0) : (Number(s.session_rate) || 30000);
+                      return sum + done * unit;
+                    }, 0).toLocaleString()}
+                  </td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+        <div className="text-[10px] text-gray-500 mt-2">
+          💡 수당 = 완료 수업 수 × 회당단가 · salary_type="session"으로 설정된 강사는 salary_amount를, 그 외는 30,000원 기본값 적용
+        </div>
       </div>
 
       {/* 탭 */}

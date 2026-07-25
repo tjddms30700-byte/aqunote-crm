@@ -1,7 +1,7 @@
 "use client";
 export const dynamic = "force-dynamic";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import MemberSearch from "@/components/MemberSearch";
@@ -118,6 +118,8 @@ export default function SchedulePage() {
   // Quick action sheet (예약 클릭 시)
   const [quickAction, setQuickAction] = useState<any | null>(null);
   const [actionSheet, setActionSheet] = useState<{ date: string; time?: string } | null>(null);
+  // ✅ v3.17.1: 더블클릭 시 onClick 지연 취소용 ref
+  const clickTimerRef = useRef<any>(null);
   const [payments, setPayments] = useState<any[]>([]);
   const [attendance, setAttendance] = useState<any[]>([]);
   // ✅ v3.16.1: 인라인 결제 등록 모달
@@ -897,9 +899,23 @@ export default function SchedulePage() {
 
                 return (
                   <div key={idx}
-                    onClick={() => { setSelectedDate(cellStr); if (!isOtherMonth) setActionSheet({ date: cellStr }); }}
-                    onDoubleClick={(e) => { e.stopPropagation(); if (!isOtherMonth) { setActionSheet(null); openNewModal(cellStr); } }}
-                    title="클릭: 유형 선택 · 더블클릭: 바로 새 일정 등록"
+                    onClick={() => {
+                      setSelectedDate(cellStr);
+                      if (isOtherMonth) return;
+                      // 더블클릭 대기 (250ms): 더블클릭이 오면 취소되어 바로 새 일정 모달이 뜼게 함
+                      if (clickTimerRef.current) clearTimeout(clickTimerRef.current);
+                      clickTimerRef.current = setTimeout(() => {
+                        openNewModal(cellStr);
+                        clickTimerRef.current = null;
+                      }, 250);
+                    }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      // onClick 예약된 지연 호출을 취소
+                      if (clickTimerRef.current) { clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
+                      if (!isOtherMonth) { setActionSheet(null); openNewModal(cellStr); }
+                    }}
+                    title="클릭: 새 일정 모달 오픈 (더블클릭 동일)"
                     onDragOver={(e) => handleDragOver(cellStr, e)}
                     onDragLeave={() => dragOverDate === cellStr && setDragOverDate(null)}
                     onDrop={(e) => handleDrop(cellStr, e)}
@@ -1034,7 +1050,7 @@ export default function SchedulePage() {
           slots={slots}
           members={members}
           staff={staff}
-          onCellClick={(date, time) => openDateActionSheet(date, time)}
+          onCellClick={(date, time) => openNewModal(date, time)}
           onCellDoubleClick={(date, time) => openNewModal(date, time)}
           onEdit={openEditModal}
           memberName={memberName}
@@ -1046,7 +1062,7 @@ export default function SchedulePage() {
           slots={slots}
           members={members}
           staff={staff}
-          onCellClick={(date, time) => openDateActionSheet(date, time)}
+          onCellClick={(date, time) => openNewModal(date, time)}
           onCellDoubleClick={(date, time) => openNewModal(date, time)}
           onEdit={openEditModal}
           memberName={memberName}
@@ -1666,12 +1682,10 @@ function SlotModal({ f, setF, modal, members, staff, plans, onClose, onSave, onD
               <Field label="유형">
                 <select value={f.event_type} onChange={e => setF({ ...f, event_type: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none bg-white">
-                  {/* ✅ v3.17.0: 매출등록 제거, 보강 추가 */}
+                  {/* ✅ v3.17.1: 수업/체험/보강/기타만 노출 (직원 근무·휴무 제거) */}
                   <option value="lesson">🏊 수업</option>
                   <option value="trial">🎯 체험</option>
                   <option value="makeup">🔄 보강</option>
-                  <option value="staff_work">👤 직원 근무</option>
-                  <option value="staff_off">🏖️ 직원 휴무</option>
                   <option value="other">📌 기타</option>
                 </select>
               </Field>
@@ -1697,18 +1711,43 @@ function SlotModal({ f, setF, modal, members, staff, plans, onClose, onSave, onD
                   </div>
                 )}
                 <Field label={`담당 강사 (${availableStaff.length}명)`}>
-                  <select value={f.staff_id} onChange={e => setF({ ...f, staff_id: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none bg-white">
-                    <option value="">-- 강사 선택 --</option>
-                    {availableStaff.map((s: any) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name} ({s.role || "직원"})
-                        {s.is_resigned && s.resign_date ? ` ⚠️ ${s.resign_date} 퇴사예정` : ""}
-                      </option>
-                    ))}
-                  </select>
-                  {availableStaff.length === 0 && (
-                    <p className="text-xs text-red-500 mt-1">⚠️ 해당 날짜에 재직 강사가 없습니다</p>
+                  {/* ✅ v3.17.1: 드롭다운 → 프로필 태그 버튼으로 변경 (강사 색상 반영) */}
+                  {availableStaff.length === 0 ? (
+                    <div className="text-xs text-red-500 py-2">⚠️ 해당 날짜에 재직 강사가 없습니다</div>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setF({ ...f, staff_id: "" })}
+                        className={`px-2.5 py-1.5 rounded-full text-xs font-medium border-2 transition ${f.staff_id === "" ? "bg-gray-800 text-white border-gray-800" : "bg-white text-gray-500 border-gray-200 hover:border-gray-400"}`}
+                      >
+                        — 미지정
+                      </button>
+                      {availableStaff.map((s: any) => {
+                        const isSel = f.staff_id === s.id;
+                        const color = s.color || "#3b82f6";
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => setF({ ...f, staff_id: s.id })}
+                            title={`${s.name} · ${s.role || "직원"}${s.is_resigned && s.resign_date ? ` ⚠️ ${s.resign_date} 퇴사예정` : ""}`}
+                            style={isSel ? { backgroundColor: color, borderColor: color, color: "#fff" } : { borderColor: color, color: color }}
+                            className="px-3 py-1.5 rounded-full text-xs font-semibold border-2 transition hover:shadow-md flex items-center gap-1.5"
+                          >
+                            <span
+                              className="w-2 h-2 rounded-full"
+                              style={{ backgroundColor: isSel ? "#fff" : color }}
+                            />
+                            {s.name}
+                            <span className="text-[10px] opacity-80">({s.role || "직원"})</span>
+                            {s.is_resigned && s.resign_date && (
+                              <span className="text-[9px] ml-0.5">⚠️</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
                   )}
                 </Field>
               </div>
@@ -2348,29 +2387,9 @@ function DateActionSheet({ date, time, onReservation, onRevenue, onStaffSchedule
             <span className="text-gray-400">→</span>
           </button>
 
-          <button onClick={onRevenue}
-            className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-pink-200 hover:bg-pink-50 hover:border-pink-400 transition">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-pink-500 to-rose-500 flex items-center justify-center text-white text-xl shadow">
-              💰
-            </div>
-            <div className="flex-1 text-left">
-              <div className="font-bold text-slate-900">매출 등록</div>
-              <div className="text-xs text-gray-500">결제 · 회원권 · 제품 판매</div>
-            </div>
-            <span className="text-gray-400">→</span>
-          </button>
-
-          <button onClick={onStaffSchedule}
-            className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-purple-200 hover:bg-purple-50 hover:border-purple-400 transition">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-500 flex items-center justify-center text-white text-xl shadow">
-              👥
-            </div>
-            <div className="flex-1 text-left">
-              <div className="font-bold text-slate-900">직원 일정 등록</div>
-              <div className="text-xs text-gray-500">근무 · 휴무 · 회의</div>
-            </div>
-            <span className="text-gray-400">→</span>
-          </button>
+          <div className="text-[11px] text-gray-500 text-center pt-1">
+            💡 달력/셀을 <b>더블클릭</b>하면 이 팝업 없이 바로 새 일정 모달이 런칭됩니다
+          </div>
         </div>
       </div>
     </div>
