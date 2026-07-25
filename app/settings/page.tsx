@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import HomeButton from "@/components/HomeButton";
 
-type TabKey = "org" | "branches" | "accounts" | "logo";
+type TabKey = "org" | "branches" | "accounts" | "logo" | "policy";
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<TabKey>("org");
@@ -366,6 +366,7 @@ export default function SettingsPage() {
         {[
           { k: "org",      label: "🏢 센터 정보", icon: Building2 },
           { k: "branches", label: "🏪 지점 관리", icon: Store },
+          { k: "policy",   label: "⚙️ 지점 정책", icon: Settings },
           { k: "accounts", label: "🔑 로그인 계정", icon: KeyRound },
           { k: "logo",     label: "🖼 로고", icon: ImageIcon },
         ].map(t => (
@@ -655,6 +656,78 @@ export default function SettingsPage() {
                 </table>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ═══ [3-B] v3.19.0: 지점별 정책 탭 ═══ */}
+      {tab === "policy" && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 md:p-7">
+          <h2 className="text-lg font-bold text-slate-900 mb-2 flex items-center gap-2">
+            <Settings className="w-5 h-5 text-slate-600" /> 지점별 정책 설정
+          </h2>
+          <p className="text-xs text-gray-500 mb-4">
+            회원권·시간표·직원 수당 설정은 <b>지점별로 독립 관리</b>됩니다. 상단 지점 스위쳐에서 대상 지점을 먼저 선택하세요.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* 회원권 설정 */}
+            <Link href="/plans" className="group bg-gradient-to-br from-purple-50 to-pink-50 border-2 border-purple-200 rounded-xl p-4 hover:shadow-md hover:border-purple-400 transition">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white text-2xl mb-2 shadow">🎫</div>
+              <div className="text-sm font-bold text-purple-900">회원권 설정</div>
+              <div className="text-[11px] text-purple-700 mt-1">횟수권·정액권·기간권 상품 등록</div>
+              <div className="text-[10px] text-purple-500 mt-1">→ 가격·횟수·유효기간·프로모션</div>
+              <div className="mt-2 text-[10px] text-gray-500 group-hover:text-purple-600">지점별로 다른 가격표 설정 가능</div>
+            </Link>
+
+            {/* 시간표 설정 */}
+            <Link href="/schedule" className="group bg-gradient-to-br from-blue-50 to-cyan-50 border-2 border-blue-200 rounded-xl p-4 hover:shadow-md hover:border-blue-400 transition">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-2xl mb-2 shadow">🗓️</div>
+              <div className="text-sm font-bold text-blue-900">시간표 설정</div>
+              <div className="text-[11px] text-blue-700 mt-1">운영 시간대·수업 구성 관리</div>
+              <div className="text-[10px] text-blue-500 mt-1">→ 월·주·일 뷰·더블클릭 새일정</div>
+              <div className="mt-2 text-[10px] text-gray-500 group-hover:text-blue-600">지점별 운영 시간 및 수업 슬롯 구성</div>
+            </Link>
+
+            {/* 직원 수당 설정 */}
+            <Link href="/staff" className="group bg-gradient-to-br from-indigo-50 to-blue-50 border-2 border-indigo-200 rounded-xl p-4 hover:shadow-md hover:border-indigo-400 transition">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-500 flex items-center justify-center text-white text-2xl mb-2 shadow">💰</div>
+              <div className="text-sm font-bold text-indigo-900">직원 수당 (인센티브) 설정</div>
+              <div className="text-[11px] text-indigo-700 mt-1">강사별 회당 단가·인센티브율</div>
+              <div className="text-[10px] text-indigo-500 mt-1">→ 자동 수당 계산·월말 정산</div>
+              <div className="mt-2 text-[10px] text-gray-500 group-hover:text-indigo-600">강사마다 다른 단가·지점별 정책 적용</div>
+            </Link>
+
+            {/* 안전사고 플로우 */}
+            <Link href="/incidents" className="group bg-gradient-to-br from-red-50 to-orange-50 border-2 border-red-200 rounded-xl p-4 hover:shadow-md hover:border-red-400 transition">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center text-white text-2xl mb-2 shadow">🚨</div>
+              <div className="text-sm font-bold text-red-900">안전사고 정책</div>
+              <div className="text-[11px] text-red-700 mt-1">응급기록·보험 리포트</div>
+              <div className="text-[10px] text-red-500 mt-1">→ 사고 유형·심각도·응대 프리셋</div>
+              <div className="mt-2 text-[10px] text-gray-500 group-hover:text-red-600">지점별 보험사·응급 연락망 관리</div>
+            </Link>
+
+            {/* 문서 분류 */}
+            <Link href="/documents" className="group bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-200 rounded-xl p-4 hover:shadow-md hover:border-emerald-400 transition">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center text-white text-2xl mb-2 shadow">📄</div>
+              <div className="text-sm font-bold text-emerald-900">문서 관리 정책</div>
+              <div className="text-[11px] text-emerald-700 mt-1">영수증·계약서·동의서</div>
+              <div className="text-[10px] text-emerald-500 mt-1">→ 자동 분류 규칙 설정</div>
+              <div className="mt-2 text-[10px] text-gray-500 group-hover:text-emerald-600">지점별 문서 양식·보관 기간</div>
+            </Link>
+
+            {/* 백업 */}
+            <Link href="/backup" className="group bg-gradient-to-br from-slate-50 to-gray-50 border-2 border-slate-200 rounded-xl p-4 hover:shadow-md hover:border-slate-400 transition">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-slate-500 to-gray-500 flex items-center justify-center text-white text-2xl mb-2 shadow">💾</div>
+              <div className="text-sm font-bold text-slate-900">자동 백업</div>
+              <div className="text-[11px] text-slate-700 mt-1">DB 스냅샷·Drive/S3</div>
+              <div className="text-[10px] text-slate-500 mt-1">→ 수동·자동·크론 백업</div>
+              <div className="mt-2 text-[10px] text-gray-500 group-hover:text-slate-600">지점 무관·전체 센터 공통 적용</div>
+            </Link>
+          </div>
+
+          <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
+            💡 <b>Tip</b>: 상단 오른쪽 <b>지점 스위쳐</b>로 대상 지점을 바꾸면 각 정책 페이지에서 자동으로 해당 지점의 데이터만 표시되며, 수정 내용도 해당 지점에만 적용됩니다.
           </div>
         </div>
       )}

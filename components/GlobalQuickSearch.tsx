@@ -5,15 +5,18 @@ import { supabase } from "@/lib/supabase";
 import { Search, X, User, Phone } from "lucide-react";
 
 /**
- * v3.18.0: 글로벌 Quick Search
- * - 상단 어디서든 회원/직원 즉시 검색
+ * v3.19.0: 글로벌 Quick Search (로컬 캐시 방식)
+ * - 모달 첫 오픈 시 전체 회원 리스트를 한 번 가져와 클라이언트에서 즉시 필터링
+ * - .or() 문법 이스케이프 이슈, RLS/브랜치 필터 이슈를 원천 차단
  * - Ctrl+K / Cmd+K 단축키
  */
 export default function GlobalQuickSearch() {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
-  const [members, setMembers] = useState<any[]>([]);
+  const [allMembers, setAllMembers] = useState<any[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   // Ctrl+K / Cmd+K 단축키
@@ -34,25 +37,36 @@ export default function GlobalQuickSearch() {
     if (open) setTimeout(() => inputRef.current?.focus(), 50);
   }, [open]);
 
-  // 검색 (디바운스 200ms)
+  // 모달 열릴 때 전체 회원 로드 (최초 1회만)
   useEffect(() => {
-    if (!q.trim()) { setMembers([]); return; }
-    const t = setTimeout(async () => {
+    if (!open || loaded) return;
+    (async () => {
       setLoading(true);
-      const kw = q.trim();
-      const digits = kw.replace(/\D/g, "");
-      let query = supabase.from("members").select("id, name, phone, member_type, guardian_name, birth_date").limit(20);
-      if (digits.length >= 3) {
-        query = query.or(`name.ilike.%${kw}%,phone.ilike.%${digits}%,guardian_name.ilike.%${kw}%`);
+      setErrorMsg("");
+      const { data, error } = await supabase
+        .from("members")
+        .select("id, name, phone, member_type, guardian_name, birth_date, status")
+        .order("created_at", { ascending: false });
+      if (error) {
+        setErrorMsg(`회원 로드 실패: ${error.message}`);
+        setAllMembers([]);
       } else {
-        query = query.or(`name.ilike.%${kw}%,guardian_name.ilike.%${kw}%`);
+        setAllMembers(data || []);
       }
-      const { data } = await query;
-      setMembers(data || []);
+      setLoaded(true);
       setLoading(false);
-    }, 200);
-    return () => clearTimeout(t);
-  }, [q]);
+    })();
+  }, [open, loaded]);
+
+  // 클라이언트 필터링
+  const kw = q.trim().toLowerCase();
+  const digits = kw.replace(/\D/g, "");
+  const filtered = !kw ? [] : allMembers.filter((m: any) => {
+    const nameHit = (m.name || "").toLowerCase().includes(kw);
+    const phoneHit = digits.length >= 2 && (m.phone || "").replace(/-/g, "").includes(digits);
+    const gHit = (m.guardian_name || "").toLowerCase().includes(kw);
+    return nameHit || phoneHit || gHit;
+  }).slice(0, 30);
 
   return (
     <>
@@ -79,24 +93,32 @@ export default function GlobalQuickSearch() {
                 placeholder="회원명 · 전화번호 · 보호자명"
                 className="flex-1 bg-transparent outline-none text-sm"
               />
+              {loaded && !loading && (
+                <span className="text-[10px] text-gray-400">{allMembers.length}명 로드됨</span>
+              )}
               <button onClick={() => setOpen(false)} className="p-1 hover:bg-white/50 rounded">
                 <X className="w-4 h-4 text-gray-500" />
               </button>
             </div>
 
             <div className="max-h-[60vh] overflow-y-auto">
-              {!q.trim() ? (
+              {errorMsg ? (
+                <div className="p-6 text-center text-sm text-red-500">
+                  ⚠️ {errorMsg}<br/>
+                  <span className="text-xs text-gray-500 mt-2 block">Supabase 로그인 상태를 확인해 주세요</span>
+                </div>
+              ) : loading ? (
+                <div className="p-6 text-center text-sm text-gray-400">회원 목록 로드 중...</div>
+              ) : !q.trim() ? (
                 <div className="p-8 text-center text-sm text-gray-400">
                   🔍 회원명 또는 전화번호를 입력하세요<br/>
                   <span className="text-xs">Ctrl+K로 언제든 열 수 있어요</span>
                 </div>
-              ) : loading ? (
-                <div className="p-6 text-center text-sm text-gray-400">검색 중...</div>
-              ) : members.length === 0 ? (
+              ) : filtered.length === 0 ? (
                 <div className="p-6 text-center text-sm text-gray-400">일치하는 회원이 없습니다</div>
               ) : (
                 <div className="divide-y divide-gray-100">
-                  {members.map(m => (
+                  {filtered.map(m => (
                     <Link
                       key={m.id}
                       href={`/members/${m.id}`}

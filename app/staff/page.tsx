@@ -55,6 +55,8 @@ export default function StaffPage() {
     name: "", email: "", phone: "", role: "therapist",
     salary_type: "monthly", salary_amount: 0, address: "",
     color: "#3b82f6", hire_date: "",
+    // ✅ v3.19.0: 강사별 회당 단가 · 인센티브율
+    session_rate: 30000, incentive_rate: 0,
   });
   const [editStaff, setEditStaff] = useState<any>(null);
   const [resignStaff, setResignStaff] = useState<any>(null);
@@ -129,6 +131,9 @@ export default function StaffPage() {
       address: newStaff.address || null,
       color: newStaff.color || "#3b82f6",
       hire_date: newStaff.hire_date || null,
+      // ✅ v3.19.0: 강사별 회당 단가 · 인센티브율 (설정 눈라서 자동 수당 계산에 반영)
+      session_rate: Number(newStaff.session_rate || 0) || null,
+      incentive_rate: Number(newStaff.incentive_rate || 0) || null,
     };
     if (editStaff?.id) {
       const { error } = await supabase.from("staff").update(payload).eq("id", editStaff.id).select();
@@ -139,7 +144,7 @@ export default function StaffPage() {
     }
     setShowStaffModal(false);
     setEditStaff(null);
-    setNewStaff({ name: "", email: "", phone: "", role: "therapist", salary_type: "monthly", salary_amount: 0, address: "", color: "#3b82f6", hire_date: "" });
+    setNewStaff({ name: "", email: "", phone: "", role: "therapist", salary_type: "monthly", salary_amount: 0, address: "", color: "#3b82f6", hire_date: "", session_rate: 30000, incentive_rate: 0 });
     loadAll();
   }
 
@@ -150,6 +155,9 @@ export default function StaffPage() {
       role: s.role || "therapist", salary_type: s.salary_type || "monthly",
       salary_amount: s.salary_amount || 0, address: s.address || "",
       color: s.color || "#3b82f6", hire_date: s.hire_date || "",
+      // ✅ v3.19.0: 강사별 회당 단가 · 인센티브율 로드
+      session_rate: s.session_rate || 30000,
+      incentive_rate: s.incentive_rate || 0,
     });
     setShowStaffModal(true);
   }
@@ -366,8 +374,12 @@ export default function StaffPage() {
                 const done = mySlots.filter((sl: any) => ["done", "completed", "present"].includes((sl.status || "").toLowerCase())).length;
                 const noshow = mySlots.filter((sl: any) => ["noshow", "absent"].includes((sl.status || "").toLowerCase())).length;
                 const sick = mySlots.filter((sl: any) => (sl.status || "").toLowerCase() === "sick").length;
-                // 세션당 단가: salary_type='session'이면 salary_amount, 아니면 30000 기본
-                const unit = s.salary_type === "session" ? Number(s.salary_amount || 0) : (Number(s.session_rate) || 30000);
+                // ✅ v3.19.0: 세션당 단가 우선순위
+                // 1) session_rate 직접 설정값이 있으면 그 값
+                // 2) salary_type='session'이면 salary_amount
+                // 3) 생서 둘 다 없으면 0 (설정 안함으로 표시)
+                const unit = Number(s.session_rate) > 0 ? Number(s.session_rate)
+                  : (s.salary_type === "session" ? Number(s.salary_amount || 0) : 0);
                 const auto = done * unit;
                 const color = s.color || "#3b82f6";
                 return (
@@ -383,7 +395,9 @@ export default function StaffPage() {
                     <td className="px-2 py-2 text-center text-emerald-700 font-semibold">{done}</td>
                     <td className="px-2 py-2 text-center text-red-600">{noshow}</td>
                     <td className="px-2 py-2 text-center text-orange-600">{sick}</td>
-                    <td className="px-2 py-2 text-right text-gray-500">₩{unit.toLocaleString()}</td>
+                    <td className="px-2 py-2 text-right text-gray-500">
+                      {unit > 0 ? `₩${unit.toLocaleString()}` : <span className="text-orange-500 text-[10px]">⚠️ 미설정</span>}
+                    </td>
                     <td className="px-2 py-2 text-right font-bold text-aqu-800">₩{auto.toLocaleString()}</td>
                   </tr>
                 );
@@ -400,7 +414,8 @@ export default function StaffPage() {
                   <td className="px-2 py-2 text-right text-aqu-900">
                     ₩{activeStaff.reduce((sum, s: any) => {
                       const done = slots.filter((sl: any) => sl.staff_id === s.id && ["done","completed","present"].includes((sl.status||"").toLowerCase()) && ["lesson","trial","makeup"].includes(sl.event_type)).length;
-                      const unit = s.salary_type === "session" ? Number(s.salary_amount || 0) : (Number(s.session_rate) || 30000);
+                      const unit = Number(s.session_rate) > 0 ? Number(s.session_rate)
+                        : (s.salary_type === "session" ? Number(s.salary_amount || 0) : 0);
                       return sum + done * unit;
                     }, 0).toLocaleString()}
                   </td>
@@ -410,7 +425,7 @@ export default function StaffPage() {
           </table>
         </div>
         <div className="text-[10px] text-gray-500 mt-2">
-          💡 수당 = 완료 수업 수 × 회당단가 · salary_type="session"으로 설정된 강사는 salary_amount를, 그 외는 30,000원 기본값 적용
+          💡 자동 수당 = 완료 수업 수 × 회당 단가 · 강사 편집하여 <b>회당 단가 · 인센티브율</b>을 맞게 설정해주세요 · 미설정 강사는 ⚠️ 표시
         </div>
       </div>
 
@@ -695,10 +710,35 @@ export default function StaffPage() {
                   <option value="monthly">월급</option>
                   <option value="hourly">시급</option>
                   <option value="daily">일급</option>
+                  <option value="session">세션당 (회당지급)</option>
                   <option value="freelance">프리랜서</option>
                 </select>
               </Field>
-              <Field label="급여 금액"><input type="number" value={newStaff.salary_amount} onChange={e => setNewStaff({ ...newStaff, salary_amount: e.target.value })} className="w-full p-2 border rounded-lg text-sm" /></Field>
+              <Field label="급여 금액 (원)"><input type="number" value={newStaff.salary_amount} onChange={e => setNewStaff({ ...newStaff, salary_amount: e.target.value })} className="w-full p-2 border rounded-lg text-sm" /></Field>
+            </div>
+
+            {/* ✅ v3.19.0: 강사별 회당 단가 · 인센티브율 설정 */}
+            <div className="bg-indigo-50/60 border border-indigo-200 rounded-xl p-3">
+              <div className="text-xs font-bold text-indigo-800 mb-2 flex items-center gap-1">💰 수업 수당 설정</div>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="회당 단가 (수업 완료 시 지급액)">
+                  <div className="flex items-center gap-1">
+                    <input type="number" step="1000" value={newStaff.session_rate} onChange={e => setNewStaff({ ...newStaff, session_rate: e.target.value })}
+                      className="w-full p-2 border rounded-lg text-sm" placeholder="30000" />
+                    <span className="text-xs text-gray-500">원</span>
+                  </div>
+                </Field>
+                <Field label="인센티브율 (%) – 선택">
+                  <div className="flex items-center gap-1">
+                    <input type="number" step="0.5" value={newStaff.incentive_rate} onChange={e => setNewStaff({ ...newStaff, incentive_rate: e.target.value })}
+                      className="w-full p-2 border rounded-lg text-sm" placeholder="0" />
+                    <span className="text-xs text-gray-500">%</span>
+                  </div>
+                </Field>
+              </div>
+              <div className="text-[10px] text-indigo-700 mt-2">
+                💡 자동 수당 = 완료 수업 수 × 회당 단가 · 인센티브율은 월말 정산 시 별도 가산
+              </div>
             </div>
             <Field label="주소"><input value={newStaff.address} onChange={e => setNewStaff({ ...newStaff, address: e.target.value })} className="w-full p-2 border rounded-lg text-sm" /></Field>
             <Field label="색상">

@@ -902,20 +902,20 @@ export default function SchedulePage() {
                     onClick={() => {
                       setSelectedDate(cellStr);
                       if (isOtherMonth) return;
-                      // 더블클릭 대기 (250ms): 더블클릭이 오면 취소되어 바로 새 일정 모달이 뜼게 함
+                      // ✅ v3.19.0: 한번클릭 = 액션시트 (새일정/결제/직원), 더블클릭 = 새일정 바로
                       if (clickTimerRef.current) clearTimeout(clickTimerRef.current);
                       clickTimerRef.current = setTimeout(() => {
-                        openNewModal(cellStr);
+                        setActionSheet({ date: cellStr });
                         clickTimerRef.current = null;
                       }, 250);
                     }}
                     onDoubleClick={(e) => {
                       e.stopPropagation();
-                      // onClick 예약된 지연 호출을 취소
+                      // onClick 예약된 액션시트를 취소하고 바로 새 일정 모달 오픈
                       if (clickTimerRef.current) { clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
                       if (!isOtherMonth) { setActionSheet(null); openNewModal(cellStr); }
                     }}
-                    title="클릭: 새 일정 모달 오픈 (더블클릭 동일)"
+                    title="클릭: 새일정/결제/직원 선택 · 더블클릭: 바로 새 일정 등록"
                     onDragOver={(e) => handleDragOver(cellStr, e)}
                     onDragLeave={() => dragOverDate === cellStr && setDragOverDate(null)}
                     onDrop={(e) => handleDrop(cellStr, e)}
@@ -1050,7 +1050,7 @@ export default function SchedulePage() {
           slots={slots}
           members={members}
           staff={staff}
-          onCellClick={(date, time) => openNewModal(date, time)}
+          onCellClick={(date, time) => openDateActionSheet(date, time)}
           onCellDoubleClick={(date, time) => openNewModal(date, time)}
           onEdit={openEditModal}
           memberName={memberName}
@@ -1062,7 +1062,7 @@ export default function SchedulePage() {
           slots={slots}
           members={members}
           staff={staff}
-          onCellClick={(date, time) => openNewModal(date, time)}
+          onCellClick={(date, time) => openDateActionSheet(date, time)}
           onCellDoubleClick={(date, time) => openNewModal(date, time)}
           onEdit={openEditModal}
           memberName={memberName}
@@ -2381,14 +2381,38 @@ function DateActionSheet({ date, time, onReservation, onRevenue, onStaffSchedule
               📅
             </div>
             <div className="flex-1 text-left">
-              <div className="font-bold text-slate-900">예약 등록</div>
-              <div className="text-xs text-gray-500">회원 수업 · 체험 예약</div>
+              <div className="font-bold text-slate-900">새 일정 등록</div>
+              <div className="text-xs text-gray-500">회원 수업 · 체험 · 보강 · 기타</div>
+            </div>
+            <span className="text-gray-400">→</span>
+          </button>
+
+          <button onClick={onRevenue}
+            className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-pink-200 hover:bg-pink-50 hover:border-pink-400 transition">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-pink-500 to-rose-500 flex items-center justify-center text-white text-xl shadow">
+              💰
+            </div>
+            <div className="flex-1 text-left">
+              <div className="font-bold text-slate-900">결제 등록</div>
+              <div className="text-xs text-gray-500">결제 · 회원권 · 제품 판매</div>
+            </div>
+            <span className="text-gray-400">→</span>
+          </button>
+
+          <button onClick={onStaffSchedule}
+            className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-purple-200 hover:bg-purple-50 hover:border-purple-400 transition">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-500 flex items-center justify-center text-white text-xl shadow">
+              👥
+            </div>
+            <div className="flex-1 text-left">
+              <div className="font-bold text-slate-900">직원 일정 등록</div>
+              <div className="text-xs text-gray-500">근무 · 휴무 · 회의</div>
             </div>
             <span className="text-gray-400">→</span>
           </button>
 
           <div className="text-[11px] text-gray-500 text-center pt-1">
-            💡 달력/셀을 <b>더블클릭</b>하면 이 팝업 없이 바로 새 일정 모달이 런칭됩니다
+            💡 <b>더블클릭</b>은 이 팝업 없이 바로 새 일정 모달을 엽니다
           </div>
         </div>
       </div>

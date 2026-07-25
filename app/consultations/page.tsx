@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
+import ContactLogModal from "@/components/ContactLogModal";
 import {
   Plus, Phone, Calendar, User, MessageCircle, ArrowRight, X, Save,
   Clock, Users, RefreshCw, Search, Lock, Unlock, ChevronRight,
@@ -668,8 +669,14 @@ function MatchView({ matrix, members, staff, waiters, stats, getCell, getMatched
 /* ─────────────── 하위 컴포넌트: 대시보드 ─────────────── */
 
 function DashboardView({ members, stats, onMove }: any) {
+  // ✅ v3.19.0: 응대 로그 모달 state
+  const [contactTarget, setContactTarget] = useState<any>(null);
+
   return (
     <div className="max-w-7xl mx-auto space-y-4">
+      {contactTarget && (
+        <ContactLogModal member={contactTarget} onClose={() => setContactTarget(null)} onSaved={() => {}} />
+      )}
       {/* 상단 KPI 4개 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="bg-gradient-to-br from-pink-500 to-rose-500 rounded-xl p-4 text-white shadow">
@@ -717,13 +724,13 @@ function DashboardView({ members, stats, onMove }: any) {
                     </Link>
                     {/* ✅ v3.18.0: 장기 대기자 즉시 처리 버튼 (D+400이상 특별 강조) */}
                     <div className="flex items-center gap-1 flex-shrink-0 ml-2">
-                      {m.phone && (
-                        <a href={`tel:${m.phone}`}
-                          className="text-[10px] px-2 py-1 bg-emerald-500 text-white rounded hover:bg-emerald-600 font-semibold flex items-center gap-0.5"
-                          title="재연락">
-                          <Phone className="w-2.5 h-2.5" /> 연락
-                        </a>
-                      )}
+                      {/* ✅ v3.19.0: 응대 로그 모달을 여는 연락 버튼 (날짜·채널·메모 기록) */}
+                      <button
+                        onClick={() => setContactTarget(m)}
+                        className="text-[10px] px-2 py-1 bg-emerald-500 text-white rounded hover:bg-emerald-600 font-semibold flex items-center gap-0.5"
+                        title="응대 기록 (전화/문자/카카오톡/메모)">
+                        <Phone className="w-2.5 h-2.5" /> 연락
+                      </button>
                       <button
                         onClick={() => {
                           if (confirm(`${m.name} 님을 대기종료 상태로 변경하시겠습니까?`)) onMove(m.id, "ended");
