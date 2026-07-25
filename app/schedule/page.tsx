@@ -1518,17 +1518,21 @@ function WeekView({ slots, members, staff, onCellClick, onCellDoubleClick, onEdi
                           const meta = statusMeta(s.status || "scheduled");
                           const mem = members.find((mm: any) => mm.id === s.member_id);
                           const staffP = staffMap[s.staff_id];
-                          const borderColor = staffP?.color || undefined;
+                          // ✅ v3.20.2: 수업 안한 상태(병결/노쇼/이월/개인사정/취소) → 오로지 강제 회색
+                          const isGrayStatus = ["sick", "noshow", "cancel", "carryover", "personal"].includes(s.status);
+                          const isStaffEvent = s.event_type === "staff_work" || s.event_type === "staff_off";
+                          const borderColor = (isGrayStatus || isStaffEvent) ? undefined : (staffP?.color || undefined);
+                          const forcedStyle = isGrayStatus
+                            ? { backgroundColor: "#f3f4f6", borderLeftColor: "#9ca3af", borderLeftWidth: 4, color: "#4b5563" }
+                            : isStaffEvent
+                              ? { backgroundColor: "#1f2937", borderLeftColor: "#111827", borderLeftWidth: 4, color: "#f9fafb" }
+                              : borderColor ? { backgroundColor: borderColor + "22", borderLeftColor: borderColor, borderLeftWidth: 4, color: "#1e293b" }
+                              : {};
                           return (
                             <div key={s.id}
                               onClick={() => onEdit(s)}
-                              style={borderColor ? {
-                                backgroundColor: borderColor + "22",
-                                borderLeftColor: borderColor,
-                                borderLeftWidth: 4,
-                                color: "#1e293b",
-                              } : {}}
-                              className={`text-[10px] p-1 rounded border ${borderColor ? "" : meta.color} cursor-pointer hover:shadow-sm`}>
+                              style={forcedStyle}
+                              className={`text-[10px] p-1 rounded border ${(isGrayStatus || isStaffEvent || borderColor) ? "" : meta.color} cursor-pointer hover:shadow-sm`}>
                               <div className="font-medium truncate">
                                 {mem?.name || s.lesson_name || (
                                   s.event_type === "staff_work" ? `👥 ${staffP?.name || "직원"}${s.note ? " · " + s.note : ""}` :
@@ -1643,14 +1647,18 @@ function DayView({ date, setDate, slots, members, staff, onCellClick, onCellDoub
                         {cellSlots.map((s: any) => {
                           const meta = statusMeta(s.status || "scheduled");
                           const mem = members.find((m: any) => m.id === s.member_id);
+                          // ✅ v3.20.2: 일간 뷰도 수업 안한 상태는 회색 강제
+                          const isGrayStatus = ["sick", "noshow", "cancel", "carryover", "personal"].includes(s.status);
+                          const isStaffEvent = s.event_type === "staff_work" || s.event_type === "staff_off";
+                          const forcedStyle = isGrayStatus
+                            ? { borderLeft: "4px solid #9ca3af", backgroundColor: "#f3f4f6", color: "#4b5563" }
+                            : isStaffEvent
+                              ? { borderLeft: "4px solid #111827", backgroundColor: "#1f2937", color: "#f9fafb" }
+                              : { borderLeft: `4px solid ${st.color || "#94a3b8"}`, backgroundColor: (st.color || "#94a3b8") + "22", color: "#1e293b" };
                           return (
                             <div key={s.id}
                               onClick={() => onEdit(s)}
-                              style={{
-                                borderLeft: `4px solid ${st.color || "#94a3b8"}`,
-                                backgroundColor: (st.color || "#94a3b8") + "22",
-                                color: "#1e293b",
-                              }}
+                              style={forcedStyle}
                               className={`text-[10px] p-1.5 rounded cursor-pointer hover:shadow-sm`}>
                               <div className="font-medium truncate">
                                 {mem?.name || s.lesson_name || (
@@ -1798,11 +1806,19 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
               <Field label="유형">
                 <select value={f.event_type} onChange={e => setF({ ...f, event_type: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none bg-white">
-                  {/* ✅ v3.17.1: 수업/체험/보강/기타만 노출 (직원 근무·휴무 제거) */}
-                  <option value="lesson">🏊 수업</option>
-                  <option value="trial">🎯 체험</option>
-                  <option value="makeup">🔄 보강</option>
-                  <option value="other">📌 기타</option>
+                  {/* ✅ v3.20.3: 직원 근무·휴무 옵션 복원 (회원 수업↔직원 일정 통합 등록) */}
+                  <optgroup label="📚 회원 수업">
+                    <option value="lesson">🏊 수업</option>
+                    <option value="trial">🎯 체험</option>
+                    <option value="makeup">🔄 보강</option>
+                  </optgroup>
+                  <optgroup label="👥 직원 일정">
+                    <option value="staff_work">👤 직원 근무</option>
+                    <option value="staff_off">🏖️ 직원 휴무</option>
+                  </optgroup>
+                  <optgroup label="📌 기타">
+                    <option value="other">📌 기타</option>
+                  </optgroup>
                 </select>
               </Field>
             </div>

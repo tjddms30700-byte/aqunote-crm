@@ -6,7 +6,8 @@ import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import {
-  Search, Waves, ChevronRight, Plus, X, Save, UserPlus, MessageSquare, Copy, Trash2, AlertTriangle, CheckSquare, Square
+  Search, Waves, ChevronRight, Plus, X, Save, UserPlus, MessageSquare, Copy, Trash2, AlertTriangle, CheckSquare, Square,
+  ClipboardCheck, FileSignature, Calendar as CalIcon
 } from "lucide-react";
 
 type Member = {
@@ -223,7 +224,7 @@ export default function MembersPage() {
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
           <Waves className="w-8 h-8 text-aqu-600" />
-          <h1 className="text-2xl md:text-3xl font-bold text-aqu-900">👥 회원 관리</h1>
+          <h1 className="text-2xl md:text-3xl font-bold text-aqu-900">👥 회원 · 출결 관리</h1>
         </div>
         <div className="flex items-center gap-2">
           {inboxPending > 0 && (
@@ -253,6 +254,29 @@ export default function MembersPage() {
           </button>
           <HomeButton />
         </div>
+      </div>
+
+      {/* ✅ v3.20.3: 회원 DB / 출결장 / 사인 이력 통합 뷰 전환 */}
+      <div className="flex items-center gap-2 mb-4 border-b border-gray-200 pb-2">
+        <Link href="/members"
+          className="px-4 py-2 rounded-lg text-sm font-semibold bg-aqu-600 text-white shadow-sm flex items-center gap-1">
+          <Waves className="w-4 h-4" /> 회원 DB
+        </Link>
+        <Link href="/attendance"
+          className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border border-teal-200 text-teal-700 hover:bg-teal-50 flex items-center gap-1">
+          <ClipboardCheck className="w-4 h-4" /> 출결장
+        </Link>
+        <Link href="/attendance/signatures"
+          className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border border-purple-200 text-purple-700 hover:bg-purple-50 flex items-center gap-1">
+          <FileSignature className="w-4 h-4" /> ✍️ 사인 출결 이력
+        </Link>
+        <Link href="/schedule"
+          className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 flex items-center gap-1">
+          <CalIcon className="w-4 h-4" /> 시간표
+        </Link>
+        <span className="ml-auto text-[11px] text-gray-500">
+          💡 한 곳에서 회원 DB·출석·사인 이력을 이동해 볼 수 있습니다
+        </span>
       </div>
 
       {/* Filter row 1: 아동/성인 + 검색 */}

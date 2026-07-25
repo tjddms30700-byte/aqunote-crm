@@ -8,7 +8,8 @@ import { supabase } from "@/lib/supabase";
 import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import {
   ClipboardCheck, Home, Calendar, RefreshCw, Save, Check,
-  X as XIcon, AlertCircle, User, Clock, Filter, CalendarDays
+  X as XIcon, AlertCircle, User, Clock, Filter, CalendarDays,
+  FileSignature, Printer, Waves
 } from "lucide-react";
 
 /* ✅ v3.20.0: 수업을 하지 않은 상태(결석/병결/개인사정)는 회색 계열로 통일 */
@@ -320,7 +321,7 @@ export default function AttendancePage() {
           <HomeButton />
           <span className="text-gray-300">/</span>
           <h1 className="text-xl md:text-3xl font-bold text-aqu-900 flex items-center gap-2">
-            <ClipboardCheck className="w-6 h-6 md:w-7 md:h-7 text-teal-500" /> 출결 관리
+            <ClipboardCheck className="w-6 h-6 md:w-7 md:h-7 text-teal-500" /> 회원 · 출결 관리
           </h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -331,6 +332,45 @@ export default function AttendancePage() {
             오늘
           </button>
         </div>
+      </div>
+
+      {/* ✅ v3.20.3: 회원 DB / 출결장 / 사인 이력 통합 뷰 전환 */}
+      <div className="flex items-center gap-2 mb-4 border-b border-gray-200 pb-2 flex-wrap">
+        <Link href="/members"
+          className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border border-aqu-200 text-aqu-700 hover:bg-aqu-50 flex items-center gap-1">
+          <Waves className="w-4 h-4" /> 회원 DB
+        </Link>
+        <Link href="/attendance"
+          className="px-4 py-2 rounded-lg text-sm font-semibold bg-teal-600 text-white shadow-sm flex items-center gap-1">
+          <ClipboardCheck className="w-4 h-4" /> 출결장
+        </Link>
+        <Link href="/attendance/signatures"
+          className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border border-purple-200 text-purple-700 hover:bg-purple-50 flex items-center gap-1">
+          <FileSignature className="w-4 h-4" /> ✍️ 사인 출결 이력
+        </Link>
+        <Link href="/schedule"
+          className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 flex items-center gap-1">
+          <Calendar className="w-4 h-4" /> 시간표
+        </Link>
+      </div>
+
+      {/* ✅ v3.20.2: 사인 출결 이력 배너 */}
+      <div className="mb-3">
+        <Link href="/attendance/signatures"
+          className="block p-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:opacity-95 rounded-xl text-white shadow-md">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <FileSignature className="w-5 h-5" />
+              <div>
+                <div className="font-bold text-sm">✍️ 사인 출결 이력 리스트</div>
+                <div className="text-[11px] opacity-90">서명 내역 조회 · 프린트 · CSV 임에이트</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-1 text-xs bg-white/20 px-2 py-1 rounded-lg">
+              <Printer className="w-3.5 h-3.5" /> 보기
+            </div>
+          </div>
+        </Link>
       </div>
 
       {/* ✅ v3.14.1: 뷰 전환 (출결장 vs 사인입장) */}
