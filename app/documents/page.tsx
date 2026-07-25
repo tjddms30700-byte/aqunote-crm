@@ -12,12 +12,33 @@ import {
   Filter, User
 } from "lucide-react";
 
+// ✅ v3.20.0: 소유자 유형 (회원/직원/센터)
+const OWNER_TYPES = [
+  { value: "member", label: "👥 회원 서류",     desc: "영수증·계약서·진단서 등" },
+  { value: "staff",  label: "👨‍💼 직원 서류",     desc: "근로계약·러보프유·자격증" },
+  { value: "center", label: "🏢 센터 서류",       desc: "사업자등록증·임대차·보험" },
+];
+
 const CATEGORIES = [
-  { value: "receipt",   label: "🧾 영수증",   icon: Receipt },
-  { value: "contract",  label: "📝 계약서",   icon: FileCheck },
-  { value: "diagnosis", label: "🏥 진단서",   icon: FileText },
-  { value: "photo",     label: "📷 사진",     icon: ImageIcon },
-  { value: "other",     label: "📎 기타",     icon: FileQuestion },
+  // 회원
+  { value: "receipt",         label: "🧾 영수증",       icon: Receipt,      owner: "member" },
+  { value: "contract",        label: "📝 계약서",       icon: FileCheck,    owner: "member" },
+  { value: "consent",         label: "✅ 동의서",         icon: FileCheck,    owner: "member" },
+  { value: "diagnosis",       label: "🏥 진단서",       icon: FileText,     owner: "member" },
+  { value: "photo",           label: "📷 사진",           icon: ImageIcon,    owner: "member" },
+  // 직원
+  { value: "staff_contract",  label: "📄 근로계약서",   icon: FileCheck,    owner: "staff" },
+  { value: "staff_id",        label: "🆔 신분증",         icon: FileText,     owner: "staff" },
+  { value: "staff_bank",      label: "🏦 통장사본",       icon: FileText,     owner: "staff" },
+  { value: "staff_license",   label: "📜 자격증",         icon: FileCheck,    owner: "staff" },
+  { value: "staff_resume",    label: "📝 이력서",         icon: FileText,     owner: "staff" },
+  // 센터
+  { value: "business_reg",    label: "🏢 사업자등록증", icon: FileCheck,    owner: "center" },
+  { value: "lease",           label: "🔑 임대차계약서",   icon: FileCheck,    owner: "center" },
+  { value: "insurance",       label: "🛡️ 보험증마",       icon: FileText,     owner: "center" },
+  { value: "license_center",  label: "📜 운영허가증",     icon: FileCheck,    owner: "center" },
+  // 공통
+  { value: "other",           label: "📎 기타",           icon: FileQuestion, owner: null },
 ];
 
 function catLabel(cat: string) {
@@ -31,7 +52,8 @@ export default function DocumentsPage() {
   const [uploading, setUploading] = useState(false);
 
   // Filters
-  // ✅ v3.18.1: URL 쿼리 ⇒ 자동 분류 (Suspense boundary 회피를 위해 window.location으로 직접 파싱)
+  // ✅ v3.20.0: 소유자 유형 필터 (member/staff/center) 추가
+  const [ownerType, setOwnerType]       = useState<string>("member");
   const [filterCat, setFilterCat]       = useState("");
   const [filterMember, setFilterMember] = useState("");
   const [search, setSearch]             = useState("");
@@ -48,8 +70,12 @@ export default function DocumentsPage() {
   // Upload form
   const [showUpload, setShowUpload]   = useState(false);
   const [upMember, setUpMember]       = useState("");
+  const [upStaff, setUpStaff]         = useState("");
+  const [upOwnerType, setUpOwnerType] = useState<string>("member");
   const [upCat, setUpCat]             = useState("receipt");
   const [upDesc, setUpDesc]           = useState("");
+  // ✅ v3.20.0: 직원 목록
+  const [staffList, setStaffList]     = useState<any[]>([]);
   const fileInputRef                  = useRef<HTMLInputElement>(null);
 
   useEffect(() => { loadAll(); }, []);
@@ -68,8 +94,13 @@ export default function DocumentsPage() {
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!upMember) {
+    // ✅ v3.20.0: 소유자 유형별 관련 필수값 체크
+    if (upOwnerType === "member" && !upMember) {
       alert("먼저 회원을 선택하세요");
+      return;
+    }
+    if (upOwnerType === "staff" && !upStaff) {
+      alert("먼저 직원을 선택하세요");
       return;
     }
     setUploading(true);
@@ -77,7 +108,9 @@ export default function DocumentsPage() {
     try {
       const orgId = members[0]?.org_id || (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
       const safeName = file.name.replace(/[^a-zA-Z0-9.\-_가-힣]/g, "_");
-      const filePath = `${upMember}/${Date.now()}_${safeName}`;
+      // ✅ v3.20.0: 소유자 유형별 파일 경로 분리
+      const ownerKey = upOwnerType === "staff" ? `staff/${upStaff || "unknown"}` : upOwnerType === "center" ? `center` : `member/${upMember}`;
+      const filePath = `${ownerKey}/${Date.now()}_${safeName}`;
 
       // Upload to Storage
       const { error: upErr } = await supabase.storage
@@ -130,6 +163,12 @@ export default function DocumentsPage() {
 
   // Filtered docs
   const filtered = docs.filter(d => {
+    // ✅ v3.20.0: 소유자 유형 필터
+    if (ownerType) {
+      const catMeta = CATEGORIES.find(c => c.value === d.category);
+      const docOwner = d.owner_type || catMeta?.owner || "member";
+      if (docOwner !== ownerType && d.category !== "other") return false;
+    }
     if (filterCat && d.category !== filterCat) return false;
     if (filterMember && d.member_id !== filterMember) return false;
     if (search && !d.filename.toLowerCase().includes(search.toLowerCase()) &&
@@ -165,10 +204,29 @@ export default function DocumentsPage() {
         </button>
       </div>
 
-      {/* KPI */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+      {/* ✅ v3.20.0: 소유자 유형 탭 (회원/직원/센터) */}
+      <div className="flex gap-1 mb-4 border-b border-aqu-100">
+        {OWNER_TYPES.map(o => {
+          const cnt = docs.filter(d => {
+            const cm = CATEGORIES.find(c => c.value === d.category);
+            const own = d.owner_type || cm?.owner || "member";
+            return own === o.value;
+          }).length;
+          return (
+            <button key={o.value} onClick={() => { setOwnerType(o.value); setFilterCat(""); }}
+              className={`px-4 py-2.5 text-sm font-semibold border-b-2 transition ${ownerType === o.value ? "text-aqu-700 border-aqu-500 bg-aqu-50/40" : "text-gray-500 border-transparent hover:text-aqu-600"}`}>
+              {o.label}
+              <span className="ml-1.5 text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded-full">{cnt}</span>
+              <div className="text-[10px] text-gray-400 font-normal">{o.desc}</div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* KPI – 현재 탭의 카테고리만 */}
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-2 mb-4">
         <KPI title="전체 문서" val={docs.length + "개"} color="text-aqu-600" />
-        {CATEGORIES.map(c => (
+        {CATEGORIES.filter(c => c.owner === ownerType || c.owner === null).map(c => (
           <KPI key={c.value} title={c.label}
             val={docs.filter(d => d.category === c.value).length + "개"}
             color="text-gray-600" />
@@ -181,7 +239,8 @@ export default function DocumentsPage() {
         <select value={filterCat} onChange={e => setFilterCat(e.target.value)}
           className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none">
           <option value="">전체 카테고리</option>
-          {CATEGORIES.map(c => (
+          {/* ✅ v3.20.0: 현재 소유자 유형에 해당하는 카테고리만 */}
+          {CATEGORIES.filter(c => c.owner === ownerType || c.owner === null).map(c => (
             <option key={c.value} value={c.value}>{c.label}</option>
           ))}
         </select>
@@ -271,15 +330,57 @@ export default function DocumentsPage() {
               <Upload className="w-5 h-5" /> 파일 업로드
             </h2>
 
-            <label className="block text-xs font-semibold text-gray-600 mb-1">회원 (필수)</label>
-            <div className="mb-3">
-              <MemberSearch members={members} value={upMember} onChange={setUpMember} />
+            {/* ✅ v3.20.0: 소유자 유형 선택 (회원/직원/센터) */}
+            <label className="block text-xs font-semibold text-gray-600 mb-1">서류 구분 *</label>
+            <div className="grid grid-cols-3 gap-1.5 mb-3">
+              {OWNER_TYPES.map(o => (
+                <button key={o.value} type="button"
+                  onClick={() => {
+                    setUpOwnerType(o.value);
+                    // 해당 유형의 첫 카테고리로 자동 설정
+                    const firstCat = CATEGORIES.find(c => c.owner === o.value);
+                    if (firstCat) setUpCat(firstCat.value);
+                  }}
+                  className={`px-2 py-2 rounded-lg text-xs font-semibold border-2 transition ${upOwnerType === o.value ? "bg-aqu-500 text-white border-aqu-500" : "bg-white text-gray-600 border-gray-200 hover:border-aqu-300"}`}>
+                  {o.label}
+                </button>
+              ))}
             </div>
+
+            {/* 회원 서류 → 회원 선택 */}
+            {upOwnerType === "member" && (
+              <>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">회원 (필수)</label>
+                <div className="mb-3">
+                  <MemberSearch members={members} value={upMember} onChange={setUpMember} />
+                </div>
+              </>
+            )}
+
+            {/* 직원 서류 → 직원 선택 */}
+            {upOwnerType === "staff" && (
+              <>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">직원 (필수)</label>
+                <select value={upStaff} onChange={e => setUpStaff(e.target.value)}
+                  className="w-full mb-3 px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                  <option value="">-- 직원 선택 --</option>
+                  {staffList.map((s: any) => (
+                    <option key={s.id} value={s.id}>{s.name} ({s.role || "직원"})</option>
+                  ))}
+                </select>
+              </>
+            )}
+
+            {upOwnerType === "center" && (
+              <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded-lg text-[11px] text-blue-700">
+                🏢 센터 서류는 회원·직원 구분 없이 공통 보관됩니다 (사업자등록증·임대차 계약 등)
+              </div>
+            )}
 
             <label className="block text-xs font-semibold text-gray-600 mb-1">카테고리</label>
             <select value={upCat} onChange={e => setUpCat(e.target.value)}
               className="w-full mb-3 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none">
-              {CATEGORIES.map(c => (
+              {CATEGORIES.filter(c => c.owner === upOwnerType || c.owner === null).map(c => (
                 <option key={c.value} value={c.value}>{c.label}</option>
               ))}
             </select>
@@ -290,7 +391,8 @@ export default function DocumentsPage() {
               className="w-full mb-4 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none" />
 
             <label className="block text-xs font-semibold text-gray-600 mb-1">파일 선택</label>
-            <input ref={fileInputRef} type="file" onChange={handleUpload} disabled={uploading || !upMember}
+            <input ref={fileInputRef} type="file" onChange={handleUpload}
+              disabled={uploading || (upOwnerType === "member" && !upMember) || (upOwnerType === "staff" && !upStaff)}
               className="w-full mb-4 text-sm file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:bg-aqu-600 file:text-white file:hover:bg-aqu-700 file:cursor-pointer disabled:opacity-50" />
 
             <div className="flex gap-2">

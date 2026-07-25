@@ -8,39 +8,42 @@ import {
   LogIn, LogOut, User as UserIcon, CreditCard, DollarSign, Briefcase, FileText,
   ClipboardCheck, TrendingUp, Ticket, Settings,
   Target, AlertTriangle, Clock, FileCheck, MessageSquare,
-  Waves, Wallet, UserCog, PieChart, Inbox, RefreshCw, Database
+  Waves, Wallet, UserCog, PieChart, Inbox, RefreshCw, Database, KeyRound
 } from "lucide-react";
 import Logo from "@/components/Logo";
 import BranchSwitcher from "@/components/BranchSwitcher";
 import GlobalQuickSearch from "@/components/GlobalQuickSearch";
 
-/* ═════ v3.19.1: 5대분류 (설정 이동 항목 메인에서 숨김) ═════ */
+/* ═════ v3.20.0: 5대분류 (안전사고→회원·수업, 직원관리 단일화, 결제·설정 마스터/센터장 전용) ═════ */
 const GROUPS = [
   {
     key: "members",
     title: "회원 · 수업",
-    subtitle: "상담 · 회원 · 시간표 · IEP",
+    subtitle: "상담 · 회원 · 시간표 · IEP · 안전",
     icon: Users,
     from: "from-purple-500",
     to: "to-fuchsia-600",
     accent: "text-purple-600",
     bg: "bg-purple-50",
+    directorOnly: false,
     items: [
       { href: "/consultations",   icon: ClipboardList,  title: "🎯 상담 · 리드",  desc: "신규유입 + 상담매칭 통합", badgeKey: "inbox_pending" },
       { href: "/members",         icon: Users,          title: "회원 DB · 출결",   desc: "아동·성인 + 출석 이력" },
       { href: "/schedule",        icon: Calendar,       title: "통합 시간표",       desc: "월·주·일 + 더블클릭 새 일정" },
       { href: "/iep-behavior",    icon: Target,         title: "IEP · 행동중재",   desc: "목표·ABC·수업일지" },
+      { href: "/incidents",       icon: AlertTriangle,  title: "🚨 안전사고",       desc: "응급기록 · 선생님도 사용 가능" },
     ],
   },
   {
     key: "finance",
     title: "결제 · 재무",
-    subtitle: "결제 · 매출 분석 · 자동 정산",
+    subtitle: "결제 · 매출 분석 · 자동 정산 (마스터/센터장)",
     icon: Wallet,
     from: "from-pink-500",
     to: "to-rose-600",
     accent: "text-pink-600",
     bg: "bg-pink-50",
+    directorOnly: true,
     items: [
       { href: "/payments",          icon: CreditCard,  title: "결제 · 매출 분석",  desc: "결제·매출·통계 통합" },
       { href: "/finance",           icon: DollarSign,  title: "센터 재무 · 자동정산", desc: "수입·지출·정기결제" },
@@ -55,6 +58,7 @@ const GROUPS = [
     to: "to-indigo-600",
     accent: "text-blue-600",
     bg: "bg-blue-50",
+    directorOnly: false,
     items: [
       { href: "/attendance-staff", icon: Clock,         title: "직원 출퇴근",  desc: "출퇴근·근태 통계" },
       { href: "/leave",            icon: FileCheck,     title: "휴가 · 결재",   desc: "전자결재·휴가 신청" },
@@ -70,6 +74,7 @@ const GROUPS = [
     to: "to-emerald-600",
     accent: "text-teal-600",
     bg: "bg-teal-50",
+    directorOnly: false,
     items: [
       { href: "/dashboard", icon: BarChart3, title: "통합 대시보드", desc: "전체 현황 KPI + D+400 처리" },
       { href: "/reports",   icon: FileText,  title: "보고서 생성",   desc: "IEP·일지·행동 보고서" },
@@ -78,21 +83,21 @@ const GROUPS = [
   {
     key: "settings",
     title: "설정",
-    subtitle: "지점 정책 · 회원권 · 시간표 · 직원관리 · 백업",
+    subtitle: "지점 정책 · 회원권 · 시간표 · 직원관리 · 백업 (마스터/센터장)",
     icon: Settings,
     from: "from-slate-500",
     to: "to-gray-700",
     accent: "text-slate-600",
     bg: "bg-slate-50",
+    directorOnly: true,
     items: [
-      { href: "/settings",                icon: Settings,       title: "환경 · 지점 정책",  desc: "로고·지점·센터명" },
-      { href: "/plans",                   icon: Ticket,          title: "🎫 회원권 설정",   desc: "횟수·금액·프로모션" },
-      { href: "/settings/schedule-config", icon: Calendar,       title: "🗓️ 시간표 설정",   desc: "운영시간·타임단위" },
-      { href: "/staff",                   icon: Briefcase,       title: "👤 직원 관리",      desc: "인사 · 직원 등록" },
-      { href: "/settings/payroll-config", icon: DollarSign,      title: "🔒 직원 급여·수당",  desc: "마스터/센터장 전용" },
-      { href: "/incidents",               icon: AlertTriangle,   title: "🚨 안전사고",        desc: "응급기록·보험 리포트" },
-      { href: "/documents",               icon: FileText,        title: "📄 문서 관리",        desc: "계약서·영수증 통합" },
-      { href: "/backup",                  icon: Database,        title: "💾 자동 백업",         desc: "DB 스냅샷·Drive/S3" },
+      { href: "/settings",                 icon: Settings,       title: "환경 · 지점 정책",       desc: "로고·지점·센터명" },
+      { href: "/settings/accounts",        icon: KeyRound,       title: "🔑 로그인 승인 · 계정",  desc: "가입 승인 · 비밀번호 관리" },
+      { href: "/plans",                    icon: Ticket,         title: "🎫 회원권 설정",         desc: "횟수·금액·프로모션" },
+      { href: "/settings/schedule-config", icon: Calendar,       title: "🗓️ 시간표 설정",         desc: "운영시간·타임단위" },
+      { href: "/staff",                    icon: Briefcase,      title: "👤 직원 · 급여·수당",    desc: "인사 + 회당단가·인센티브" },
+      { href: "/documents",                icon: FileText,       title: "📄 문서 관리",           desc: "센터 관련 서류 (사업자등록증 등)" },
+      { href: "/backup",                   icon: Database,       title: "💾 자동 백업",           desc: "DB 스냅샷·Drive/S3" },
     ],
   },
 ];
@@ -128,17 +133,8 @@ export default function Home() {
     })();
   }, []);
 
-  // 권한에 따라 보이는 그룹 필터링
-  const visibleGroups = GROUPS.map(g => {
-    if (g.key === "finance" && !isDirector) {
-      // 원장이 아니면 finance 그룹에서 매출 통계/재무 관리 숨김
-      return {
-        ...g,
-        items: g.items.filter(i => !(["/finance", "/dashboard/revenue"].includes(i.href))),
-      };
-    }
-    return g;
-  }).filter(g => g.items.length > 0);
+  // ✅ v3.20.0: directorOnly 그룹은 마스터/센터장(isDirector)만 노출
+  const visibleGroups = GROUPS.filter(g => !g.directorOnly || isDirector);
 
   async function logout() {
     await supabase.auth.signOut();

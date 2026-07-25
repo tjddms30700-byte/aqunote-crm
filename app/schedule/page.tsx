@@ -23,13 +23,15 @@ const TIMES = [
   "16:00", "17:00", "18:00", "19:00", "20:00"
 ];
 
+// ✅ v3.20.0: 7가지 상태 · 수업하지 않은 상태(병결/취소/노쇼/이월/개인사정)은 모두 회색 계열
 const STATUS_OPTIONS = [
-  { value: "scheduled", label: "예약",  color: "bg-blue-100 text-blue-800 border-blue-300",     dot: "bg-blue-500",   textColor: "text-blue-700" },
-  { value: "done",      label: "완료",  color: "bg-green-100 text-green-800 border-green-300",  dot: "bg-green-500",  textColor: "text-green-700" },
-  { value: "sick",      label: "병결",  color: "bg-orange-100 text-orange-800 border-orange-300", dot: "bg-orange-500", textColor: "text-orange-700" },
-  { value: "cancel",    label: "취소",  color: "bg-gray-100 text-gray-700 border-gray-300",      dot: "bg-gray-400",   textColor: "text-gray-700" },
-  { value: "noshow",    label: "노쇼",  color: "bg-red-100 text-red-800 border-red-300",         dot: "bg-red-500",    textColor: "text-red-700" },
-  { value: "carryover", label: "이월",  color: "bg-purple-100 text-purple-800 border-purple-300", dot: "bg-purple-500", textColor: "text-purple-700" },
+  { value: "scheduled", label: "예약",     color: "bg-blue-100 text-blue-800 border-blue-300",  dot: "bg-blue-500",   textColor: "text-blue-700" },
+  { value: "done",      label: "완료",     color: "bg-green-100 text-green-800 border-green-300", dot: "bg-green-500",  textColor: "text-green-700" },
+  { value: "sick",      label: "병결",     color: "bg-gray-100 text-gray-500 border-gray-300",   dot: "bg-gray-400",   textColor: "text-gray-500" },
+  { value: "personal",  label: "개인사정", color: "bg-gray-100 text-gray-500 border-gray-300",   dot: "bg-gray-400",   textColor: "text-gray-500" },
+  { value: "cancel",    label: "취소",     color: "bg-gray-100 text-gray-500 border-gray-300",   dot: "bg-gray-400",   textColor: "text-gray-500" },
+  { value: "noshow",    label: "노쇼",     color: "bg-gray-100 text-gray-500 border-gray-300",   dot: "bg-gray-400",   textColor: "text-gray-500" },
+  { value: "carryover", label: "이월",     color: "bg-gray-100 text-gray-500 border-gray-300",   dot: "bg-gray-400",   textColor: "text-gray-500" },
 ];
 // 구버전 호환: completed / cancelled 등을 통일 이름으로 매핑
 const STATUS_ALIAS: Record<string, string> = {
@@ -125,8 +127,53 @@ export default function SchedulePage() {
   // ✅ v3.16.1: 인라인 결제 등록 모달
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [paymentModalDate, setPaymentModalDate] = useState<string>("");
+  // ✅ v3.20.0: 지점 시간표 설정(타임 간격, 수업 길이) - state는 useEffect·useMemo 이전에 선언
+  const [scheduleConfig, setScheduleConfig] = useState<any>({
+    open_time: "09:00", close_time: "22:00", slot_interval: 10, slot_duration: 40,
+    lunch_break: { enabled: false, start: "12:00", end: "13:00" },
+    custom_slots: [] as string[],
+  });
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => { loadAll(); loadScheduleConfig(); }, []);
+
+  // ✅ v3.20.0: 지점별 schedule_config 로드
+  async function loadScheduleConfig() {
+    const branchId = getActiveBranchId();
+    if (!branchId) return;
+    const { data } = await supabase.from("branches").select("schedule_config").eq("id", branchId).maybeSingle();
+    if (data?.schedule_config) {
+      setScheduleConfig({ ...scheduleConfig, ...data.schedule_config });
+    } else if (typeof window !== "undefined") {
+      // localStorage 폴백
+      const local = window.localStorage.getItem(`aqu_schedule_config_${branchId}`);
+      if (local) { try { setScheduleConfig({ ...scheduleConfig, ...JSON.parse(local) }); } catch {} }
+    }
+  }
+
+  // 지점 시간표 설정을 기반으로 생성된 타임 옵션
+  const timeSlotOptions = (() => {
+    if (scheduleConfig.custom_slots && scheduleConfig.custom_slots.length > 0) return scheduleConfig.custom_slots;
+    const out: string[] = [];
+    const [oh, om] = (scheduleConfig.open_time || "09:00").split(":").map(Number);
+    const [ch, cm] = (scheduleConfig.close_time || "22:00").split(":").map(Number);
+    let cur = oh * 60 + om;
+    const end = ch * 60 + cm;
+    const interval = Number(scheduleConfig.slot_interval || 10);
+    const dur = Number(scheduleConfig.slot_duration || 40);
+    const lb = scheduleConfig.lunch_break;
+    const ls = lb?.enabled ? (() => { const [h, m] = lb.start.split(":").map(Number); return h * 60 + m; })() : null;
+    const le = lb?.enabled ? (() => { const [h, m] = lb.end.split(":").map(Number); return h * 60 + m; })() : null;
+    while (cur + dur <= end && out.length < 200) {
+      const inLunch = ls !== null && le !== null && cur < le && cur + dur > ls;
+      if (!inLunch) {
+        const h = String(Math.floor(cur / 60)).padStart(2, "0");
+        const m = String(cur % 60).padStart(2, "0");
+        out.push(`${h}:${m}`);
+      }
+      cur += interval;
+    }
+    return out;
+  })();
 
   const [plans, setPlans] = useState<any[]>([]);
 
@@ -180,7 +227,7 @@ export default function SchedulePage() {
   }
 
   // 출결 상태 변경 (5가지: done/noshow/sick/carryover/cancel)
-  async function setAttendanceStatus(slot: any, status: "done" | "noshow" | "sick" | "carryover" | "cancel") {
+  async function setAttendanceStatus(slot: any, status: "done" | "noshow" | "sick" | "personal" | "carryover" | "cancel") {
     if (!slot.member_id || !slot.event_date) {
       alert("회원/날짜 정보가 없는 예약입니다.");
       return;
@@ -188,13 +235,13 @@ export default function SchedulePage() {
     const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
 
     // attendance 기록은 done/cancel이 명확한 경우에만 저장 (선택적 보조 로그)
-    if (status === "done" || status === "noshow" || status === "sick") {
+    if (status === "done" || status === "noshow" || status === "sick" || status === "personal") {
       // 컬럼명 자동 감지 (date / attendance_date / session_date)
       const dateCol = attendance[0]?.date !== undefined ? "date"
         : attendance[0]?.attendance_date !== undefined ? "attendance_date"
         : attendance[0]?.session_date !== undefined ? "session_date"
         : "date";
-      const attStatus = status === "done" ? "present" : status === "noshow" ? "absent" : "sick";
+      const attStatus = status === "done" ? "present" : status === "noshow" ? "absent" : status === "sick" ? "sick" : "personal";
       const existing = attendance.find((a: any) => a.member_id === slot.member_id && (a.date === slot.event_date || a.attendance_date === slot.event_date || a.session_date === slot.event_date));
       if (existing) {
         await supabase.from("attendance").update({ status: attStatus, slot_id: slot.id }).eq("id", existing.id);
@@ -1090,6 +1137,7 @@ export default function SchedulePage() {
           f={f} setF={setF}
           modal={modal}
           members={members} staff={staff} plans={plans}
+          timeSlotOptions={timeSlotOptions}
           onClose={() => setModal(null)}
           onSave={saveSlot}
           onDelete={f.id ? (opts?: any) => { deleteSlot(f.id, opts); setModal(null); } : undefined}
@@ -1602,7 +1650,7 @@ function DayView({ date, setDate, slots, members, staff, onCellClick, onCellDoub
 }
 
 /* ═════ 등록/수정 모달 (반복예약 옵션 포함) ═════ */
-function SlotModal({ f, setF, modal, members, staff, plans, onClose, onSave, onDelete, saving }: any) {
+function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onClose, onSave, onDelete, saving }: any) {
   const isEditing = !!f.id;
   const isRecurring = !!f.recurring_id;
   // 예약 날짜 기준 재직 중인 직원만 노출 (퇴사일 이후엔 선택 불가)
@@ -1673,9 +1721,23 @@ function SlotModal({ f, setF, modal, members, staff, plans, onClose, onSave, onD
                   className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none bg-white" />
               </Field>
               <Field label="시간 *">
-                <input type="time" value={f.time_slot}
-                  onChange={e => setF({ ...f, time_slot: e.target.value })}
-                  className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none bg-white" />
+                {/* ✅ v3.20.0: 지점 설정의 타임 옵션 자동 노출 */}
+                {timeSlotOptions && timeSlotOptions.length > 0 ? (
+                  <select value={f.time_slot?.slice(0, 5) || ""}
+                    onChange={e => setF({ ...f, time_slot: e.target.value })}
+                    className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none bg-white">
+                    {!timeSlotOptions.includes(f.time_slot?.slice(0, 5)) && f.time_slot && (
+                      <option value={f.time_slot.slice(0, 5)}>{f.time_slot.slice(0, 5)} (사용자 지정)</option>
+                    )}
+                    {timeSlotOptions.map((t: string) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input type="time" value={f.time_slot}
+                    onChange={e => setF({ ...f, time_slot: e.target.value })}
+                    className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none bg-white" />
+                )}
               </Field>
             </div>
             <div className="mt-2">
@@ -1692,8 +1754,8 @@ function SlotModal({ f, setF, modal, members, staff, plans, onClose, onSave, onD
             </div>
           </div>
 
-          {/* ═══ 섹션 2: 회원 · 강사 ═══ */}
-          {(f.event_type === "lesson" || f.event_type === "trial" || f.event_type === "revenue") && (
+          {/* ═══ 섹션 2: 회원 · 강사 (수업·체험·보강·매출) ═══ */}
+          {(f.event_type === "lesson" || f.event_type === "trial" || f.event_type === "makeup" || f.event_type === "revenue") && (
             <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-3">
               <div className="text-xs font-bold text-blue-700 mb-2">👤 회원 · 강사</div>
               <div className="space-y-2">
@@ -1755,7 +1817,7 @@ function SlotModal({ f, setF, modal, members, staff, plans, onClose, onSave, onD
           )}
 
           {/* ═══ 섹션 3: ✅ v3.16.0 회원 보유 회원권 자동 표시 ═══ */}
-          {(f.event_type === "lesson" || f.event_type === "trial") && f.member_id && (
+          {(f.event_type === "lesson" || f.event_type === "trial" || f.event_type === "makeup") && f.member_id && (
             <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3">
               <div className="flex items-center justify-between mb-2">
                 <div className="text-xs font-bold text-emerald-700">🎫 보유 회원권</div>
@@ -1807,9 +1869,9 @@ function SlotModal({ f, setF, modal, members, staff, plans, onClose, onSave, onD
             </div>
           )}
 
-          {/* ═══ 섹션 4: 수업명 (회원권 선택 안했을 때 직접 입력용) ═══ */}
-          {!f.membership_id && (f.event_type === "lesson" || f.event_type === "trial" || f.event_type === "revenue") && (
-            <Field label="수업명 (직접 입력)">
+          {/* ═══ 섹션 4: 수업명 (보강·기타 포함) ═══ */}
+          {!f.membership_id && (["lesson", "trial", "makeup", "revenue", "other"].includes(f.event_type)) && (
+            <Field label={f.event_type === "makeup" ? "보강 수업명" : (f.event_type === "other" ? "일정 명칭" : "수업명 (직접 입력)")}>
               <PlanPicker plans={plans} value={f.lesson_name} onChange={(name: string) => setF({ ...f, lesson_name: name })} />
             </Field>
           )}

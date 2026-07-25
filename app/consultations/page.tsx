@@ -386,6 +386,8 @@ export default function ConsultationsPage() {
 
 function KanbanView({ members, stats, onMove, matrix }: any) {
   const [draggedId, setDraggedId] = useState<string | null>(null);
+  // ✅ v3.20.0: 칸반에도 응대 로그 모달 state
+  const [contactTarget, setContactTarget] = useState<any>(null);
   // ✅ v3.18.0: 검색 + 요일 필터 + 컬럼 접기
   const [q, setQ] = useState("");
   const [dayFilter, setDayFilter] = useState<string>("");
@@ -413,6 +415,10 @@ function KanbanView({ members, stats, onMove, matrix }: any) {
 
   return (
     <div className="max-w-7xl mx-auto">
+      {/* ✅ v3.20.0: 칸반 응대 로그 모달 */}
+      {contactTarget && (
+        <ContactLogModal member={contactTarget} onClose={() => setContactTarget(null)} onSaved={() => {}} />
+      )}
       {/* 파이프라인 요약 */}
       <div className="mb-4 grid grid-cols-3 md:grid-cols-6 gap-2 text-xs">
         {COLUMNS.map(col => (
@@ -495,11 +501,12 @@ function KanbanView({ members, stats, onMove, matrix }: any) {
                         </Link>
                         {/* ✅ v3.18.0: 카드 퀵 액션 (통화 · 예약) */}
                         <div className="flex items-center gap-1 mt-1.5 pt-1.5 border-t border-gray-100">
-                          {m.phone && (
-                            <a href={`tel:${m.phone}`} onClick={e => e.stopPropagation()} className="flex-1 flex items-center justify-center gap-1 text-[10px] px-1.5 py-1 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-semibold">
-                              <Phone className="w-2.5 h-2.5" /> 통화
-                            </a>
-                          )}
+                          {/* ✅ v3.20.0: 통화 버튼 → 응대 로그 모달 */}
+                          <button onClick={e => { e.stopPropagation(); setContactTarget(m); }}
+                            className="flex-1 flex items-center justify-center gap-1 text-[10px] px-1.5 py-1 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-semibold"
+                            title="응대 기록 (전화/문자/카카오톡/메모)">
+                            <Phone className="w-2.5 h-2.5" /> 응대
+                          </button>
                           <Link href={`/schedule?member=${m.id}`} onClick={e => e.stopPropagation()} className="flex-1 flex items-center justify-center gap-1 text-[10px] px-1.5 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold">
                             <Calendar className="w-2.5 h-2.5" /> 예약
                           </Link>

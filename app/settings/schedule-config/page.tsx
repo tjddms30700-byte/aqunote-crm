@@ -23,23 +23,40 @@ const DAYS = [
   { key: "sun", label: "일" },
 ];
 
-const SLOT_DURATIONS = [
+// ✅ v3.20.0: 타임 간격(새 수업 시작 주기)
+const SLOT_INTERVALS = [
+  { v: 10, label: "10분" },
+  { v: 15, label: "15분" },
+  { v: 20, label: "20분" },
+  { v: 30, label: "30분" },
+  { v: 40, label: "40분" },
+  { v: 50, label: "50분" },
+  { v: 60, label: "1시간" },
+  { v: 70, label: "1시간 10분" },
+  { v: 90, label: "1시간 30분" },
+  { v: 120, label: "2시간" },
+];
+
+// 실제 수업 진행 시간
+const LESSON_DURATIONS = [
+  { v: 20, label: "20분" },
   { v: 30, label: "30분" },
   { v: 40, label: "40분" },
   { v: 45, label: "45분" },
   { v: 50, label: "50분" },
-  { v: 60, label: "60분 (1시간)" },
+  { v: 60, label: "60분" },
   { v: 90, label: "90분" },
 ];
 
 const DEFAULT_CONFIG = {
   open_time: "09:00",
   close_time: "22:00",
+  slot_interval: 10,
   slot_duration: 40,
   break_between: 0,
   open_days: ["mon", "tue", "wed", "thu", "fri", "sat"],
   lunch_break: { enabled: false, start: "12:00", end: "13:00" },
-  custom_slots: [] as string[], // 직접 지정한 타임 (있으면 자동 생성 대신 이걸 사용)
+  custom_slots: [] as string[],
 };
 
 export default function ScheduleConfigPage() {
@@ -107,7 +124,7 @@ export default function ScheduleConfigPage() {
     setConfig({ ...config, custom_slots: (config.custom_slots || []).filter((s: string) => s !== slot) });
   }
 
-  // 자동 생성된 타임 미리보기
+  // ✅ v3.20.0: 타임 간격만큼마다 새 슬롯 생성
   const previewSlots = (() => {
     if (config.custom_slots && config.custom_slots.length > 0) return config.custom_slots;
     const slots: string[] = [];
@@ -115,19 +132,18 @@ export default function ScheduleConfigPage() {
     const [ch, cm] = (config.close_time || "22:00").split(":").map(Number);
     let cur = oh * 60 + om;
     const end = ch * 60 + cm;
+    const interval = Number(config.slot_interval || 10);
     const dur = Number(config.slot_duration || 40);
-    const gap = Number(config.break_between || 0);
     const lunchStart = config.lunch_break?.enabled ? (() => { const [h, m] = config.lunch_break.start.split(":").map(Number); return h * 60 + m; })() : null;
     const lunchEnd = config.lunch_break?.enabled ? (() => { const [h, m] = config.lunch_break.end.split(":").map(Number); return h * 60 + m; })() : null;
-    while (cur + dur <= end && slots.length < 40) {
-      if (lunchStart !== null && lunchEnd !== null && cur < lunchEnd && cur + dur > lunchStart) {
-        cur = lunchEnd;
-        continue;
+    while (cur + dur <= end && slots.length < 200) {
+      const inLunch = lunchStart !== null && lunchEnd !== null && cur < lunchEnd && cur + dur > lunchStart;
+      if (!inLunch) {
+        const h = String(Math.floor(cur / 60)).padStart(2, "0");
+        const m = String(cur % 60).padStart(2, "0");
+        slots.push(`${h}:${m}`);
       }
-      const h = String(Math.floor(cur / 60)).padStart(2, "0");
-      const m = String(cur % 60).padStart(2, "0");
-      slots.push(`${h}:${m}`);
-      cur += dur + gap;
+      cur += interval;
     }
     return slots;
   })();
@@ -189,23 +205,34 @@ export default function ScheduleConfigPage() {
         </div>
       </div>
 
-      {/* 수업 타임 단위 */}
+      {/* ✅ v3.20.0: 타임 간격 (새 수업 시작 주기) */}
       <div className="bg-white border border-aqu-100 rounded-2xl p-5 mb-4">
-        <div className="text-base font-bold text-slate-900 mb-3">⏱️ 수업 타임 단위</div>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-          {SLOT_DURATIONS.map(sd => (
-            <button key={sd.v} onClick={() => setConfig({ ...config, slot_duration: sd.v })}
-              className={`px-3 py-2.5 rounded-lg text-sm font-semibold border-2 transition ${config.slot_duration === sd.v ? "bg-blue-500 text-white border-blue-500" : "bg-white text-gray-600 border-gray-200 hover:border-blue-300"}`}>
+        <div className="text-base font-bold text-slate-900 mb-1">⏰ 타임 간격 (새 수업 시작 주기)</div>
+        <div className="text-[11px] text-gray-500 mb-3">예: <b>10분</b> 선택 → 09:00, 09:10, 09:20 … 매 10분마다 새 수업 설정 가능</div>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+          {SLOT_INTERVALS.map(sd => (
+            <button key={sd.v} onClick={() => setConfig({ ...config, slot_interval: sd.v })}
+              className={`px-3 py-2.5 rounded-lg text-sm font-semibold border-2 transition ${config.slot_interval === sd.v ? "bg-blue-500 text-white border-blue-500" : "bg-white text-gray-600 border-gray-200 hover:border-blue-300"}`}>
               {sd.label}
             </button>
           ))}
         </div>
-        <div className="mt-3">
-          <label className="text-xs text-gray-600 font-semibold block mb-1">타임 사이 쉬는 시간 (분)</label>
-          <input type="number" min="0" step="5" value={config.break_between}
-            onChange={e => setConfig({ ...config, break_between: Number(e.target.value) })}
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white" placeholder="0" />
-          <div className="text-[10px] text-gray-500 mt-1">💡 예: 40분 수업 + 10분 정리 = 50분 간격으로 다음 타임 시작</div>
+      </div>
+
+      {/* ✅ v3.20.0: 수업 진행 시간 */}
+      <div className="bg-white border border-aqu-100 rounded-2xl p-5 mb-4">
+        <div className="text-base font-bold text-slate-900 mb-1">🏊 수업 진행 시간</div>
+        <div className="text-[11px] text-gray-500 mb-3">실제 수업 길이 · 예: <b>40분</b> 수업이면 09:00 시작 → 09:40 종료</div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          {LESSON_DURATIONS.map(ld => (
+            <button key={ld.v} onClick={() => setConfig({ ...config, slot_duration: ld.v })}
+              className={`px-3 py-2.5 rounded-lg text-sm font-semibold border-2 transition ${config.slot_duration === ld.v ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-gray-600 border-gray-200 hover:border-emerald-300"}`}>
+              {ld.label}
+            </button>
+          ))}
+        </div>
+        <div className="mt-3 p-2 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-800">
+          💡 <b>예시</b>: 타임 간격 <b>10분</b> + 수업 <b>40분</b> = 09:00, 09:10, 09:20 … 같은 시간대 데이버·1:1 동시 진행 가능
         </div>
       </div>
 

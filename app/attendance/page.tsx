@@ -11,11 +11,12 @@ import {
   X as XIcon, AlertCircle, User, Clock, Filter, CalendarDays
 } from "lucide-react";
 
-/* 3가지 상태만 유지 */
+/* ✅ v3.20.0: 수업을 하지 않은 상태(결석/병결/개인사정)는 회색 계열로 통일 */
 const STATUS_OPTIONS = [
-  { value: "present", label: "출석",  color: "bg-green-100 text-green-800 border-green-400 hover:bg-green-200",   icon: "✓" },
-  { value: "absent",  label: "결석",  color: "bg-red-100 text-red-800 border-red-400 hover:bg-red-200",           icon: "✗" },
-  { value: "sick",    label: "병결",  color: "bg-orange-100 text-orange-800 border-orange-400 hover:bg-orange-200", icon: "🏥" },
+  { value: "present",  label: "출석",     color: "bg-green-100 text-green-800 border-green-400 hover:bg-green-200", icon: "✓" },
+  { value: "absent",   label: "결석",     color: "bg-gray-100 text-gray-500 border-gray-300 hover:bg-gray-200",   icon: "✗" },
+  { value: "sick",     label: "병결",     color: "bg-gray-100 text-gray-500 border-gray-300 hover:bg-gray-200",   icon: "🏥" },
+  { value: "personal", label: "개인사정", color: "bg-gray-100 text-gray-500 border-gray-300 hover:bg-gray-200",   icon: "📝" },
 ];
 function statusMeta(s: string) { return STATUS_OPTIONS.find(x => x.value === s); }
 
