@@ -5,6 +5,7 @@ import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import MemberSearch from "@/components/MemberSearch";
+import QuickPaymentModal from "@/components/QuickPaymentModal";
 import { supabase } from "@/lib/supabase";
 import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import {
@@ -119,6 +120,9 @@ export default function SchedulePage() {
   const [actionSheet, setActionSheet] = useState<{ date: string; time?: string } | null>(null);
   const [payments, setPayments] = useState<any[]>([]);
   const [attendance, setAttendance] = useState<any[]>([]);
+  // ✅ v3.16.1: 인라인 결제 등록 모달
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [paymentModalDate, setPaymentModalDate] = useState<string>("");
 
   useEffect(() => { loadAll(); }, []);
 
@@ -557,18 +561,10 @@ export default function SchedulePage() {
   }
 
   function openRevenueModalFromDate(date: string) {
-    // 매출 등록은 /payments 통합 결제 모달을 사용
+    // ✅ v3.16.1: 페이지 이동 없이 인라인 결제 모달을 바로 연다
     setActionSheet(null);
-    try {
-      // sessionStorage에 플래그 저장 (useEffect 타이밍 이슈 방지)
-      sessionStorage.setItem("aqunote_open_payment", JSON.stringify({
-        open: true,
-        date: date,
-        ts: Date.now(),
-      }));
-    } catch {}
-    // 강제 페이지 이동
-    window.location.assign(`/payments?open=1&date=${encodeURIComponent(date)}`);
+    setPaymentModalDate(date);
+    setPaymentModalOpen(true);
   }
 
   function openStaffScheduleFromDate(date: string) {
@@ -1081,6 +1077,14 @@ export default function SchedulePage() {
         />
       )}
 
+      {/* ✅ v3.16.1: 인라인 결제 등록 모달 (페이지 이동 없이) */}
+      <QuickPaymentModal
+        open={paymentModalOpen}
+        onClose={() => setPaymentModalOpen(false)}
+        onSaved={async () => { setPaymentModalOpen(false); await loadAll(); }}
+        initialDate={paymentModalDate}
+      />
+
       {/* ═══ 예약 클릭 시 빠른 액션 시트 ═══ */}
       {quickAction && (
         <QuickActionSheet
@@ -1592,12 +1596,17 @@ function SlotModal({ f, setF, modal, members, staff, plans, onClose, onSave, onD
     if (!f.member_id) { setMemberMemberships([]); return; }
     setLoadingMs(true);
     (async () => {
+      // ✅ v3.16.1: price/amount 모두 조회 + status 없는 경우도 포함
       const { data } = await supabase
         .from("memberships")
-        .select("id, plan_name, total_sessions, used_sessions, start_date, end_date, status, amount")
+        .select("id, plan_name, total_sessions, used_sessions, start_date, end_date, status, amount, price")
         .eq("member_id", f.member_id)
         .order("created_at", { ascending: false });
-      const active = (data || []).filter((m: any) => m.status !== "cancelled" && m.status !== "refunded");
+      // ✅ v3.16.1: 제외 조건을 명시적으로 반전 (status가 null이거나 다른 값이어도 포함)
+      const active = (data || []).filter((m: any) => {
+        if (m.status === "cancelled" || m.status === "refunded" || m.status === "expired") return false;
+        return true;
+      });
       setMemberMemberships(active);
       setLoadingMs(false);
     })();

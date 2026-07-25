@@ -603,6 +603,12 @@ function KPI({ title, val, color }: any) {
 /* ✅ v3.14.1: 태블릿 출석부 – 큰 카드로 모든 회원을 나열해 놀고, 학부모/직원이 파드에 사인 */
 function SignInBoard({ date, members, attendance, onOpenSign }: any) {
   const [search, setSearch] = useState("");
+  // ✅ v3.16.1: 사인 이력 표 프린트용 필터
+  const [showHistory, setShowHistory] = useState(false);
+  const [histMemberId, setHistMemberId] = useState("");
+  const [histFrom, setHistFrom] = useState(new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10));
+  const [histTo, setHistTo] = useState(new Date().toISOString().slice(0, 10));
+
   const todayRecs = (attendance || []).filter((a: any) => a.attend_date === date);
   const recMap = new Map<string, any>();
   todayRecs.forEach((r: any) => recMap.set(r.member_id, r));
@@ -610,6 +616,93 @@ function SignInBoard({ date, members, attendance, onOpenSign }: any) {
   const filtered = (members || []).filter((m: any) =>
     !search.trim() || (m.name || "").toLowerCase().includes(search.trim().toLowerCase())
   );
+
+  // ✅ v3.16.1: 사인 이력 프린트 함수
+  function printSignatureHistory() {
+    const memberMap = new Map<string, any>();
+    (members || []).forEach((m: any) => memberMap.set(m.id, m));
+
+    const signedRecs = (attendance || [])
+      .filter((a: any) => !!a.signature)
+      .filter((a: any) => (!histMemberId || a.member_id === histMemberId))
+      .filter((a: any) => (!histFrom || a.attend_date >= histFrom))
+      .filter((a: any) => (!histTo || a.attend_date <= histTo))
+      .sort((a: any, b: any) => (b.attend_date || "").localeCompare(a.attend_date || "") || (b.signed_at || "").localeCompare(a.signed_at || ""));
+
+    if (signedRecs.length === 0) {
+      alert("검색 조건에 맞는 사인 기록이 없습니다.");
+      return;
+    }
+
+    const w = window.open("", "_blank", "width=1000,height=1200");
+    if (!w) { alert("팝업 차단을 해제해주세요"); return; }
+
+    const memberName = histMemberId ? (memberMap.get(histMemberId)?.name || "-") : "전체 회원";
+    const escapeHtml = (s: any) => String(s || "").replace(/[&<>"']/g, (c: string) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] || c));
+
+    const rows = signedRecs.map((r: any, i: number) => {
+      const m = memberMap.get(r.member_id) || {};
+      const st = statusMeta(r.status || "");
+      const signer = r.signer_role === "parent" ? "학부모" : r.signer_role === "staff" ? "직원" : "본인";
+      return `
+        <tr>
+          <td>${i + 1}</td>
+          <td><b>${escapeHtml(m.name || "-")}</b><br/><span class="sub">${m.member_type === "child" ? "아동" : "성인"}${m.guardian_name ? " · " + escapeHtml(m.guardian_name) : ""}</span></td>
+          <td>${r.attend_date || "-"}</td>
+          <td>${r.time_slot || "-"}</td>
+          <td><span class="badge">${st?.label || r.status || "-"}</span></td>
+          <td>${signer}</td>
+          <td>${r.signed_at ? String(r.signed_at).replace("T", " ").slice(0, 19) : "-"}</td>
+          <td class="sig-cell">${r.signature ? `<img src="${r.signature}" alt="sig" />` : ""}</td>
+        </tr>
+      `;
+    }).join("");
+
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>출석 사인 이력</title>
+<style>
+body { font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; padding: 25px; color: #111; font-size: 12px; }
+h1 { text-align: center; font-size: 20px; margin-bottom: 4px; letter-spacing: 1px; }
+.sub-title { text-align: center; color: #666; font-size: 11px; margin-bottom: 20px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { border: 1px solid #333; padding: 6px 8px; text-align: center; vertical-align: middle; }
+th { background: #f3f4f6; font-weight: bold; }
+td.sig-cell { padding: 2px; width: 140px; height: 60px; background: #fafafa; }
+td.sig-cell img { max-width: 130px; max-height: 55px; object-fit: contain; }
+.sub { font-size: 10px; color: #666; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; background: #e0e7ff; color: #3730a3; font-size: 10px; font-weight: bold; }
+.footer { margin-top: 20px; text-align: right; font-size: 10px; color: #666; }
+@media print { .no-print { display: none } }
+.toolbar { text-align: center; margin-bottom: 15px; }
+.toolbar button { padding: 8px 18px; margin: 0 4px; border: none; border-radius: 6px; cursor: pointer; }
+.btn-print { background: #7c3aed; color: white; }
+.btn-close { background: #e5e7eb; color: #111; }
+</style></head><body>
+<div class="toolbar no-print">
+  <button class="btn-print" onclick="window.print()">🖨️ 인쇄 / PDF</button>
+  <button class="btn-close" onclick="window.close()">❌ 닫기</button>
+</div>
+<h1>출석 사인 이력부</h1>
+<div class="sub-title">아쿠수중운동센터 · 회원: <b>${escapeHtml(memberName)}</b> · 기간: ${histFrom} ~ ${histTo} · 총 ${signedRecs.length}건</div>
+<table>
+  <thead>
+    <tr>
+      <th style="width:30px">#</th>
+      <th>회원</th>
+      <th>날짜</th>
+      <th>시간</th>
+      <th>출결</th>
+      <th>서명자</th>
+      <th>서명 시각</th>
+      <th style="width:150px">서명</th>
+    </tr>
+  </thead>
+  <tbody>${rows}</tbody>
+</table>
+<div class="footer">발행: ${new Date().toISOString().slice(0, 19).replace("T", " ")} · AQUNOTE 출석부 자동생성</div>
+</body></html>`);
+    w.document.close();
+    setTimeout(() => { w.focus(); w.print(); }, 500);
+  }
 
   return (
     <div className="bg-white rounded-2xl shadow-md border border-purple-100 p-4">
@@ -622,13 +715,56 @@ function SignInBoard({ date, members, attendance, onOpenSign }: any) {
             회원 카드를 터치해 사인으로 출석을 기록하세요 (학부모/직원 사인 저장)
           </div>
         </div>
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="🔍 회원명 검색..."
-          className="px-3 py-2 border border-purple-200 rounded-lg text-sm w-full md:w-64 focus:outline-none focus:ring-2 focus:ring-purple-300"
-        />
+        <div className="flex items-center gap-2">
+          {/* ✅ v3.16.1: 사인 이력 프린트 버튼 */}
+          <button onClick={() => setShowHistory(!showHistory)}
+            className="px-3 py-2 bg-white border-2 border-purple-300 text-purple-700 rounded-lg text-xs font-bold hover:bg-purple-50">
+            📄 사인 이력 프린트
+          </button>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="🔍 회원명 검색..."
+            className="px-3 py-2 border border-purple-200 rounded-lg text-sm w-full md:w-64 focus:outline-none focus:ring-2 focus:ring-purple-300"
+          />
+        </div>
       </div>
+
+      {/* ✅ v3.16.1: 사인 이력 프린트 패널 */}
+      {showHistory && (
+        <div className="bg-purple-50 border-2 border-purple-200 rounded-xl p-3 mb-4">
+          <div className="text-xs font-bold text-purple-800 mb-2">📄 사인 이력 프린트</div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-2 mb-2">
+            <div>
+              <div className="text-[10px] text-purple-700 mb-1">회원 선택</div>
+              <select value={histMemberId} onChange={(e) => setHistMemberId(e.target.value)}
+                className="w-full px-2 py-1.5 border border-purple-200 rounded text-sm bg-white">
+                <option value="">전체 회원</option>
+                {(members || []).map((m: any) => (
+                  <option key={m.id} value={m.id}>{m.name} ({m.member_type === "child" ? "아동" : "성인"})</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <div className="text-[10px] text-purple-700 mb-1">시작일</div>
+              <input type="date" value={histFrom} onChange={(e) => setHistFrom(e.target.value)}
+                className="w-full px-2 py-1.5 border border-purple-200 rounded text-sm bg-white" />
+            </div>
+            <div>
+              <div className="text-[10px] text-purple-700 mb-1">종료일</div>
+              <input type="date" value={histTo} onChange={(e) => setHistTo(e.target.value)}
+                className="w-full px-2 py-1.5 border border-purple-200 rounded text-sm bg-white" />
+            </div>
+            <div className="flex items-end">
+              <button onClick={printSignatureHistory}
+                className="w-full px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded text-sm font-bold">
+                🖨️ 프린트 생성
+              </button>
+            </div>
+          </div>
+          <div className="text-[10px] text-purple-700">💡 예: 손민오 회원 · 5월 1일 · 5월 2일 사인 기록이 표로 모두 표시되며, 서명 이미지가 함께 인쇄됩니다.</div>
+        </div>
+      )}
 
       {filtered.length === 0 ? (
         <div className="text-center py-16 text-gray-400">
@@ -850,6 +986,17 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
                   {s.label}
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* ✅ v3.16.1: 출석 확인 동의문 */}
+          <div className="bg-purple-50 border-2 border-purple-200 rounded-xl p-3">
+            <div className="text-xs font-bold text-purple-800 mb-1 flex items-center gap-1">
+              📜 출석 확인 및 동의서
+            </div>
+            <div className="text-[11px] text-purple-900 leading-relaxed bg-white rounded p-2 border border-purple-100">
+              본 서명으로 <b>당일 출석 및 세션 차감</b>이 처리되며,<br/>
+              서명 정보는 <b>출석 증빙 목적</b>으로 보관됩니다.
             </div>
           </div>
 

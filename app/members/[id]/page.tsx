@@ -640,7 +640,6 @@ export default function MemberDetail() {
       <div className="flex flex-wrap gap-2 mb-4">
         {[
           { k: "info", label: "📌 기본정보" },
-          { k: "consult_form", label: "📋 상담폼" },
           { k: "chart", label: "📝 상담차트" },
           { k: "history", label: "💰 결제·회원권·출석" },
           { k: "assessment", label: "🩺 수중기능평가" },
@@ -961,10 +960,7 @@ export default function MemberDetail() {
           </div>
         )}
 
-        {tab === "consult_form" && (
-          <ConsultFormPanel member={member} />
-        )}
-
+        {/* ✅ v3.16.1: 상담폼 탭 제거 - 상담차트에 통합됨 */}
         {tab === "chart" && (
           <ConsultationChartPanel memberId={id as string} member={member} />
         )}
@@ -1698,14 +1694,56 @@ function AquaAssessmentPanel({ memberId, skills, setSkills, onSaveBasic }: any) 
             </label>
           </SectionCard>
 
-          {/* 수중 기본 기능 */}
-          <SectionCard title="🌊 수중 기본 기능 (0-5)" color="border-cyan-200">
-            <ScaleField label="부력 적응"  max={5} v={assess.buoyancy_adaptation} onC={v => setAssess({ ...assess, buoyancy_adaptation: v })} />
-            <ScaleField label="호흡 조절"  max={5} v={assess.breath_control}      onC={v => setAssess({ ...assess, breath_control: v })} />
-            <ScaleField label="신체 조절"  max={5} v={assess.body_control}        onC={v => setAssess({ ...assess, body_control: v })} />
-            <ScaleField label="수중 보행"  max={5} v={assess.aquatic_gait}        onC={v => setAssess({ ...assess, aquatic_gait: v })} />
-            <ScaleField label="협응력"     max={5} v={assess.coordination}        onC={v => setAssess({ ...assess, coordination: v })} />
-            <ScaleField label="지구력"     max={5} v={assess.endurance}           onC={v => setAssess({ ...assess, endurance: v })} />
+          {/* ✅ v3.16.1: 수중 기술 정규 8항목 (Halliwick 10포인트 기반) */}
+          <SectionCard title="🌊 수중 기본 기술 · Halliwick 8항목 (0-5)" color="border-cyan-200">
+            <ScaleField label="금질적 조정 (Balance)"        max={5} v={assess.aq_balance}       onC={v => setAssess({ ...assess, aq_balance: v })} />
+            <ScaleField label="호흡 조절 (Breath)"           max={5} v={assess.breath_control}    onC={v => setAssess({ ...assess, breath_control: v })} />
+            <ScaleField label="부력 적응 (Buoyancy)"        max={5} v={assess.buoyancy_adaptation} onC={v => setAssess({ ...assess, buoyancy_adaptation: v })} />
+            <ScaleField label="추진 (Propulsion)"              max={5} v={assess.aq_propulsion}    onC={v => setAssess({ ...assess, aq_propulsion: v })} />
+            <ScaleField label="회전 적응 (Rotation)"        max={5} v={assess.aq_rotation}      onC={v => setAssess({ ...assess, aq_rotation: v })} />
+            <ScaleField label="수직 상승 (Vertical Rise)"    max={5} v={assess.aq_vertical_rise} onC={v => setAssess({ ...assess, aq_vertical_rise: v })} />
+            <ScaleField label="수평 이동 (Horizontal Move)"  max={5} v={assess.aq_horizontal_move} onC={v => setAssess({ ...assess, aq_horizontal_move: v })} />
+            <ScaleField label="잠수/물 적응 (Submersion)"  max={5} v={assess.aq_submersion}    onC={v => setAssess({ ...assess, aq_submersion: v })} />
+          </SectionCard>
+
+          {/* ✅ v3.16.1: 기능적 수중운동 (WOTA-2/HAAR 지표) */}
+          <SectionCard title="🏊 기능적 수중 운동 (WOTA-2 · HAAR)" color="border-teal-200">
+            <ScaleField label="수중 보행 (Aquatic Gait)"      max={5} v={assess.aquatic_gait}     onC={v => setAssess({ ...assess, aquatic_gait: v })} />
+            <ScaleField label="신체 조절 (Body Control)"      max={5} v={assess.body_control}     onC={v => setAssess({ ...assess, body_control: v })} />
+            <ScaleField label="협응력 (Coordination)"          max={5} v={assess.coordination}     onC={v => setAssess({ ...assess, coordination: v })} />
+            <ScaleField label="지구력 (Endurance)"             max={5} v={assess.endurance}        onC={v => setAssess({ ...assess, endurance: v })} />
+            <ScaleField label="수중 자세 유지 (Posture)"   max={5} v={assess.aq_posture}      onC={v => setAssess({ ...assess, aq_posture: v })} />
+            <ScaleField label="수이증 대응 (Water Safety)"   max={5} v={assess.aq_water_safety} onC={v => setAssess({ ...assess, aq_water_safety: v })} />
+            <ScaleField label="진입 · 퇴수 (Entry/Exit)"     max={5} v={assess.aq_entry_exit}   onC={v => setAssess({ ...assess, aq_entry_exit: v })} />
+            <ScaleField label="심폐 적응 (Cardio Adapt.)"     max={5} v={assess.aq_cardio_adapt} onC={v => setAssess({ ...assess, aq_cardio_adapt: v })} />
+          </SectionCard>
+
+          {/* ✅ v3.16.1: 임상 측정 (공신력 있는 표준 측정 도구) */}
+          <SectionCard title="📏 임상 측정 (표준 공인 도구)" color="border-indigo-200">
+            <NumField label="BBS (Berg Balance, 0-56)"      max={56}  v={assess.bbs_score}      onC={v => setAssess({ ...assess, bbs_score: v })} />
+            <NumField label="TUG (초, 낮을수록 좋음)"    max={60}  v={assess.tug_seconds}    onC={v => setAssess({ ...assess, tug_seconds: v })} />
+            <NumField label="10m 보행 (초)"                max={60}  v={assess.gait_10m_sec}   onC={v => setAssess({ ...assess, gait_10m_sec: v })} />
+            <NumField label="6MWT (6분보행 거리 m)"       max={800} v={assess.mwt_6min_meter} onC={v => setAssess({ ...assess, mwt_6min_meter: v })} />
+            <NumField label="FRT (기능적 누움 cm)"       max={60}  v={assess.frt_cm}         onC={v => setAssess({ ...assess, frt_cm: v })} />
+            <NumField label="K-MBI (수정바델지수 0-100)" max={100} v={assess.kmbi_score}     onC={v => setAssess({ ...assess, kmbi_score: v })} />
+          </SectionCard>
+
+          {/* ✅ v3.16.1: 생체 지표 */}
+          <SectionCard title="🩺 생체 지표" color="border-rose-200">
+            <NumField label="수업 전 혜박 (bpm)"     max={200} v={assess.vital_hr_pre}   onC={v => setAssess({ ...assess, vital_hr_pre: v })} />
+            <NumField label="수업 후 혜박 (bpm)"     max={200} v={assess.vital_hr_post}  onC={v => setAssess({ ...assess, vital_hr_post: v })} />
+            <NumField label="SpO₂ (산소포화도 %)"    max={100} v={assess.vital_spo2}     onC={v => setAssess({ ...assess, vital_spo2: v })} />
+            <NumField label="수온 (°C)"                max={40}  v={assess.pool_temp}      onC={v => setAssess({ ...assess, pool_temp: v })} />
+            <NumField label="수업 시간 (분)"         max={120} v={assess.session_min}    onC={v => setAssess({ ...assess, session_min: v })} />
+            <ScaleField label="자각적 운동강도 (Borg 6-20)" max={20} v={assess.rpe_borg}    onC={v => setAssess({ ...assess, rpe_borg: v })} />
+          </SectionCard>
+
+          {/* ✅ v3.16.1: 사회/정서 */}
+          <SectionCard title="💛 정서 · 사회적 기능" color="border-pink-200">
+            <ScaleField label="물 반응 (긍정 ← 공포)" max={5} v={assess.water_reaction_score} onC={v => setAssess({ ...assess, water_reaction_score: v })} />
+            <ScaleField label="확포/불안 수준"           max={5} v={assess.anxiety_level}   onC={v => setAssess({ ...assess, anxiety_level: v })} />
+            <ScaleField label="대인관계/상호작용"        max={5} v={assess.social_interact} onC={v => setAssess({ ...assess, social_interact: v })} />
+            <ScaleField label="자존감 · 자신감"           max={5} v={assess.self_esteem}    onC={v => setAssess({ ...assess, self_esteem: v })} />
           </SectionCard>
 
           {/* 인지 / 행동 */}
@@ -2406,6 +2444,9 @@ function ConsultationChartPanel({ memberId, member }: { memberId: string; member
         {!chart && <div className="text-xs text-purple-700">아직 저장된 차트가 없습니다. 정보를 입력하고 저장하세요.</div>}
       </div>
 
+      {/* ✅ v3.16.1: 상담폼 원본 데이터 요약 카드 (통합된 상담폼 뷰) */}
+      <ConsultFormEmbedded member={member} onImport={() => autoFillFromConsultForm(false)} />
+
       {/* 기본 정보 */}
       <Section title="📋 기본 정보">
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -2432,6 +2473,51 @@ function ConsultationChartPanel({ memberId, member }: { memberId: string; member
           <ChartField label="희망요일" value={(f.wish_days || []).join(", ")} onChange={v => setF({ ...f, wish_days: v.split(",").map((s: string) => s.trim()).filter(Boolean) })} placeholder="월,수,금" />
           <ChartField label="희망시간" value={(f.wish_time_slots || []).join(", ")} onChange={v => setF({ ...f, wish_time_slots: v.split(",").map((s: string) => s.trim()).filter(Boolean) })} placeholder="13:30~14:40" />
         </div>
+        {/* ✅ v3.16.1: 요일별 그룹된 요약 시각화 (자동 생성) */}
+        {(() => {
+          const days = f.wish_days || [];
+          const times = f.wish_time_slots || [];
+          if (days.length === 0 && times.length === 0) return null;
+          const DAY_ORDER = ["월", "화", "수", "목", "금", "토", "일"];
+          const groups: Record<string, string[]> = {};
+          const orphans: string[] = [];
+          (times as any[]).forEach((raw) => {
+            const s = String(raw).trim();
+            if (!s) return;
+            const m = s.match(/^([월화수목금토일])[\s·]*(.+)$/);
+            if (m) {
+              const d = m[1]; const t = m[2].trim();
+              if (!groups[d]) groups[d] = [];
+              t.split(/[,;\s]+/).filter(Boolean).forEach((x) => { if (!groups[d].includes(x)) groups[d].push(x); });
+            } else orphans.push(s);
+          });
+          (days as any[]).forEach((d) => { const k = String(d).trim(); if (k && !groups[k]) groups[k] = []; });
+          if (orphans.length > 0 && (days as any[]).length > 0) {
+            (days as any[]).forEach((d) => {
+              const k = String(d).trim(); if (!k) return;
+              orphans.forEach((t) => { if (!groups[k].includes(t)) groups[k].push(t); });
+            });
+          }
+          const keys = Object.keys(groups).sort((a, b) => (DAY_ORDER.indexOf(a) === -1 ? 99 : DAY_ORDER.indexOf(a)) - (DAY_ORDER.indexOf(b) === -1 ? 99 : DAY_ORDER.indexOf(b)));
+          if (keys.length === 0) return null;
+          return (
+            <div className="mt-3 bg-blue-50 border border-blue-200 rounded-lg p-2">
+              <div className="text-[10px] text-blue-700 font-semibold mb-1">📅 대기 원하는 시간 (자동 요약)</div>
+              <div className="space-y-0.5">
+                {keys.map((day) => (
+                  <div key={day} className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] font-bold text-blue-800 bg-blue-200 rounded px-1.5 min-w-[24px] text-center">{day}</span>
+                    {groups[day].length === 0 ? (
+                      <span className="text-[10px] text-gray-500">시간 미지정</span>
+                    ) : groups[day].map((t, i) => (
+                      <span key={i} className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-full font-semibold">{t}</span>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
       </Section>
 
       {/* 1. 의학적 정보 */}
@@ -2581,6 +2667,133 @@ function ChartTextarea({ label, value, onChange, rows = 2 }: any) {
       <textarea value={value || ""} onChange={e => onChange(e.target.value)}
         rows={rows}
         className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-400 focus:outline-none resize-none" />
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ✅ v3.16.1: 상담차트 상단에 상담폼 원본을 합친 상담폼 임베디드 뷰
+// ═══════════════════════════════════════════════════════════════
+function ConsultFormEmbedded({ member, onImport }: { member: any; onImport: () => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const form = member?.extra?.consult_form;
+  if (!form) return null;
+
+  // 요일별 그룹화 (대기시간 표시용)
+  const DAY_ORDER = ["월", "화", "수", "목", "금", "토", "일"];
+  const groups: Record<string, string[]> = {};
+  const orphanTimes: string[] = [];
+  (form.wish_time_slots || []).forEach((raw: any) => {
+    const s = String(raw).trim();
+    if (!s) return;
+    const m = s.match(/^([월화수목금토일])[\s·]*(.+)$/);
+    if (m) {
+      const day = m[1];
+      const time = m[2].trim();
+      if (!groups[day]) groups[day] = [];
+      time.split(/[,;\s]+/).filter(Boolean).forEach((t) => {
+        if (!groups[day].includes(t)) groups[day].push(t);
+      });
+    } else {
+      orphanTimes.push(s);
+    }
+  });
+  (form.wish_days || []).forEach((d: any) => {
+    const key = String(d).trim();
+    if (key && !groups[key]) groups[key] = [];
+  });
+  if (orphanTimes.length > 0 && (form.wish_days || []).length > 0) {
+    (form.wish_days || []).forEach((d: any) => {
+      const key = String(d).trim();
+      if (!key) return;
+      if (!groups[key]) groups[key] = [];
+      orphanTimes.forEach((t) => { if (!groups[key].includes(t)) groups[key].push(t); });
+    });
+  }
+  const groupKeys = Object.keys(groups).sort(
+    (a, b) => (DAY_ORDER.indexOf(a) === -1 ? 99 : DAY_ORDER.indexOf(a)) -
+              (DAY_ORDER.indexOf(b) === -1 ? 99 : DAY_ORDER.indexOf(b))
+  );
+
+  const summary = [
+    { k: "diagnosis", label: "진단명", icon: "🏥" },
+    { k: "main_symptom", label: "주 증상", icon: "⚠️" },
+    { k: "pain_area", label: "통증 부위", icon: "📍" },
+    { k: "medication", label: "복용약", icon: "💊" },
+    { k: "surgery_history", label: "수술력", icon: "🏥" },
+    { k: "medical_history", label: "병력", icon: "📜" },
+    { k: "expected_change", label: "기대 변화", icon: "🎯" },
+    { k: "emergency_contact", label: "비상연락처", icon: "📞" },
+    { k: "special_notes", label: "특이사항", icon: "📝" },
+  ];
+  const filled = summary.filter((s) => {
+    const v = form[s.k];
+    return v && (Array.isArray(v) ? v.length > 0 : String(v).trim() !== "");
+  });
+
+  return (
+    <div className="bg-gradient-to-br from-amber-50 to-yellow-50 border-2 border-amber-200 rounded-2xl p-4 mb-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">📋</span>
+          <div>
+            <div className="font-bold text-amber-900">상담폼 접수 정보</div>
+            <div className="text-[10px] text-amber-700">자체/네이버/구글폼 접수 상담자 자료 · 상담차트로 병합됨</div>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onImport}
+            className="px-3 py-1.5 bg-gradient-to-r from-yellow-400 to-amber-500 hover:from-yellow-500 hover:to-amber-600 text-white rounded-lg text-xs font-bold shadow-sm flex items-center gap-1">
+            ✨ 자동채우기
+          </button>
+          <button onClick={() => setExpanded(!expanded)}
+            className="px-3 py-1.5 bg-white border border-amber-300 text-amber-800 rounded-lg text-xs">
+            {expanded ? "접기" : "자세히 보기"}
+          </button>
+        </div>
+      </div>
+
+      {/* 핵심 요약 배지 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+        {filled.map((s) => (
+          <div key={s.k} className="bg-white/70 rounded-lg px-3 py-2 border border-amber-200">
+            <div className="text-[10px] text-amber-700 font-semibold flex items-center gap-1">
+              <span>{s.icon}</span> {s.label}
+            </div>
+            <div className="text-xs text-gray-800 mt-0.5 line-clamp-2">
+              {Array.isArray(form[s.k]) ? form[s.k].join(", ") : String(form[s.k])}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* 대기시간 요일별 표시 */}
+      {groupKeys.length > 0 && (
+        <div className="bg-white/70 rounded-lg px-3 py-2 border border-amber-200">
+          <div className="text-[10px] text-amber-700 font-semibold mb-1">📅 대기 원하는 시간</div>
+          <div className="space-y-1">
+            {groupKeys.map((day) => (
+              <div key={day} className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] font-bold text-amber-800 bg-amber-200 rounded px-1.5 py-0.5 min-w-[24px] text-center">{day}</span>
+                {groups[day].length === 0 ? (
+                  <span className="text-[10px] text-gray-500">시간 미지정</span>
+                ) : (
+                  groups[day].map((t, i) => (
+                    <span key={i} className="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full font-semibold">{t}</span>
+                  ))
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 펼치면 상담폼 원본 전체 */}
+      {expanded && (
+        <div className="mt-3 bg-white rounded-lg p-3 border border-amber-200 text-xs">
+          <ConsultFormPanel member={member} />
+        </div>
+      )}
     </div>
   );
 }

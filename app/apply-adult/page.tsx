@@ -18,25 +18,50 @@ export default function ApplyAdultPage() {
   const [error, setError] = useState("");
 
   const [form, setForm] = useState<any>({
+    // 기본 정보
     name: "",
     gender: "",
     birth: "",
     phone: "",
     address: "",
+    // ✅ v3.16.1: 비상연락처 추가
+    emergency_contact_name: "",
+    emergency_contact_relation: "",
+    emergency_contact_phone: "",
     // 의학 정보
     diagnosis: "",
     main_symptom: "",
     pain_area: "",
+    // ✅ v3.16.1: 통증 상세 프로파일
+    pain_scale: "",             // 0~10 VAS
+    pain_start: "",              // 통증 시작 시기
+    pain_pattern: "",            // 지속적/간헐적/움직일 때
+    worsening_factor: "",
+    relieving_factor: "",
     medication: "",
     treatment_history: "",
     surgery_history: "",
+    // ✅ v3.16.1: 지병/기초질환 체크
+    conditions: [] as string[],  // 고혈압/당뇨/심장/호흡/암/임신 등
+    allergies: "",
+    // ✅ v3.16.1: 생활/활동
+    activity_level: "",          // 장애/안정적/활발
+    smoking_drinking: "",
+    sleep_quality: "",
+    water_experience: "",        // 물 경험 수준
+    swim_level: "",              // 수영 실력
+    // 목표
     expected_change: "",
+    priority_goals: [] as string[],  // 통증완화/근력/유연성/균형/체중감량 등
     // 희망시간
     wish_branch: "위례본점",
     wish_days: [] as string[],
     wish_time_slots: [] as string[],
+    wish_frequency: "주 2회",     // ✅ v3.16.1: 희망 빈도
     wish_start_date: "",
     source: "",
+    // 기타
+    special_notes: "",            // ✅ v3.16.1: 자유 메모
     // 동의
     agree_privacy: false,
     agree_medical: false,
@@ -145,6 +170,21 @@ export default function ApplyAdultPage() {
                 onChange={(v: string) => update("phone", v)} placeholder="010-0000-0000" />
               <Field label="주소" value={form.address}
                 onChange={(v: string) => update("address", v)} placeholder="시/군/구까지만 입력하셔도 됩니다" />
+
+              {/* ✅ v3.16.1: 비상 연락처 */}
+              <div className="bg-red-50/50 border border-red-200 rounded-xl p-3">
+                <div className="text-xs font-bold text-red-800 mb-2">📞 비상 연락처 (응급상황 시)</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Field label="이름" value={form.emergency_contact_name}
+                    onChange={(v: string) => update("emergency_contact_name", v)} placeholder="예: 배우자/자녀" />
+                  <Field label="관계" value={form.emergency_contact_relation}
+                    onChange={(v: string) => update("emergency_contact_relation", v)} placeholder="배우자/자녀/부모" />
+                </div>
+                <div className="mt-2">
+                  <Field label="연락처" value={form.emergency_contact_phone}
+                    onChange={(v: string) => update("emergency_contact_phone", v)} placeholder="010-0000-0000" />
+                </div>
+              </div>
             </div>
           )}
 
@@ -171,6 +211,54 @@ export default function ApplyAdultPage() {
               <TextArea label="수술 이력" value={form.surgery_history}
                 onChange={(v: string) => update("surgery_history", v)}
                 placeholder="수술 받으신 적이 있다면 부위 · 시기" rows={2} />
+              {/* ✅ v3.16.1: 통증 상세 프로파일 */}
+              {form.pain_area && (
+                <div className="bg-orange-50/50 border border-orange-200 rounded-xl p-3 space-y-3">
+                  <div className="text-xs font-bold text-orange-800">📊 통증 상세</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="통증 강도 (0~10)" value={form.pain_scale}
+                      onChange={(v: string) => update("pain_scale", v)} placeholder="예: 6/10" />
+                    <Field label="시작 시기" value={form.pain_start}
+                      onChange={(v: string) => update("pain_start", v)} placeholder="예: 3개월 전" />
+                  </div>
+                  <RadioGroup label="통증 양상" options={["지속적", "간헐적", "움직일 때만", "안정 시만"]}
+                    value={form.pain_pattern} onChange={(v: string) => update("pain_pattern", v)} />
+                  <Field label="악화 요인" value={form.worsening_factor}
+                    onChange={(v: string) => update("worsening_factor", v)} placeholder="예: 오래 걷기, 계단, 추웄 때" />
+                  <Field label="완화 요인" value={form.relieving_factor}
+                    onChange={(v: string) => update("relieving_factor", v)} placeholder="예: 휴식, 따뜻한 가늨, 진통제 시" />
+                </div>
+              )}
+
+              {/* ✅ v3.16.1: 기초 질환 / 알레르기 */}
+              <div>
+                <label className="text-sm font-semibold text-gray-700 mb-2 block">🩺 기초 질환 (복수 선택)</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {["고혈압", "당뇨", "심장질환", "호흡기질환", "암 병력", "갑상선", "임신 중", "간질환", "근육계 질환", "기타"].map((c) => (
+                    <button type="button" key={c}
+                      onClick={() => toggleArray("conditions", c)}
+                      className={`px-3 py-1.5 rounded-lg text-xs border-2 ${form.conditions?.includes(c) ? "bg-red-100 text-red-800 border-red-400 font-bold" : "bg-white border-gray-200 text-gray-600"}`}>
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <Field label="알레르기 (약/음식/기타)" value={form.allergies}
+                onChange={(v: string) => update("allergies", v)} placeholder="예: 페니실린, 걱감류, 명쉼하게" />
+
+              {/* ✅ v3.16.1: 생활 / 수영 경험 */}
+              <div className="grid grid-cols-1 gap-3">
+                <RadioGroup label="평소 활동량"
+                  options={["거의 안 함", "가벼운 산책", "보통 종종 운동", "꼾준히 운동"]}
+                  value={form.activity_level} onChange={(v: string) => update("activity_level", v)} />
+                <RadioGroup label="물 경험/수영 실력"
+                  options={["물 무서움움", "잠수 가능", "자유형 가능", "수영선수 수준"]}
+                  value={form.swim_level} onChange={(v: string) => update("swim_level", v)} />
+                <RadioGroup label="수면 상태"
+                  options={["좋음", "보통", "불량", "약 복용 중"]}
+                  value={form.sleep_quality} onChange={(v: string) => update("sleep_quality", v)} />
+              </div>
+
               <TextArea label="기대하는 변화" value={form.expected_change}
                 onChange={(v: string) => update("expected_change", v)}
                 placeholder="수중재활을 통해 개선하고 싶은 부분" rows={2} />

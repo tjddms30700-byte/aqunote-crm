@@ -342,6 +342,8 @@ export type MappedChart = {
   // 감각/정서
   water_reaction?: string;
   emotion_status?: string;
+  // ✅ v3.16.1: 대기 시간 요일별 요약 텍스트
+  wish_schedule_text?: string;
   // 니즈
   avoid_situations?: string;
   expected_change?: string;
@@ -442,6 +444,52 @@ export function mapConsultFormToChart(
 
   const { wish_days, wish_time_slots } = extractWishFieldsForMember(form);
 
+  // ✅ v3.16.1: 대기 원하는 시간을 요일별 그룹화 텍스트로 생성 ("월 13:30 / 수 15:50 17:20")
+  function buildWishScheduleText(days: string[] | null, times: string[] | null): string | undefined {
+    if ((!days || days.length === 0) && (!times || times.length === 0)) return undefined;
+    const DAY_ORDER = ["월", "화", "수", "목", "금", "토", "일"];
+    const groups: Record<string, string[]> = {};
+    const orphanTimes: string[] = [];
+    (times || []).forEach((raw: any) => {
+      const s = String(raw).trim();
+      if (!s) return;
+      const m = s.match(/^([월화수목금토일])[\s·]*(.+)$/);
+      if (m) {
+        const d = m[1];
+        const t = m[2].trim();
+        if (!groups[d]) groups[d] = [];
+        t.split(/[,;\s]+/).filter(Boolean).forEach((x) => {
+          if (!groups[d].includes(x)) groups[d].push(x);
+        });
+      } else {
+        orphanTimes.push(s);
+      }
+    });
+    (days || []).forEach((d: any) => {
+      const k = String(d).trim();
+      if (!k) return;
+      if (!groups[k]) groups[k] = [];
+    });
+    if (orphanTimes.length > 0 && (days || []).length > 0) {
+      (days || []).forEach((d: any) => {
+        const k = String(d).trim();
+        if (!k) return;
+        orphanTimes.forEach((t) => {
+          if (!groups[k].includes(t)) groups[k].push(t);
+        });
+      });
+    }
+    const keys = Object.keys(groups).sort(
+      (a, b) => (DAY_ORDER.indexOf(a) === -1 ? 99 : DAY_ORDER.indexOf(a)) -
+                (DAY_ORDER.indexOf(b) === -1 ? 99 : DAY_ORDER.indexOf(b))
+    );
+    if (keys.length === 0) return orphanTimes.join(", ") || undefined;
+    return keys
+      .map((d) => (groups[d].length ? `${d} ${groups[d].join(" ")}` : `${d} (시간미지정)`))
+      .join(" / ");
+  }
+  const wishScheduleText = buildWishScheduleText(wish_days, wish_time_slots);
+
   const chart: MappedChart = {
     // 기본
     member_name: pick(form, "name", "member_name", "child_name"),
@@ -456,6 +504,8 @@ export function mapConsultFormToChart(
     current_therapy: pick(form, "current_therapy", "ongoing_treatment"),
     wish_days: wish_days || undefined,
     wish_time_slots: wish_time_slots || undefined,
+    // ✅ v3.16.1: 상담차트 메모에 자동 표기 ("월 13:30 / 수 15:50 17:20")
+    wish_schedule_text: wishScheduleText,
     // 의학적
     diagnosis,
     main_symptoms: mainSymptoms,
