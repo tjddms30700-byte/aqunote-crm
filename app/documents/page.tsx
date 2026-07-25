@@ -2,7 +2,6 @@
 export const dynamic = "force-dynamic";
 
 import { useEffect, useState, useRef } from "react";
-import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import MemberSearch from "@/components/MemberSearch";
@@ -26,18 +25,25 @@ function catLabel(cat: string) {
 }
 
 export default function DocumentsPage() {
-  const searchParams = useSearchParams();
   const [docs, setDocs]         = useState<any[]>([]);
   const [members, setMembers]   = useState<any[]>([]);
   const [loading, setLoading]   = useState(true);
   const [uploading, setUploading] = useState(false);
 
   // Filters
-  // ✅ v3.18.0: URL 쿼리 ⇒ 자동 분류 (예: ?tab=receipt → 영수증만)
-  const initialCat = searchParams?.get("tab") || searchParams?.get("cat") || "";
-  const [filterCat, setFilterCat]       = useState(initialCat);
+  // ✅ v3.18.1: URL 쿼리 ⇒ 자동 분류 (Suspense boundary 회피를 위해 window.location으로 직접 파싱)
+  const [filterCat, setFilterCat]       = useState("");
   const [filterMember, setFilterMember] = useState("");
   const [search, setSearch]             = useState("");
+
+  // ✅ v3.18.1: 마운트 후 URL 쿼리를 직접 파싱해서 분류 자동 적용
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const cat = params.get("tab") || params.get("cat") || "";
+      if (cat) setFilterCat(cat);
+    }
+  }, []);
 
   // Upload form
   const [showUpload, setShowUpload]   = useState(false);
