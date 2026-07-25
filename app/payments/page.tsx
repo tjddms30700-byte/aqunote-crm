@@ -54,6 +54,8 @@ export default function PaymentsPage() {
   const [plans, setPlans]           = useState<any[]>([]);
   const [loading, setLoading]       = useState(true);
   const [tab, setTab]               = useState<"memberships" | "payments">("memberships");
+  // ✅ v3.16.0: 월별 필터 (기본값: 이번 달)
+  const [filterMonth, setFilterMonth] = useState<string>(new Date().toISOString().slice(0, 7));
   const [showModal, setShowModal]   = useState(false);
   const [saving, setSaving]         = useState(false);
   const [refundModal, setRefundModal] = useState<any>(null);  // 환불 모달 대상 회원권
@@ -633,6 +635,36 @@ export default function PaymentsPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
+            {/* ✅ v3.16.0: 월별 필터 바 */}
+            <div className="flex flex-wrap items-center gap-2 p-3 border-b border-aqu-100 bg-white">
+              <span className="text-xs font-bold text-aqu-800">📅 조회 월:</span>
+              <input
+                type="month"
+                value={filterMonth}
+                onChange={(e) => setFilterMonth(e.target.value)}
+                className="px-2 py-1 border border-aqu-200 rounded text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none"
+              />
+              <button
+                onClick={() => setFilterMonth("")}
+                className="px-2 py-1 border border-gray-200 rounded text-xs text-gray-600 hover:bg-gray-50">
+                전체 보기
+              </button>
+              <button
+                onClick={() => setFilterMonth(new Date().toISOString().slice(0, 7))}
+                className="px-2 py-1 border border-aqu-200 rounded text-xs text-aqu-700 hover:bg-aqu-50">
+                이번 달
+              </button>
+              {(() => {
+                const filtered = payments.filter((p: any) => !filterMonth || (p.paid_at || "").startsWith(filterMonth));
+                const revenue = filtered.filter((p: any) => p.status !== "cancelled").reduce((s: number, p: any) => s + (p.amount || 0), 0);
+                return (
+                  <div className="flex-1 flex items-center justify-end gap-3 text-xs">
+                    <span className="text-gray-500">조회 결과: <b className="text-aqu-700">{filtered.length}건</b></span>
+                    <span className="text-gray-500">합계: <b className="text-green-600">₩{revenue.toLocaleString()}</b></span>
+                  </div>
+                );
+              })()}
+            </div>
             <table className="w-full text-xs md:text-sm">
               <thead className="bg-aqu-50 border-b border-aqu-100">
                 <tr>
@@ -646,7 +678,9 @@ export default function PaymentsPage() {
                 </tr>
               </thead>
               <tbody>
-                {payments.map(p => {
+                {payments
+                  .filter((p: any) => !filterMonth || (p.paid_at || "").startsWith(filterMonth))
+                  .map(p => {
                   const isCancelled = p.status === "cancelled";
                   return (
                   <tr key={p.id} className={`border-b border-gray-100 ${isCancelled ? "bg-gray-50 opacity-70" : "hover:bg-aqu-50/30"}`}>

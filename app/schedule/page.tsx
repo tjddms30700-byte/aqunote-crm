@@ -656,9 +656,35 @@ export default function SchedulePage() {
     if (f.member_id) basePayload.member_id = f.member_id;
     if (f.staff_id) basePayload.staff_id = f.staff_id;
     if (f.event_type === "revenue") basePayload.amount = Number(f.amount || 0);
+    // ✅ v3.16.0: 회원권 ID 저장 (출석 시 자동 차감용)
+    if (f.membership_id) basePayload.membership_id = f.membership_id;
     // ✅ 현재 지점 자동 태깅
     const _activeBranch = getActiveBranchId();
     if (_activeBranch) basePayload.branch_id = _activeBranch;
+
+    // ✅ v3.16.0: 상태가 'done'(수업완료)이면 회원권에서 1회 자동 차감
+    async function autoDeductMembership() {
+      if (!f.membership_id || effectiveStatus !== "done") return;
+      try {
+        const { data: ms } = await supabase
+          .from("memberships")
+          .select("id, used_sessions, total_sessions")
+          .eq("id", f.membership_id)
+          .maybeSingle();
+        if (ms) {
+          const remain = (ms.total_sessions || 0) - (ms.used_sessions || 0);
+          if (remain <= 0) {
+            alert("⚠️ 회원권 잔여 횟수가 없습니다 (차감 스킵)");
+            return;
+          }
+          await supabase.from("memberships")
+            .update({ used_sessions: (ms.used_sessions || 0) + 1 })
+            .eq("id", f.membership_id);
+        }
+      } catch (e) {
+        console.warn("회원권 자동차감 실패", e);
+      }
+    }
 
     try {
       if (f.id) {
@@ -668,8 +694,12 @@ export default function SchedulePage() {
           event_date: f.event_date,
           day_of_week: buildDow(f.event_date),
         };
+        // ✅ v3.16.0: 이전 상태 확인 (done으로 바뀌는 경우에만 차감)
+        const { data: prev } = await supabase.from("schedule_slots")
+          .select("status, membership_id").eq("id", f.id).maybeSingle();
         const { error } = await supabase.from("schedule_slots").update(payload).eq("id", f.id);
         if (error) throw error;
+        if (prev && prev.status !== "done" && effectiveStatus === "done") await autoDeductMembership();
       } else if (f.recurring_enabled && f.recurring_weeks > 1) {
         // 반복예약 등록: 오늘 포함 N주 동안 매주 같은 요일에 등록
         const recurringId = uuid();
@@ -698,6 +728,8 @@ export default function SchedulePage() {
         };
         const { error } = await supabase.from("schedule_slots").insert(payload);
         if (error) throw error;
+        // ✅ v3.16.0: 처음부터 done으로 등록되는 경우에도 차감
+        if (effectiveStatus === "done") await autoDeductMembership();
       }
       setModal(null);
       await loadAll();
@@ -1553,14 +1585,37 @@ function SlotModal({ f, setF, modal, members, staff, plans, onClose, onSave, onD
     return false;
   });
 
+  // ✅ v3.16.0: 선택한 회원의 보유 회원권 자동 로드
+  const [memberMemberships, setMemberMemberships] = useState<any[]>([]);
+  const [loadingMs, setLoadingMs] = useState(false);
+  useEffect(() => {
+    if (!f.member_id) { setMemberMemberships([]); return; }
+    setLoadingMs(true);
+    (async () => {
+      const { data } = await supabase
+        .from("memberships")
+        .select("id, plan_name, total_sessions, used_sessions, start_date, end_date, status, amount")
+        .eq("member_id", f.member_id)
+        .order("created_at", { ascending: false });
+      const active = (data || []).filter((m: any) => m.status !== "cancelled" && m.status !== "refunded");
+      setMemberMemberships(active);
+      setLoadingMs(false);
+    })();
+  }, [f.member_id]);
+
+  const selectedMs = memberMemberships.find((m: any) => m.id === f.membership_id);
+  const selectedMember = (members || []).find((m: any) => m.id === f.member_id);
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3"
       onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-5 max-h-[95vh] overflow-y-auto"
+      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[95vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4">
+
+        {/* ✅ v3.16.0: 헤더 (색상 대조 강화) */}
+        <div className="flex items-center justify-between px-5 py-4 border-b bg-gradient-to-r from-aqu-50 to-blue-50 rounded-t-2xl sticky top-0 z-10">
           <h2 className="text-lg font-bold text-aqu-900 flex items-center gap-2">
-            {isEditing ? "일정 수정" : "새 일정"}
+            📅 {isEditing ? "일정 수정" : "새 일정"}
             {isRecurring && (
               <span className="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded flex items-center gap-1">
                 <Repeat className="w-3 h-3" /> 반복 시리즈
@@ -1572,61 +1627,133 @@ function SlotModal({ f, setF, modal, members, staff, plans, onClose, onSave, onD
           </button>
         </div>
 
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-2">
-            <Field label="날짜 *">
-              <input type="date" value={f.event_date}
-                onChange={e => setF({ ...f, event_date: e.target.value })}
-                className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none" />
-            </Field>
-            <Field label="시간 *">
-              <input type="time" value={f.time_slot}
-                onChange={e => setF({ ...f, time_slot: e.target.value })}
-                className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none" />
-            </Field>
+        <div className="p-5 space-y-4">
+          {/* ═══ 섹션 1: 기본 정보 ═══ */}
+          <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">
+            <div className="text-xs font-bold text-gray-700 mb-2">⏰ 기본 정보</div>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="날짜 *">
+                <input type="date" value={f.event_date}
+                  onChange={e => setF({ ...f, event_date: e.target.value })}
+                  className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none bg-white" />
+              </Field>
+              <Field label="시간 *">
+                <input type="time" value={f.time_slot}
+                  onChange={e => setF({ ...f, time_slot: e.target.value })}
+                  className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none bg-white" />
+              </Field>
+            </div>
+            <div className="mt-2">
+              <Field label="유형">
+                <select value={f.event_type} onChange={e => setF({ ...f, event_type: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none bg-white">
+                  <option value="lesson">🏊 수업</option>
+                  <option value="trial">🎯 체험</option>
+                  <option value="revenue">💰 매출 등록</option>
+                  <option value="staff_work">👤 직원 근무</option>
+                  <option value="staff_off">🏖️ 직원 휴무</option>
+                  <option value="other">📌 기타</option>
+                </select>
+              </Field>
+            </div>
           </div>
 
-          <Field label="유형">
-            <select value={f.event_type} onChange={e => setF({ ...f, event_type: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none">
-              <option value="lesson">🏊 수업</option>
-              <option value="trial">🎯 체험</option>
-              <option value="revenue">💰 매출 등록</option>
-              <option value="staff_work">👤 직원 근무</option>
-              <option value="staff_off">🏖️ 직원 휴무</option>
-              <option value="other">📌 기타</option>
-            </select>
-          </Field>
-
+          {/* ═══ 섹션 2: 회원 · 강사 ═══ */}
           {(f.event_type === "lesson" || f.event_type === "trial" || f.event_type === "revenue") && (
-            <Field label="회원">
-              <MemberSearch
-                members={members}
-                value={f.member_id}
-                onChange={(id: string) => setF({ ...f, member_id: id })}
-              />
-            </Field>
+            <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-3">
+              <div className="text-xs font-bold text-blue-700 mb-2">👤 회원 · 강사</div>
+              <div className="space-y-2">
+                <Field label="회원">
+                  <MemberSearch
+                    members={members}
+                    value={f.member_id}
+                    onChange={(id: string) => setF({ ...f, member_id: id, membership_id: null, lesson_name: "" })}
+                  />
+                </Field>
+                {selectedMember && (
+                  <div className="text-[11px] text-blue-800 bg-white rounded px-2 py-1 border border-blue-200">
+                    ✓ {selectedMember.name} ({selectedMember.member_type === "child" ? "아동" : "성인"})
+                    {selectedMember.phone && ` · ${selectedMember.phone}`}
+                  </div>
+                )}
+                <Field label={`담당 강사 (${availableStaff.length}명)`}>
+                  <select value={f.staff_id} onChange={e => setF({ ...f, staff_id: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none bg-white">
+                    <option value="">-- 강사 선택 --</option>
+                    {availableStaff.map((s: any) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} ({s.role || "직원"})
+                        {s.is_resigned && s.resign_date ? ` ⚠️ ${s.resign_date} 퇴사예정` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {availableStaff.length === 0 && (
+                    <p className="text-xs text-red-500 mt-1">⚠️ 해당 날짜에 재직 강사가 없습니다</p>
+                  )}
+                </Field>
+              </div>
+            </div>
           )}
 
-          <Field label={`담당 강사 ${availableStaff.length < staff.length ? `(해당 날짜 재직: ${availableStaff.length}명)` : `(${availableStaff.length}명)`}`}>
-            <select value={f.staff_id} onChange={e => setF({ ...f, staff_id: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none">
-              <option value="">-- 강사 선택 --</option>
-              {availableStaff.map((s: any) => (
-                <option key={s.id} value={s.id}>
-                  {s.name} ({s.role || "직원"})
-                  {s.is_resigned && s.resign_date ? ` ⚠️ ${s.resign_date} 퇴사예정` : ""}
-                </option>
-              ))}
-            </select>
-            {availableStaff.length === 0 && (
-              <p className="text-xs text-red-500 mt-1">⚠️ 해당 날짜에 재직 중인 강사가 없습니다</p>
-            )}
-          </Field>
+          {/* ═══ 섹션 3: ✅ v3.16.0 회원 보유 회원권 자동 표시 ═══ */}
+          {(f.event_type === "lesson" || f.event_type === "trial") && f.member_id && (
+            <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs font-bold text-emerald-700">🎫 보유 회원권</div>
+                <span className="text-[10px] text-emerald-600">출석 시 자동 차감</span>
+              </div>
+              {loadingMs ? (
+                <div className="text-xs text-emerald-600">회원권 불러오는 중...</div>
+              ) : memberMemberships.length === 0 ? (
+                <div className="text-xs text-emerald-800 bg-white rounded p-2 border border-emerald-200">
+                  ⚠️ 보유 회원권이 없습니다. <a href="/payments" className="underline font-bold">결제 등록</a>으로 이동하세요.
+                </div>
+              ) : (
+                <div className="space-y-1 max-h-48 overflow-y-auto">
+                  <label className="flex items-center gap-2 p-2 bg-white rounded-lg border-2 border-gray-200 cursor-pointer hover:bg-gray-50">
+                    <input type="radio" name="ms" checked={!f.membership_id} onChange={() => setF({ ...f, membership_id: null })} />
+                    <span className="text-xs text-gray-600">회원권 없이 진행 (차감 안함)</span>
+                  </label>
+                  {memberMemberships.map((m: any) => {
+                    const remaining = (m.total_sessions || 0) - (m.used_sessions || 0);
+                    const low = remaining <= 3;
+                    const isActive = f.membership_id === m.id;
+                    return (
+                      <label key={m.id}
+                        className={`flex items-center gap-2 p-2 rounded-lg border-2 cursor-pointer transition ${isActive ? "border-emerald-500 bg-emerald-50 ring-2 ring-emerald-200" : "border-gray-200 bg-white hover:border-emerald-300"}`}>
+                        <input type="radio" name="ms" checked={isActive}
+                          onChange={() => setF({ ...f, membership_id: m.id, lesson_name: m.plan_name || f.lesson_name })} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-sm text-gray-800">{m.plan_name || "회원권"}</span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${low ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>
+                              {remaining}/{m.total_sessions}회 남음
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-gray-500 mt-0.5">
+                            {m.start_date && `${m.start_date}`}{m.end_date && ` ~ ${m.end_date}`}
+                            {m.amount ? ` · ₩${Number(m.amount).toLocaleString()}` : ""}
+                          </div>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+              {selectedMs && (
+                <div className="mt-2 p-2 bg-white rounded border border-emerald-300 text-[11px] text-emerald-800">
+                  💡 이 예약을 <b>완료</b> 상태로 저장하면 <b>{selectedMs.plan_name}</b>에서 1회 자동 차감됩니다.
+                </div>
+              )}
+            </div>
+          )}
 
-          <Field label="수업명 / 회원권 선택">
-            <PlanPicker plans={plans} value={f.lesson_name} onChange={(name: string) => setF({ ...f, lesson_name: name })} />
-          </Field>
+          {/* ═══ 섹션 4: 수업명 (회원권 선택 안했을 때 직접 입력용) ═══ */}
+          {!f.membership_id && (f.event_type === "lesson" || f.event_type === "trial" || f.event_type === "revenue") && (
+            <Field label="수업명 (직접 입력)">
+              <PlanPicker plans={plans} value={f.lesson_name} onChange={(name: string) => setF({ ...f, lesson_name: name })} />
+            </Field>
+          )}
 
           {f.event_type === "revenue" && (
             <Field label="금액 (원)">

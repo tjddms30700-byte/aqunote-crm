@@ -2732,18 +2732,103 @@ function ConsultFormPanel({ member }: { member: any }) {
         renderRow("기타 주의사항", form.special_notes, "📝"),
       ], "amber") : null}
 
-      {/* 희망 수업 시간 */}
-      {Array.isArray(form.wish_time_slots) && form.wish_time_slots.length > 0 ? (
+      {/* ✅ v3.16.0: 희망 수업 시간대 - 요일별 그룹화 표시 */}
+      {(Array.isArray(form.wish_time_slots) && form.wish_time_slots.length > 0) ||
+       (Array.isArray(form.wish_days) && form.wish_days.length > 0) ? (
         <div className={`bg-gradient-to-br ${colorMap.blue} border rounded-2xl p-4 mb-4`}>
           <h3 className="text-sm font-bold text-slate-800 mb-2 flex items-center gap-1.5">📅 희망 수업 시간대</h3>
           <div className="bg-white/70 rounded-xl px-3 py-2">
-            <div className="flex flex-wrap gap-2">
-              {form.wish_time_slots.map((slot: string, i: number) => (
-                <span key={i} className="text-xs px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full font-semibold">
-                  {String(slot)}
-                </span>
-              ))}
-            </div>
+            {(() => {
+              // 요일별 그룹화 시도 (파싱 구조: "월 13:30", "수 15:50" 또는 별도 배열)
+              const DAY_ORDER = ["월", "화", "수", "목", "금", "토", "일"];
+              const groups: Record<string, string[]> = {};
+              const orphanTimes: string[] = [];
+
+              (form.wish_time_slots || []).forEach((raw: any) => {
+                const s = String(raw).trim();
+                if (!s) return;
+                // "월 13:30" 또는 "수 15:50-17:00" 패턴 감지
+                const m = s.match(/^([월화수목금토일])[\s·]*(.+)$/);
+                if (m) {
+                  const day = m[1];
+                  const time = m[2].trim();
+                  if (!groups[day]) groups[day] = [];
+                  time.split(/[,;\s]+/).filter(Boolean).forEach((t) => {
+                    if (!groups[day].includes(t)) groups[day].push(t);
+                  });
+                } else {
+                  orphanTimes.push(s);
+                }
+              });
+
+              // wish_days에만 있고 시간 정보 없는 요일도 추가
+              (form.wish_days || []).forEach((d: any) => {
+                const key = String(d).trim();
+                if (key && !groups[key] && orphanTimes.length === 0) groups[key] = [];
+              });
+
+              // orphanTimes가 있고 요일이 분리 지정되었다면 연결
+              if (orphanTimes.length > 0 && (form.wish_days || []).length > 0) {
+                (form.wish_days || []).forEach((d: any) => {
+                  const key = String(d).trim();
+                  if (!key) return;
+                  if (!groups[key]) groups[key] = [];
+                  orphanTimes.forEach((t) => {
+                    if (!groups[key].includes(t)) groups[key].push(t);
+                  });
+                });
+              }
+
+              const groupKeys = Object.keys(groups).sort(
+                (a, b) => (DAY_ORDER.indexOf(a) === -1 ? 99 : DAY_ORDER.indexOf(a)) -
+                          (DAY_ORDER.indexOf(b) === -1 ? 99 : DAY_ORDER.indexOf(b))
+              );
+
+              // 그룹화 성공하면 요일별 츘지 표시
+              if (groupKeys.length > 0) {
+                return (
+                  <div className="space-y-1.5">
+                    {groupKeys.map((day) => (
+                      <div key={day} className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-xs font-bold text-blue-800 bg-blue-200 rounded px-2 py-0.5 min-w-[28px] text-center">
+                          {day}
+                        </span>
+                        {groups[day].length === 0 ? (
+                          <span className="text-xs text-slate-500">시간 미지정</span>
+                        ) : (
+                          groups[day].map((t, i) => (
+                            <span key={i} className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full font-semibold">
+                              {t}
+                            </span>
+                          ))
+                        )}
+                      </div>
+                    ))}
+                    {orphanTimes.length > 0 && (form.wish_days || []).length === 0 && (
+                      <div className="flex flex-wrap gap-1.5 pt-2 mt-2 border-t border-blue-100">
+                        <span className="text-xs text-slate-500">요일 미지정:</span>
+                        {orphanTimes.map((t, i) => (
+                          <span key={i} className="text-xs px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full">
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
+              // fallback: 기존 스타일
+              return (
+                <div className="flex flex-wrap gap-2">
+                  {(form.wish_time_slots || []).map((slot: string, i: number) => (
+                    <span key={i} className="text-xs px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full font-semibold">
+                      {String(slot)}
+                    </span>
+                  ))}
+                </div>
+              );
+            })()}
             {form.saturday_option ? (
               <div className="mt-2 pt-2 border-t border-blue-100 text-xs text-slate-600">
                 <span className="font-semibold">📆 토요일 선택: </span>
