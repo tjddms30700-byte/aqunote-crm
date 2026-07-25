@@ -65,6 +65,8 @@ export default function PaymentsPage() {
     plan_id: "",
     plan_name: "",
     sessions: 10,
+    // ✅ v3.20.1: 추가 서비스 횟수 (예: 10회권 + 서비스 1회 = 총 11회)
+    extra_sessions: 0,
     valid_days: 90,
     amount: 0,
     method: "card",
@@ -179,6 +181,7 @@ export default function PaymentsPage() {
       plan_id: "",
       plan_name: "",
       sessions: 10,
+      extra_sessions: 0,
       valid_days: 90,
       amount: 0,
       method: "card",
@@ -190,6 +193,13 @@ export default function PaymentsPage() {
       installment: 0,
       receipt_no: "",
       memo: "",
+      pay_card: 0,
+      pay_cash: 0,
+      pay_transfer: 0,
+      pay_other: 0,
+      pay_other_label: "",
+      unpaid: 0,
+      discount: 0,
     });
     setShowModal(true);
   }
@@ -200,11 +210,13 @@ export default function PaymentsPage() {
       setF({ ...f, plan_id: "", plan_name: "" });
       return;
     }
+    // ✅ v3.20.1: 회원권 선택 시 기본값만 자동 채움 → 사용자가 수동 수정 가능
     setF({
       ...f,
       plan_id: p.id,
       plan_name: p.name,
       sessions: p.sessions,
+      extra_sessions: 0,
       valid_days: p.valid_days,
       amount: p.price,
     });
@@ -223,11 +235,14 @@ export default function PaymentsPage() {
       const endDate = new Date(f.paid_at);
       endDate.setDate(endDate.getDate() + Number(f.valid_days || 90));
       // sessions가 0/음수이면 최소 1회권으로 생성
-      const safeSessions = Math.max(1, Number(f.sessions) || 1);
+      // ✅ v3.20.1: 기본 회차 + 추가 서비스 회차 = 총 사용 가능 회차
+      const baseSessions = Math.max(1, Number(f.sessions) || 1);
+      const extraSessions = Math.max(0, Number(f.extra_sessions) || 0);
+      const safeSessions = baseSessions + extraSessions;
       const msPayload: any = {
         org_id: orgId,
         member_id: f.member_id,
-        plan_name: f.plan_name,
+        plan_name: extraSessions > 0 ? `${f.plan_name} (+서비스 ${extraSessions}회)` : f.plan_name,
         total_sessions: safeSessions,
         used_sessions: 0,
         start_date: f.paid_at,
@@ -296,7 +311,9 @@ export default function PaymentsPage() {
 
       setShowModal(false);
       await loadAll();
-      alert(`✅ 결제 등록 완료\n\n· 회원권: ${f.plan_name} ${safeSessions}회 자동 생성\n· 유효기간: ${f.paid_at} ~ ${endDate.toISOString().slice(0, 10)}\n· 금액: ₩${Number(f.amount).toLocaleString()}`);
+      const extraNote = extraSessions > 0 ? ` (기본 ${baseSessions}회 + 서비스 ${extraSessions}회)` : "";
+      const discountNote = Number(f.discount||0) > 0 ? `\n· 할인: ₩${Number(f.discount).toLocaleString()}` : "";
+      alert(`✅ 결제 등록 완료\n\n· 회원권: ${f.plan_name} 총 ${safeSessions}회${extraNote}\n· 유효기간: ${f.paid_at} ~ ${endDate.toISOString().slice(0, 10)}\n· 금액: ₩${Number(f.amount).toLocaleString()}${discountNote}`);
     } catch (err: any) {
       alert("저장 실패: " + err.message);
     } finally {
@@ -858,21 +875,42 @@ export default function PaymentsPage() {
               </div>
             </Field>
 
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-4 gap-2">
               <Field label="이름">
                 <input type="text" value={f.plan_name} onChange={e => setF({ ...f, plan_name: e.target.value })}
                   placeholder="10회권"
                   className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none" />
               </Field>
-              <Field label="횟수">
+              <Field label="기본 횟수">
                 <input type="number" value={f.sessions} onChange={e => setF({ ...f, sessions: parseInt(e.target.value) || 0 })}
                   className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none" />
+              </Field>
+              <Field label="🎁 서비스">
+                <input type="number" value={f.extra_sessions || 0}
+                  onChange={e => setF({ ...f, extra_sessions: parseInt(e.target.value) || 0 })}
+                  placeholder="0"
+                  className="w-full px-2 py-2 border border-emerald-200 rounded-lg text-sm bg-emerald-50 focus:ring-2 focus:ring-emerald-400 focus:outline-none" />
               </Field>
               <Field label="유효(일)">
                 <input type="number" value={f.valid_days} onChange={e => setF({ ...f, valid_days: parseInt(e.target.value) || 60 })}
                   className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none" />
               </Field>
             </div>
+
+            {/* ✅ v3.20.1: 총 회차 요약 및 회당 단가 표시 */}
+            {(Number(f.sessions) > 0 || Number(f.extra_sessions) > 0) && (
+              <div className="p-2 bg-gradient-to-r from-emerald-50 to-cyan-50 border border-emerald-200 rounded-lg flex items-center justify-between text-xs">
+                <div className="text-emerald-800">
+                  📊 총 <b>{(Number(f.sessions) || 0) + (Number(f.extra_sessions) || 0)}회</b> 사용 가능
+                  {Number(f.extra_sessions) > 0 && <span className="text-emerald-600"> (기본 {f.sessions} + 🎁서비스 {f.extra_sessions})</span>}
+                </div>
+                {Number(f.amount) > 0 && (Number(f.sessions) + Number(f.extra_sessions || 0)) > 0 && (
+                  <div className="text-cyan-700 font-semibold">
+                    회당 ₩{Math.round(Number(f.amount) / (Number(f.sessions) + Number(f.extra_sessions || 0))).toLocaleString()}
+                  </div>
+                )}
+              </div>
+            )}
 
             <Field label="금액 (원) *">
               <input type="number" value={f.amount} onChange={e => setF({ ...f, amount: parseInt(e.target.value) || 0 })}

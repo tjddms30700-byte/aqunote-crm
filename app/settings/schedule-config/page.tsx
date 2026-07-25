@@ -205,17 +205,44 @@ export default function ScheduleConfigPage() {
         </div>
       </div>
 
-      {/* ✅ v3.20.0: 타임 간격 (새 수업 시작 주기) */}
+      {/* ✅ v3.20.1: 타임 간격 (시간+분 커스텀 지원) */}
       <div className="bg-white border border-aqu-100 rounded-2xl p-5 mb-4">
         <div className="text-base font-bold text-slate-900 mb-1">⏰ 타임 간격 (새 수업 시작 주기)</div>
-        <div className="text-[11px] text-gray-500 mb-3">예: <b>10분</b> 선택 → 09:00, 09:10, 09:20 … 매 10분마다 새 수업 설정 가능</div>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+        <div className="text-[11px] text-gray-500 mb-3">예: <b>1시간 10분</b> 선택 → 09:00, 10:10, 11:20 …</div>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
           {SLOT_INTERVALS.map(sd => (
             <button key={sd.v} onClick={() => setConfig({ ...config, slot_interval: sd.v })}
               className={`px-3 py-2.5 rounded-lg text-sm font-semibold border-2 transition ${config.slot_interval === sd.v ? "bg-blue-500 text-white border-blue-500" : "bg-white text-gray-600 border-gray-200 hover:border-blue-300"}`}>
               {sd.label}
             </button>
           ))}
+        </div>
+
+        {/* ✅ v3.20.1: 시간 + 분 커스텀 입력 */}
+        <div className="bg-blue-50/50 border border-blue-200 rounded-lg p-3">
+          <div className="text-xs font-bold text-blue-800 mb-2">🔧 직접 설정 (시간 + 분)</div>
+          <div className="flex items-center gap-2">
+            <select value={Math.floor((config.slot_interval || 10) / 60)}
+              onChange={e => {
+                const h = Number(e.target.value);
+                const m = (config.slot_interval || 10) % 60;
+                setConfig({ ...config, slot_interval: h * 60 + m });
+              }}
+              className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+              {[0, 1, 2, 3].map(h => <option key={h} value={h}>{h}시간</option>)}
+            </select>
+            <select value={(config.slot_interval || 10) % 60}
+              onChange={e => {
+                const m = Number(e.target.value);
+                const h = Math.floor((config.slot_interval || 10) / 60);
+                setConfig({ ...config, slot_interval: h * 60 + m });
+              }}
+              className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+              {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map(m => <option key={m} value={m}>{m}분</option>)}
+            </select>
+            <span className="text-xs text-blue-700 font-semibold">현재: {Math.floor((config.slot_interval || 10) / 60)}시간 {(config.slot_interval || 10) % 60}분</span>
+          </div>
+          <div className="text-[10px] text-blue-600 mt-2">💡 예: 1시간 10분 = 09:00 → 10:10 → 11:20 … 간격으로 타임 자동 생성</div>
         </div>
       </div>
 

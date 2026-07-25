@@ -6,6 +6,7 @@ import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import MemberSearch from "@/components/MemberSearch";
 import QuickPaymentModal from "@/components/QuickPaymentModal";
+import SignatureAttendanceModal from "@/components/SignatureAttendanceModal";
 import { supabase } from "@/lib/supabase";
 import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import {
@@ -119,6 +120,8 @@ export default function SchedulePage() {
 
   // Quick action sheet (예약 클릭 시)
   const [quickAction, setQuickAction] = useState<any | null>(null);
+  // ✅ v3.20.1: 사인 출결 모달
+  const [signatureSlot, setSignatureSlot] = useState<any | null>(null);
   const [actionSheet, setActionSheet] = useState<{ date: string; time?: string } | null>(null);
   // ✅ v3.17.1: 더블클릭 시 onClick 지연 취소용 ref
   const clickTimerRef = useRef<any>(null);
@@ -227,13 +230,20 @@ export default function SchedulePage() {
   }
 
   // 출결 상태 변경 (5가지: done/noshow/sick/carryover/cancel)
-  async function setAttendanceStatus(slot: any, status: "done" | "noshow" | "sick" | "personal" | "carryover" | "cancel") {
+  async function setAttendanceStatus(slot: any, status: "done" | "noshow" | "sick" | "personal" | "carryover" | "cancel" | "scheduled") {
     if (!slot.member_id || !slot.event_date) {
       alert("회원/날짜 정보가 없는 예약입니다.");
       return;
     }
     const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
 
+    // ✅ v3.20.1: scheduled로 되돌릴 때는 기존 attendance 레코드 삭제
+    if (status === "scheduled") {
+      const existing = attendance.find((a: any) => a.member_id === slot.member_id && (a.date === slot.event_date || a.attendance_date === slot.event_date || a.session_date === slot.event_date));
+      if (existing) {
+        await supabase.from("attendance").delete().eq("id", existing.id);
+      }
+    }
     // attendance 기록은 done/cancel이 명확한 경우에만 저장 (선택적 보조 로그)
     if (status === "done" || status === "noshow" || status === "sick" || status === "personal") {
       // 컬럼명 자동 감지 (date / attendance_date / session_date)
@@ -378,9 +388,12 @@ export default function SchedulePage() {
     } catch (e) { console.warn("회원권 자동 차감 실패:", e); }
 
     await loadAll();
+    // ✅ v3.20.1: QuickActionSheet 자동 닫기 + 화면 즉시 갱신
+    setQuickAction(null);
     const labels: Record<string, string> = {
       done: "✅ 완료", noshow: "🚩 노쇼", sick: "🤒 병결",
-      carryover: "📅 이월", cancel: "❌ 취소"
+      personal: "📝 개인사정", carryover: "📅 이월", cancel: "❌ 취소",
+      scheduled: "🔄 예약으로 되돌림",
     };
     alert((labels[status] || status) + sessionMsg);
   }
@@ -989,9 +1002,23 @@ export default function SchedulePage() {
                       {daySlots.slice(0, 3).map(s => {
                         const meta = statusMeta(s.status || "scheduled");
                         const staffP = staff.find((st: any) => st.id === s.staff_id);
-                        // 강사 색상 기반으로 셀 배경을 연하게 칠함 (예약/완료 상태와 구분 설계)
-                        const staffTint = staffP?.color ? {
-                          backgroundColor: staffP.color + "22", // alpha 13%
+                        // ✅ v3.20.1: 수업하지 않은 상태(병결/취소/노쇼/이월/개인사정)는 강사 색상 무시하고 회색 강제
+                        const grayStates = ["sick", "cancel", "noshow", "carryover", "personal"];
+                        const isGrayState = grayStates.includes(normStatus(s.status));
+                        // 직원 근무·휴무는 검정 계열
+                        const isStaffEvent = s.event_type === "staff_work" || s.event_type === "staff_off";
+                        const staffTint = isGrayState ? {
+                          backgroundColor: "#f3f4f6", // gray-100
+                          borderLeftColor: "#9ca3af",  // gray-400
+                          borderLeftWidth: 4,
+                          color: "#6b7280", // gray-500
+                        } : isStaffEvent ? {
+                          backgroundColor: "#1f2937", // gray-800
+                          borderLeftColor: "#111827",
+                          borderLeftWidth: 4,
+                          color: "#f9fafb",
+                        } : staffP?.color ? {
+                          backgroundColor: staffP.color + "22",
                           borderLeftColor: staffP.color,
                           borderLeftWidth: 4,
                           color: "#1e293b"
@@ -1166,7 +1193,19 @@ export default function SchedulePage() {
           onEdit={() => { openEditModal(quickAction); setQuickAction(null); }}
           onAttendance={(status: any) => setAttendanceStatus(quickAction, status)}
           onAddPayment={(payment: any) => addPaymentFromSlot(quickAction, payment)}
+          onSignAttendance={() => { setSignatureSlot(quickAction); setQuickAction(null); }}
           onDeletePayment={deletePayment}
+        />
+      )}
+
+      {/* ✅ v3.20.1: 사인 출결 모달 */}
+      {signatureSlot && (
+        <SignatureAttendanceModal
+          slot={signatureSlot}
+          member={members.find((m: any) => m.id === signatureSlot.member_id)}
+          date={signatureSlot.event_date}
+          onClose={() => setSignatureSlot(null)}
+          onSaved={async () => { setSignatureSlot(null); await loadAll(); }}
         />
       )}
     </main>
@@ -1209,15 +1248,30 @@ function SelectedDayPanel({ date, slots, members, staff, staffName, onAdd, onEdi
             const meta = statusMeta(s.status || "scheduled");
             const mem = memberMap[s.member_id];
             const staffP = staffMap[s.staff_id];
+            // ✅ v3.20.1: 완료 안 된 상태는 회색, 직원 이벤트는 검정
+            const grayStates2 = ["sick", "cancel", "noshow", "carryover", "personal"];
+            const isGray2 = grayStates2.includes(normStatus(s.status));
+            const isStaffEv2 = s.event_type === "staff_work" || s.event_type === "staff_off";
             const staffColor = staffP?.color;
+            const overrideStyle = isGray2 ? {
+              backgroundColor: "#f3f4f6",
+              borderLeftColor: "#9ca3af",
+              borderLeftWidth: 4,
+              color: "#6b7280",
+            } : isStaffEv2 ? {
+              backgroundColor: "#1f2937",
+              borderLeftColor: "#111827",
+              borderLeftWidth: 4,
+              color: "#f9fafb",
+            } : staffColor ? {
+              backgroundColor: staffColor + "22",
+              borderLeftColor: staffColor,
+              borderLeftWidth: 4,
+            } : {};
             return (
               <div key={s.id}
-                style={staffColor ? {
-                  backgroundColor: staffColor + "22",
-                  borderLeftColor: staffColor,
-                  borderLeftWidth: 4,
-                } : {}}
-                className={`border rounded-lg p-2 ${staffColor ? "" : meta.color + " border-opacity-50"}`}>
+                style={overrideStyle}
+                className={`border rounded-lg p-2 ${(isGray2 || isStaffEv2 || staffColor) ? "" : meta.color + " border-opacity-50"}`}>
                 <div className="flex items-center justify-between gap-1 mb-1">
                   <span className="font-mono text-xs font-bold">{s.time_slot?.slice(0,5)}</span>
                   <div className="flex items-center gap-1">
@@ -1999,7 +2053,7 @@ function Field({ label, children }: any) {
 }
 
 // 예약 셀 클릭 시 떨어지는 빠른 액션 시트 (출결 + 결제 + 수정)
-function QuickActionSheet({ slot, members, staff, plans, payments, attendance, onClose, onEdit, onAttendance, onAddPayment, onDeletePayment }: any) {
+function QuickActionSheet({ slot, members, staff, plans, payments, attendance, onClose, onEdit, onAttendance, onAddPayment, onDeletePayment, onSignAttendance }: any) {
   const member = members.find((m: any) => m.id === slot.member_id);
   const staffP = staff.find((s: any) => s.id === slot.staff_id);
   const [tab, setTab] = useState<"info" | "attend" | "payment">("info");
@@ -2165,6 +2219,15 @@ function QuickActionSheet({ slot, members, staff, plans, payments, attendance, o
                   <div className="text-[9px] mt-1 opacity-80">초기화</div>
                 </button>
               </div>
+
+              {/* ✅ v3.20.1: 사인 출결 (SignaturePad 재사용) */}
+              {member && (
+                <button onClick={() => onSignAttendance && onSignAttendance()}
+                  className="w-full py-3 mt-2 bg-gradient-to-r from-purple-500 to-pink-500 hover:opacity-90 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-md">
+                  ✍️ 사인 출결 (보호자·본인 서명)
+                </button>
+              )}
+
               <div className="text-[11px] text-gray-500 mt-2 p-3 bg-gray-50 rounded-lg">
                 💡 <b>완료</b>·<b>노쇼</b>만 회원권을 1회 차감합니다.
                 <b>병결</b>·<b>이월</b>·<b>취소</b>는 예약 이력만 남기고 회차는 차감하지 않음으로 로직이 변경되었습니다.
