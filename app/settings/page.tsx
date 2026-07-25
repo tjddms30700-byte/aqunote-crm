@@ -681,21 +681,22 @@ export default function SettingsPage() {
             </Link>
 
             {/* 시간표 설정 */}
-            <Link href="/schedule" className="group bg-gradient-to-br from-blue-50 to-cyan-50 border-2 border-blue-200 rounded-xl p-4 hover:shadow-md hover:border-blue-400 transition">
+            <Link href="/settings/schedule-config" className="group bg-gradient-to-br from-blue-50 to-cyan-50 border-2 border-blue-200 rounded-xl p-4 hover:shadow-md hover:border-blue-400 transition">
               <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-2xl mb-2 shadow">🗓️</div>
               <div className="text-sm font-bold text-blue-900">시간표 설정</div>
-              <div className="text-[11px] text-blue-700 mt-1">운영 시간대·수업 구성 관리</div>
-              <div className="text-[10px] text-blue-500 mt-1">→ 월·주·일 뷰·더블클릭 새일정</div>
-              <div className="mt-2 text-[10px] text-gray-500 group-hover:text-blue-600">지점별 운영 시간 및 수업 슬롯 구성</div>
+              <div className="text-[11px] text-blue-700 mt-1">운영시간 · 타임 단위(40분/1시간) · 요일</div>
+              <div className="text-[10px] text-blue-500 mt-1">→ 1타임부터 마지막까지 자동 구성</div>
+              <div className="mt-2 text-[10px] text-gray-500 group-hover:text-blue-600">지점별 독립 설정 · 점심시간 제외</div>
             </Link>
 
-            {/* 직원 수당 설정 */}
-            <Link href="/staff" className="group bg-gradient-to-br from-indigo-50 to-blue-50 border-2 border-indigo-200 rounded-xl p-4 hover:shadow-md hover:border-indigo-400 transition">
+            {/* 직원 급여 · 수당 설정 (마스터/센터장 전용) */}
+            <Link href="/settings/payroll-config" className="group bg-gradient-to-br from-indigo-50 to-blue-50 border-2 border-indigo-200 rounded-xl p-4 hover:shadow-md hover:border-indigo-400 transition relative">
+              <span className="absolute top-2 right-2 text-[9px] px-1.5 py-0.5 bg-red-500 text-white rounded-full font-bold">마스터전용</span>
               <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-500 flex items-center justify-center text-white text-2xl mb-2 shadow">💰</div>
-              <div className="text-sm font-bold text-indigo-900">직원 수당 (인센티브) 설정</div>
+              <div className="text-sm font-bold text-indigo-900">직원 급여 · 수당 관리</div>
               <div className="text-[11px] text-indigo-700 mt-1">강사별 회당 단가·인센티브율</div>
-              <div className="text-[10px] text-indigo-500 mt-1">→ 자동 수당 계산·월말 정산</div>
-              <div className="mt-2 text-[10px] text-gray-500 group-hover:text-indigo-600">강사마다 다른 단가·지점별 정책 적용</div>
+              <div className="text-[10px] text-indigo-500 mt-1">→ 자동 수당 계산·월말 정산·지급 이력</div>
+              <div className="mt-2 text-[10px] text-gray-500 group-hover:text-indigo-600">마스터/센터장만 접근 가능</div>
             </Link>
 
             {/* 안전사고 플로우 */}

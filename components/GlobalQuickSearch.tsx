@@ -43,9 +43,10 @@ export default function GlobalQuickSearch() {
     (async () => {
       setLoading(true);
       setErrorMsg("");
+      // ✅ v3.19.1: birth_date 컴럼이 없는 스키마도 있으므로 안전하게 *로 로드
       const { data, error } = await supabase
         .from("members")
-        .select("id, name, phone, member_type, guardian_name, birth_date, status")
+        .select("*")
         .order("created_at", { ascending: false });
       if (error) {
         setErrorMsg(`회원 로드 실패: ${error.message}`);
@@ -135,7 +136,9 @@ export default function GlobalQuickSearch() {
                         </div>
                         <div className="text-xs text-gray-500 flex items-center gap-1.5 mt-0.5">
                           {m.phone && (<><Phone className="w-3 h-3" />{m.phone}</>)}
-                          {m.birth_date && <span className="ml-2">🎂 {m.birth_date}</span>}
+                          {(m.birth_date || m.birthday || m.birth) && (
+                            <span className="ml-2">🎂 {m.birth_date || m.birthday || m.birth}</span>
+                          )}
                         </div>
                       </div>
                       <span className="text-xs text-aqu-600">→</span>

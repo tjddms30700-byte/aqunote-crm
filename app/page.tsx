@@ -14,12 +14,12 @@ import Logo from "@/components/Logo";
 import BranchSwitcher from "@/components/BranchSwitcher";
 import GlobalQuickSearch from "@/components/GlobalQuickSearch";
 
-/* ═════ v3.18.0: 5대분류 재구성 ═════ */
+/* ═════ v3.19.1: 5대분류 (설정 이동 항목 메인에서 숨김) ═════ */
 const GROUPS = [
   {
     key: "members",
     title: "회원 · 수업",
-    subtitle: "상담 · 회원 · 시간표 · IEP · 안전",
+    subtitle: "상담 · 회원 · 시간표 · IEP",
     icon: Users,
     from: "from-purple-500",
     to: "to-fuchsia-600",
@@ -30,13 +30,12 @@ const GROUPS = [
       { href: "/members",         icon: Users,          title: "회원 DB · 출결",   desc: "아동·성인 + 출석 이력" },
       { href: "/schedule",        icon: Calendar,       title: "통합 시간표",       desc: "월·주·일 + 더블클릭 새 일정" },
       { href: "/iep-behavior",    icon: Target,         title: "IEP · 행동중재",   desc: "목표·ABC·수업일지" },
-      { href: "/incidents",       icon: AlertTriangle,  title: "🚨 안전사고",       desc: "응급기록·보험 리포트" },
     ],
   },
   {
     key: "finance",
     title: "결제 · 재무",
-    subtitle: "결제 · 매출 분석 · 수강권 · 자동 정산",
+    subtitle: "결제 · 매출 분석 · 자동 정산",
     icon: Wallet,
     from: "from-pink-500",
     to: "to-rose-600",
@@ -44,22 +43,19 @@ const GROUPS = [
     bg: "bg-pink-50",
     items: [
       { href: "/payments",          icon: CreditCard,  title: "결제 · 매출 분석",  desc: "결제·매출·통계 통합" },
-      { href: "/plans",             icon: Ticket,      title: "회원권 · 수강권",  desc: "횟수·금액·프로모션" },
       { href: "/finance",           icon: DollarSign,  title: "센터 재무 · 자동정산", desc: "수입·지출·정기결제" },
-      { href: "/documents?tab=receipt", icon: FileText, title: "영수증 · 결제문서", desc: "결제 관련 문서 자동 분류" },
     ],
   },
   {
     key: "staff",
     title: "직원 · 근무",
-    subtitle: "인사 · 근태 · 강사별 수당 자동 계산",
+    subtitle: "출퇴근 · 휴가 · 사내 소통",
     icon: UserCog,
     from: "from-blue-500",
     to: "to-indigo-600",
     accent: "text-blue-600",
     bg: "bg-blue-50",
     items: [
-      { href: "/staff",            icon: Briefcase,     title: "직원 · 급여 · 수당",  desc: "출결·시간표 연동 자동계산" },
       { href: "/attendance-staff", icon: Clock,         title: "직원 출퇴근",  desc: "출퇴근·근태 통계" },
       { href: "/leave",            icon: FileCheck,     title: "휴가 · 결재",   desc: "전자결재·휴가 신청" },
       { href: "/board",            icon: MessageSquare, title: "사내 게시판",  desc: "공지·Q&A·건의" },
@@ -82,16 +78,21 @@ const GROUPS = [
   {
     key: "settings",
     title: "설정",
-    subtitle: "센터 정보 · 로고 · 지점 · 백업",
+    subtitle: "지점 정책 · 회원권 · 시간표 · 직원관리 · 백업",
     icon: Settings,
     from: "from-slate-500",
     to: "to-gray-700",
     accent: "text-slate-600",
     bg: "bg-slate-50",
     items: [
-      { href: "/settings", icon: Settings, title: "환경 설정", desc: "로고·지점·센터명" },
-      { href: "/backup",   icon: Database, title: "💾 자동 백업", desc: "DB 스냅샷·Drive/S3" },
-      { href: "/documents", icon: FileText, title: "문서 관리", desc: "전체 문서 통합 뷰" },
+      { href: "/settings",                icon: Settings,       title: "환경 · 지점 정책",  desc: "로고·지점·센터명" },
+      { href: "/plans",                   icon: Ticket,          title: "🎫 회원권 설정",   desc: "횟수·금액·프로모션" },
+      { href: "/settings/schedule-config", icon: Calendar,       title: "🗓️ 시간표 설정",   desc: "운영시간·타임단위" },
+      { href: "/staff",                   icon: Briefcase,       title: "👤 직원 관리",      desc: "인사 · 직원 등록" },
+      { href: "/settings/payroll-config", icon: DollarSign,      title: "🔒 직원 급여·수당",  desc: "마스터/센터장 전용" },
+      { href: "/incidents",               icon: AlertTriangle,   title: "🚨 안전사고",        desc: "응급기록·보험 리포트" },
+      { href: "/documents",               icon: FileText,        title: "📄 문서 관리",        desc: "계약서·영수증 통합" },
+      { href: "/backup",                  icon: Database,        title: "💾 자동 백업",         desc: "DB 스냅샷·Drive/S3" },
     ],
   },
 ];
