@@ -405,12 +405,22 @@ export default function PaymentsPage() {
     loadAll();
   }
 
-  // 회원권 회차 조정 (+/-)
+  // 회원권 회차 조정 (+/-) – ✅ v3.20.9: 잔여/총 회수 명시 + 이중 차감 검증
   async function adjustSessions(m: any, delta: number) {
-    const reason = prompt(
-      `${m.members?.name || "회원"} 님의 "${m.plan_name}" ${delta > 0 ? "회차 추가" : "회차 차감"} 사유를 입력해 주세요 (선택)`,
-      delta > 0 ? "이벤트 / 서비스" : "노쇼"
-    );
+    const total = (m.total_sessions || 0) + (m.adjustment || 0);
+    const used  = m.used_sessions || 0;
+    const remaining = Math.max(0, total - used);
+    const name = m.members?.name || "회원";
+
+    // 차감 시 잔여 부족 검증
+    if (delta < 0 && remaining + delta < 0) {
+      alert(`⚠️ ${name} 님의 "${m.plan_name}" 잔여 회차가 부족합니다.\n\n현재 잔여: ${remaining}회 / 전체: ${total}회\n요청 차감: ${Math.abs(delta)}회`);
+      return;
+    }
+
+    // 사유 입력 (잔여/총회수 명시)
+    const promptTitle = `${name} 님의 "${m.plan_name}"\n\n📊 현재 잔여: ${remaining}회 / 전체: ${total}회\n${delta > 0 ? "➕ 추가" : "➖ 차감"} 회차: ${Math.abs(delta)}회\n예상 잔여: ${remaining + delta}회\n\n사유를 입력해 주세요 (선택)`;
+    const reason = prompt(promptTitle, delta > 0 ? "이벤트 / 서비스" : "임의 차감");
     if (reason === null) return; // 취소
 
     const newAdjustment = (m.adjustment || 0) + delta;
@@ -428,9 +438,13 @@ export default function PaymentsPage() {
         membership_id: m.id,
         member_id: m.member_id,
         delta,
-        reason: reason || null,
+        reason: reason || (delta > 0 ? "서비스 추가" : "임의 차감"),
+        // ✅ v3.20.9: 자동 출석 차감과 구분하기 위해 source 명시
+        source: "manual",
       });
     } catch {}
+    const finalRemaining = Math.max(0, total + delta - used);
+    alert(`✅ ${name} 님 "${m.plan_name}" ${delta > 0 ? "+" : ""}${delta}회 조정 완료\n\n이전 잔여: ${remaining}회 → 현재 잔여: ${finalRemaining}회\n전체 회차: ${total + delta}회`);
     loadAll();
   }
 
@@ -581,7 +595,7 @@ export default function PaymentsPage() {
         </button>
         <div className="flex-1 min-w-[180px] relative">
           <input type="text" value={nameSearch} onChange={e => setNameSearch(e.target.value)}
-            placeholder="🔍 회원명 검색 (예: 김라헬)"
+            placeholder="회원명 검색"
             className="w-full pl-3 pr-8 py-2 border border-aqu-200 rounded-lg text-xs md:text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none" />
           {nameSearch && (
             <button onClick={() => setNameSearch("")}

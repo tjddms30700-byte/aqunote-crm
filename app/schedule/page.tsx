@@ -127,6 +127,8 @@ export default function SchedulePage() {
   const clickTimerRef = useRef<any>(null);
   const [payments, setPayments] = useState<any[]>([]);
   const [attendance, setAttendance] = useState<any[]>([]);
+  // ✅ v3.20.9: 시간표 셀에 회원권 자동 표시를 위해 memberships 로드
+  const [memberships, setMemberships] = useState<any[]>([]);
   // ✅ v3.16.1: 인라인 결제 등록 모달
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [paymentModalDate, setPaymentModalDate] = useState<string>("");
@@ -209,7 +211,7 @@ export default function SchedulePage() {
       }
       return r;
     };
-    const [sRes, mRes, stRes, pRes, aRes, plRes] = await Promise.all([
+    const [sRes, mRes, stRes, pRes, aRes, plRes, msRes] = await Promise.all([
       safeBranchQuery(
         () => supabase.from("schedule_slots").select("*").order("event_date").order("time_slot"),
         (q: any) => q.eq("branch_id", branchId).order("event_date").order("time_slot")
@@ -228,6 +230,8 @@ export default function SchedulePage() {
       ),
       supabase.from("attendance").select("*"),
       supabase.from("membership_plans").select("*"),
+      // ✅ v3.20.9: memberships 자동 로드 → 시간표 셀에 회원권 이름 + 잔여/총회수 자동 표시
+      supabase.from("memberships").select("id, member_id, plan_name, total_sessions, used_sessions, adjustment, end_date, status"),
     ]);
     setSlots(sRes.data || []);
     setMembers(mRes.data || []);
@@ -235,6 +239,7 @@ export default function SchedulePage() {
     setPayments(pRes.data || []);
     setAttendance(aRes.data || []);
     setPlans(plRes.data || []);
+    setMemberships(msRes.data || []);
     setLoading(false);
   }
 
@@ -890,6 +895,28 @@ export default function SchedulePage() {
     return staff.find(s => s.id === id)?.name || "";
   }
 
+  // ✅ v3.20.9: 회원의 활성 회원권 조회 (잔여·총회수 자동)
+  function activeMembership(memberId: string, slotMembershipId?: string) {
+    // slot에 명시적으로 연결된 회원권이 있으면 그것 우선
+    if (slotMembershipId) {
+      const m = memberships.find((x: any) => x.id === slotMembershipId);
+      if (m) return m;
+    }
+    // 그 외엔 해당 회원의 활성 회원권 (가장 최근 만료일 후)
+    return memberships
+      .filter((x: any) => x.member_id === memberId && x.status !== "cancelled" && x.status !== "refunded")
+      .sort((a: any, b: any) => (b.end_date || "").localeCompare(a.end_date || ""))[0];
+  }
+
+  // 회원권 포맷팅: "STANDARD (28/30)" 형태
+  function formatMembership(ms: any) {
+    if (!ms) return "";
+    const total = Number(ms.total_sessions || 0) + Number(ms.adjustment || 0);
+    const used = Number(ms.used_sessions || 0);
+    const remaining = Math.max(0, total - used);
+    return `${ms.plan_name || "회원권"} (${remaining}/${total})`;
+  }
+
   return (
     <main className="max-w-7xl mx-auto px-3 md:px-6 py-4 md:py-8">
       {/* Header */}
@@ -1059,28 +1086,48 @@ export default function SchedulePage() {
                           borderLeftWidth: 4,
                           color: "#1e293b"
                         } : {};
+                        // ✅ v3.20.9: 셀에 회원권명 + 잔여/총회수 + 강사 자동 표시
+                        const memNameStr = memberName(s.member_id);
+                        const memberMs = s.member_id ? activeMembership(s.member_id, s.membership_id) : null;
+                        const msLabel = formatMembership(memberMs) || s.lesson_name || "";
+                        // 출석 전/후 색상 차이: scheduled는 연한 색, 완료(done)은 진한 색
+                        const isDone = s.status === "done" || s.status === "completed" || s.status === "present";
+                        const isScheduled = !s.status || s.status === "scheduled";
+                        // 출석전(scheduled)에는 opacity 0.7로 연하게, 출석후(done)에는 opacity 1 + 진한 강조
+                        const attendanceOpacity = isDone ? 1 : (isScheduled ? 0.72 : 1);
                         return (
                           <div key={s.id}
                             draggable
                             onDragStart={(e) => handleDragStart(s, e)}
                             onClick={(e) => { e.stopPropagation(); openQuickAction(s); }}
-                            style={staffTint}
-                            className={`text-[9px] md:text-[10px] px-1 py-0.5 rounded border truncate ${(isGrayState || isStaffEvent || staffP?.color) ? "" : meta.color} hover:shadow-sm cursor-move flex items-center gap-0.5`}
-                            title={`${s.time_slot} ${memberName(s.member_id) || s.lesson_name || s.note || ""}${staffP ? " (" + staffP.name + ") " + (meta.label || "") : ""} (드래그하여 이월)`}>
-                            <span className="font-mono opacity-70">{s.time_slot?.slice(0,5)}</span>
-                            <span className="truncate">
-                              {(() => {
-                                if (memberName(s.member_id)) return memberName(s.member_id);
-                                if (s.lesson_name) return s.lesson_name;
-                                if (s.event_type === "revenue") return "💰" + ((s.amount || 0) / 1000) + "k";
-                                if (s.event_type === "staff_work") return `👥 ${staffP?.name || "직원"}${s.note ? " · " + s.note : " 근무"}`;
-                                if (s.event_type === "staff_off") return `🏖️ ${staffP?.name || "직원"}${s.note ? " · " + s.note : " 휴무"}`;
-                                if (s.event_type === "trial") return `🌟 체험`;
-                                if (s.note) return s.note;
-                                return s.event_type === "other" ? "📌 기타" : "일정";
-                              })()}
-                            </span>
-                            {s.recurring_id && <Repeat className="w-2.5 h-2.5 opacity-60" />}
+                            style={{ ...staffTint, opacity: attendanceOpacity }}
+                            className={`text-[9px] md:text-[10px] px-1 py-0.5 rounded border ${(isGrayState || isStaffEvent || staffP?.color) ? "" : meta.color} hover:shadow-sm cursor-move flex flex-col gap-0 ${isDone ? "ring-1 ring-green-400" : ""}`}
+                            title={`${s.time_slot} ${memNameStr || s.lesson_name || s.note || ""}${msLabel ? " · " + msLabel : ""}${staffP ? " · " + staffP.name : ""} · ${meta.label || ""}`}>
+                            {/* 상단: 시간 + 회원명 */}
+                            <div className="flex items-center gap-0.5 truncate">
+                              <span className="font-mono opacity-70">{s.time_slot?.slice(0,5)}</span>
+                              <span className="truncate font-semibold">
+                                {(() => {
+                                  if (memNameStr) return memNameStr;
+                                  if (s.lesson_name) return s.lesson_name;
+                                  if (s.event_type === "revenue") return "💰" + ((s.amount || 0) / 1000) + "k";
+                                  if (s.event_type === "staff_work") return `👥 ${staffP?.name || "직원"}${s.note ? " · " + s.note : " 근무"}`;
+                                  if (s.event_type === "staff_off") return `🏖️ ${staffP?.name || "직원"}${s.note ? " · " + s.note : " 휴무"}`;
+                                  if (s.event_type === "trial") return `🌟 체험`;
+                                  if (s.note) return s.note;
+                                  return s.event_type === "other" ? "📌 기타" : "일정";
+                                })()}
+                              </span>
+                              {s.recurring_id && <Repeat className="w-2.5 h-2.5 opacity-60" />}
+                              {isDone && <span className="ml-auto text-green-700 font-bold text-[9px]">✓</span>}
+                            </div>
+                            {/* 하단: 회원권 · 강사 (회원 예약일 때만) */}
+                            {memNameStr && msLabel && (
+                              <div className="text-[8px] md:text-[9px] opacity-80 truncate">{msLabel}</div>
+                            )}
+                            {memNameStr && staffP && (
+                              <div className="text-[8px] md:text-[9px] opacity-70 truncate">{staffP.name}</div>
+                            )}
                           </div>
                         );
                       })}
