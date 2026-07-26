@@ -689,26 +689,7 @@ export default function SettingsPage() {
               <div className="mt-2 text-[10px] text-gray-500 group-hover:text-blue-600">지점별 독립 설정 · 점심시간 제외</div>
             </Link>
 
-            {/* 직원 급여 · 수당 설정 (마스터/센터장 전용) */}
-            <Link href="/settings/payroll-config" className="group bg-gradient-to-br from-indigo-50 to-blue-50 border-2 border-indigo-200 rounded-xl p-4 hover:shadow-md hover:border-indigo-400 transition relative">
-              <span className="absolute top-2 right-2 text-[9px] px-1.5 py-0.5 bg-red-500 text-white rounded-full font-bold">마스터전용</span>
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-500 flex items-center justify-center text-white text-2xl mb-2 shadow">💰</div>
-              <div className="text-sm font-bold text-indigo-900">직원 급여 · 수당 관리</div>
-              <div className="text-[11px] text-indigo-700 mt-1">강사별 회당 단가·인센티브율</div>
-              <div className="text-[10px] text-indigo-500 mt-1">→ 자동 수당 계산·월말 정산·지급 이력</div>
-              <div className="mt-2 text-[10px] text-gray-500 group-hover:text-indigo-600">마스터/센터장만 접근 가능</div>
-            </Link>
-
-            {/* ✅ v3.20.4: 안전사고 정책 카드 제거 (홈화면·회원/수업 그룹에 이미 존재) */}
-
-            {/* 문서 분류 */}
-            <Link href="/documents" className="group bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-200 rounded-xl p-4 hover:shadow-md hover:border-emerald-400 transition">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center text-white text-2xl mb-2 shadow">📄</div>
-              <div className="text-sm font-bold text-emerald-900">문서 관리 정책</div>
-              <div className="text-[11px] text-emerald-700 mt-1">영수증·계약서·동의서</div>
-              <div className="text-[10px] text-emerald-500 mt-1">→ 자동 분류 규칙 설정</div>
-              <div className="mt-2 text-[10px] text-gray-500 group-hover:text-emerald-600">지점별 문서 양식·보관 기간</div>
-            </Link>
+            {/* ✅ v3.20.10: 직원 급여·문서 관리 카드 제거 (운영 탭 별도 카드로 이동) */}
 
             {/* 백업 */}
             <Link href="/backup" className="group bg-gradient-to-br from-slate-50 to-gray-50 border-2 border-slate-200 rounded-xl p-4 hover:shadow-md hover:border-slate-400 transition">

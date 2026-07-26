@@ -68,7 +68,7 @@ const GROUPS = [
   {
     key: "ops",
     title: "🏢 운영",
-    subtitle: "결제·재무 · 지점정책(통합) · 로그인 승인 (마스터/센터장 전용)",
+    subtitle: "결제·재무 · 직원·문서 · 지점 정책 · 로그인 승인 (마스터/센터장 전용)",
     icon: Settings,
     from: "from-slate-500",
     to: "to-gray-700",
@@ -76,11 +76,13 @@ const GROUPS = [
     bg: "bg-slate-50",
     directorOnly: true,
     items: [
-      // ✅ v3.20.3: 지점 정책이 회원권·시간표·직원·문서·백업을 모두 포함 → 개별 항목 제거하고 지점 정책 하나로 통합
-      { href: "/payments",                 icon: CreditCard,     title: "💳 결제 · 매출 분석",     desc: "결제·매출·통계 통합" },
-      { href: "/finance",                  icon: DollarSign,     title: "💼 센터 재무 · 자동정산",  desc: "수입·지출·정기결제" },
-      { href: "/settings?tab=policy",      icon: Settings,       title: "⚙️ 지점 정책 (통합)",     desc: "회원권·시간표·직원·문서·백업 하나에서" },
-      { href: "/settings/accounts",        icon: KeyRound,       title: "🔑 로그인 승인 · 계정",     desc: "가입 승인 · 비밀번호 관리" },
+      // ✅ v3.20.10: 직원 급여·문서를 운영 탭 별도 카드로 분리 / 지점 정책에는 회원권·시간표·자동백업만 포함
+      { href: "/payments",                 icon: CreditCard,     title: "💳 결제 · 매출 분석",       desc: "결제·매출·통계 통합" },
+      { href: "/finance",                  icon: DollarSign,     title: "💼 센터 재무 · 자동정산",   desc: "수입·지출·정기결제" },
+      { href: "/settings/payroll-config",  icon: Briefcase,      title: "👨‍💼 직원 급여 · 수당",      desc: "회당 단가 · 인센티브 · 지급 이력" },
+      { href: "/documents",                icon: FileText,       title: "📄 문서 관리",              desc: "센터 관련 서류 (사업자등록증 등)" },
+      { href: "/settings?tab=policy",      icon: Settings,       title: "⚙️ 지점 정책",              desc: "회원권 · 시간표 · 자동백업" },
+      { href: "/settings/accounts",        icon: KeyRound,       title: "🔑 로그인 승인 · 계정",      desc: "가입 승인 · 비밀번호 관리" },
     ],
   },
 ];

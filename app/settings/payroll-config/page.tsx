@@ -55,35 +55,44 @@ function PayrollConfigInner() {
   async function saveRate(staffId: string) {
     setSavingId(staffId);
     const r = rates[staffId];
-    // ✅ v3.20.8: 0원도 명시적으로 저장 (Number() 가 0을 falsy로 버리지 않도록 명시 변환)
+    // ✅ v3.20.10: 0원도 명시적으로 저장 + 저장 후 DB 재조회로 실제 변경 검증
     const sessionRate = Number.isFinite(Number(r.session_rate)) ? Number(r.session_rate) : 0;
     const incentiveRate = Number.isFinite(Number(r.incentive_rate)) ? Number(r.incentive_rate) : 0;
     const payload: any = { session_rate: sessionRate, incentive_rate: incentiveRate };
-    // 컬럼 미존재 자동 폴백 (session_rate/incentive_rate 컬럼이 없으면 제거 후 재시도)
     let lastError: any = null;
     for (let attempt = 0; attempt < 4; attempt++) {
-      const { data, error } = await supabase.from("staff").update(payload).eq("id", staffId).select();
-      if (!error) {
-        setSavingId("");
-        // 저장 후 변경 값 검증 (RLS/트리거로 값이 벘김 수 있으므로)
-        const saved = Array.isArray(data) && data[0];
-        const savedRate = saved ? Number(saved.session_rate) : sessionRate;
-        alert(`✅ 수당 설정이 저장되었습니다\n\n• 회당 단가: ₩${savedRate.toLocaleString()}\n• 인센티브: ${incentiveRate}%`);
-        loadAll();
+      const { error: updErr } = await supabase.from("staff").update(payload).eq("id", staffId);
+      if (updErr) {
+        lastError = updErr;
+        const m = updErr.message.match(/'([^']+)' column|column "([^"]+)"/);
+        const missing = m?.[1] || m?.[2];
+        if (missing && missing in payload) {
+          delete payload[missing];
+          continue;
+        }
+        break;
+      }
+      // ✅ 핵심: update 성공 후 별도 SELECT로 실제 DB 값 검증 (RLS로 잡힌 update도 error=null로 나옴)
+      const { data: check } = await supabase.from("staff").select("session_rate, incentive_rate").eq("id", staffId).maybeSingle();
+      setSavingId("");
+      if (check) {
+        const dbRate = Number(check.session_rate);
+        const dbInc = Number(check.incentive_rate);
+        if (dbRate === sessionRate && dbInc === incentiveRate) {
+          alert(`✅ 수당 설정이 저장되었습니다\n\n• 회당 단가: ₩${dbRate.toLocaleString()}\n• 인센티브: ${dbInc}%\n• DB 실제 반영 확인 완료`);
+          loadAll();
+          return;
+        }
+        // 값이 반영되지 않음 → RLS 문제
+        alert(`❌ 저장 사실상 실패 (RLS 또는 트리거)\n\n• 요청 값: ₩${sessionRate.toLocaleString()} / ${incentiveRate}%\n• DB 실제 값: ₩${dbRate.toLocaleString()} / ${dbInc}%\n\n💡 Supabase Dashboard → SQL Editor에서 다음 실행:\nALTER TABLE staff DISABLE ROW LEVEL SECURITY;\n또는 UPDATE 정책 추가:\nCREATE POLICY staff_update_all ON staff FOR UPDATE USING (true) WITH CHECK (true);`);
         return;
       }
-      lastError = error;
-      // 존재하지 않는 컬럼 자동 제거 후 재시도
-      const m = error.message.match(/'([^']+)' column|column "([^"]+)"/);
-      const missing = m?.[1] || m?.[2];
-      if (missing && missing in payload) {
-        delete payload[missing];
-        continue;
-      }
-      break;
+      alert(`✅ 저장되었습니다 (DB 재조회 실패 - 새로고침 후 확인)`);
+      loadAll();
+      return;
     }
     setSavingId("");
-    alert(`❌ 저장 실패: ${lastError?.message || "알 수 없는 오류"}\n\n💡 staff 테이블에 session_rate / incentive_rate 컬럼이 없을 수 있습니다.\nSQL: ALTER TABLE staff ADD COLUMN IF NOT EXISTS session_rate NUMERIC DEFAULT 30000; ALTER TABLE staff ADD COLUMN IF NOT EXISTS incentive_rate NUMERIC DEFAULT 0;`);
+    alert(`❌ 저장 실패: ${lastError?.message || "알 수 없는 오류"}\n\n💡 staff 테이블에 session_rate / incentive_rate 컬럼이 없을 수 있습니다.\nSQL 실행:\nALTER TABLE staff ADD COLUMN IF NOT EXISTS session_rate NUMERIC DEFAULT 30000;\nALTER TABLE staff ADD COLUMN IF NOT EXISTS incentive_rate NUMERIC DEFAULT 0;`);
   }
 
   // 강사별 통계 계산

@@ -6,7 +6,17 @@ import HomeButton from "@/components/HomeButton";
 import { Waves, Plus, X, Save, TrendingUp, TrendingDown, DollarSign } from "lucide-react";
 import DirectorOnly from "@/components/DirectorOnly";
 
-const CATEGORIES = ["임대료", "수도광열", "소모품", "장비", "홍보", "세금·보험", "잡비"];
+// ✅ v3.20.10: 지출 카테고리 대폭 확장 (수중운동센터 사용 상황 반영)
+const CATEGORIES = [
+  "임대료", "관리비", "수도료", "전기료", "가스료", "난방비",
+  "인터넷·통신비", "수영장 약품", "수영장 청소",
+  "수영복·수영모", "상비약품", "참고서적·교구",
+  "장비 구매", "장비 수리", "오프라인 홍보", "SNS·온라인 광고",
+  "이벤트·이벤트 경품", "교육·연수", "복리후생",
+  "식대·회식", "교통비", "주차비", "세금", "종합소득세", "보험",
+  "은행수수료·카드수수료", "외부용역", "세무·회계 수수료",
+  "소모품", "사무용품", "기부금", "기타"
+];
 
 export default function FinancePageWrapper() {
   return <DirectorOnly><FinancePage /></DirectorOnly>;
@@ -33,17 +43,42 @@ function FinancePage() {
 
   async function loadAll() {
     setLoading(true);
-    // ✅ v3.20.6: schedule_slots + staff 추가 조회 (인건비 자동 산출용)
+    // ✅ v3.20.10: payroll 테이블 이름 자동 폴백 (payroll / payroll_history / staff_salaries)
+    async function loadPayroll(): Promise<any[]> {
+      // 직원 관리 페이지가 사용하는 payroll_history 테이블 우선 시도
+      for (const tableName of ["payroll_history", "payroll", "staff_salaries"]) {
+        const r1 = await supabase.from(tableName).select("*, staff(name)");
+        if (!r1.error && r1.data) return r1.data.map((x: any) => normalizePayroll(x, tableName));
+        // join 실패 시 조인 없이 재시도
+        const r2 = await supabase.from(tableName).select("*");
+        if (!r2.error && r2.data) return r2.data.map((x: any) => normalizePayroll(x, tableName));
+      }
+      return [];
+    }
+    // 테이블별 컬럼명 정규화 (payroll_history는 pay_year+pay_month 분리 / paid_amount → net_amount 등)
+    function normalizePayroll(row: any, tableName: string): any {
+      const norm = { ...row };
+      if (tableName === "payroll_history") {
+        // pay_year + pay_month → "2026-07" 형식
+        if (row.pay_year && row.pay_month) {
+          norm.pay_month = `${row.pay_year}-${String(row.pay_month).padStart(2, "0")}`;
+        }
+        // 컬럼 매핑
+        if (row.paid_amount != null && norm.net_amount == null) norm.net_amount = row.paid_amount;
+        if (row.total != null && norm.net_amount == null) norm.net_amount = row.total;
+      }
+      return norm;
+    }
     const [e, p, pr, ss, st] = await Promise.all([
       supabase.from("expenses").select("*").order("spent_at", { ascending: false }),
       supabase.from("payments").select("*"),
-      supabase.from("payroll").select("*, staff(name)"),
+      loadPayroll(),
       supabase.from("schedule_slots").select("id, staff_id, event_type, event_date, status"),
       supabase.from("staff").select("id, name, salary_type, salary_amount, session_rate, is_resigned"),
     ]);
     setExpenses(e.data || []);
     setPayments(p.data || []);
-    setPayroll(pr.data || []);
+    setPayroll(pr || []);
     setScheduleSlots(ss.data || []);
     setStaffList(st.data || []);
     setLoading(false);

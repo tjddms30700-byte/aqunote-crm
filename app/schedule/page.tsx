@@ -929,7 +929,7 @@ export default function SchedulePage() {
           </h1>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <div className="flex bg-white border border-aqu-100 rounded-lg p-1 text-xs">
             <button onClick={() => setView("month")}
               className={`px-3 py-1.5 rounded flex items-center gap-1 ${view === "month" ? "bg-aqu-600 text-white" : "text-gray-600"}`}>
@@ -949,6 +949,26 @@ export default function SchedulePage() {
             <Plus className="w-4 h-4" /> 예약
           </button>
         </div>
+      </div>
+
+      {/* ✅ v3.20.10: 통합 탭바 – 시간표에서도 회원DB·출결장·사인이력 바로 이동 */}
+      <div className="flex items-center gap-2 mb-4 border-b border-gray-200 pb-2 flex-wrap">
+        <Link href="/members"
+          className="px-3 py-1.5 rounded-lg text-xs md:text-sm font-semibold bg-white border border-aqu-200 text-aqu-700 hover:bg-aqu-50 flex items-center gap-1">
+          👥 회원 DB
+        </Link>
+        <Link href="/attendance"
+          className="px-3 py-1.5 rounded-lg text-xs md:text-sm font-semibold bg-white border border-teal-200 text-teal-700 hover:bg-teal-50 flex items-center gap-1">
+          ✅ 출결장
+        </Link>
+        <Link href="/attendance/signatures"
+          className="px-3 py-1.5 rounded-lg text-xs md:text-sm font-semibold bg-white border border-purple-200 text-purple-700 hover:bg-purple-50 flex items-center gap-1">
+          ✍️ 사인 이력
+        </Link>
+        <Link href="/schedule"
+          className="px-3 py-1.5 rounded-lg text-xs md:text-sm font-semibold bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-sm flex items-center gap-1">
+          🗓️ 시간표
+        </Link>
       </div>
 
       {/* 상단 네비 */}
@@ -1019,6 +1039,10 @@ export default function SchedulePage() {
                 const daySlots = slotsByDate[cellStr] || [];
                 const dow = cell.getDay();
                 const dayRevenue = daySlots.filter(s => s.event_type === "revenue").reduce((a,b) => a + (b.amount || 0), 0);
+                // ✅ v3.20.10: 그날 payments 테이블 결제 금액 합계 (취소 제외, 부분 환불 차감)
+                const dayPaymentsSum = payments
+                  .filter((p: any) => p.paid_at === cellStr && p.status !== "cancelled")
+                  .reduce((sum: number, p: any) => sum + Math.max(0, (p.amount || 0) - (p.refunded_amount || 0)), 0);
 
                 return (
                   <div key={idx}
@@ -1054,11 +1078,16 @@ export default function SchedulePage() {
                       }`}>
                         {cell.getDate()}
                       </span>
-                      {daySlots.length > 0 && (
+                      {/* ✅ v3.20.10: 그날 결제금액 자동 표시 (금액이 있는 날은 금액, 없는 날은 상태 개수) */}
+                      {dayPaymentsSum > 0 ? (
+                        <span className="text-[9px] md:text-[10px] font-bold text-pink-600" title={`오늘 결제 합계 ₩${dayPaymentsSum.toLocaleString()}`}>
+                          {dayPaymentsSum.toLocaleString()}
+                        </span>
+                      ) : daySlots.length > 0 ? (
                         <span className="text-[9px] md:text-[10px] text-gray-500 font-medium">
                           {daySlots.length}
                         </span>
-                      )}
+                      ) : null}
                     </div>
 
                     <div className="space-y-0.5 overflow-hidden">
