@@ -6,16 +6,31 @@ import HomeButton from "@/components/HomeButton";
 import { Waves, Plus, X, Save, TrendingUp, TrendingDown, DollarSign } from "lucide-react";
 import DirectorOnly from "@/components/DirectorOnly";
 
-// ✅ v3.20.10: 지출 카테고리 대폭 확장 (수중운동센터 사용 상황 반영)
+// ✅ v3.20.11: 지출 카테고리 추가 (마케팅, 식비, 교육비, 차량유지비, 복리후생, 법무비용, 경조사 등)
 const CATEGORIES = [
+  // 공과금
   "임대료", "관리비", "수도료", "전기료", "가스료", "난방비",
-  "인터넷·통신비", "수영장 약품", "수영장 청소",
+  "인터넷·통신비",
+  // 수영장 특화
+  "수영장 약품", "수영장 청소",
   "수영복·수영모", "상비약품", "참고서적·교구",
-  "장비 구매", "장비 수리", "오프라인 홍보", "SNS·온라인 광고",
-  "이벤트·이벤트 경품", "교육·연수", "복리후생",
-  "식대·회식", "교통비", "주차비", "세금", "종합소득세", "보험",
-  "은행수수료·카드수수료", "외부용역", "세무·회계 수수료",
-  "소모품", "사무용품", "기부금", "기타"
+  // 장비 / 홍보 / 마케팅
+  "장비 구매", "장비 수리", "마케팅",
+  "오프라인 홍보", "SNS·온라인 광고",
+  "이벤트·이벤트 경품",
+  // 직원 / 복리후생
+  "교육·연수", "교육비", "복리후생",
+  "식대·회식", "식비", "경조사비",
+  // 교통 / 차량
+  "교통비", "주차비", "차량유지비", "유류비",
+  // 세무 / 수수료 / 법무
+  "세금", "종합소득세", "보험",
+  "은행수수료·카드수수료",
+  "세무·회계 수수료", "세무비", "법무비용",
+  "외부용역", "자문비",
+  // 기타
+  "소모품", "사무용품", "인쇄비", "플랫폼 사용료",
+  "기부금", "기타"
 ];
 
 export default function FinancePageWrapper() {
@@ -55,17 +70,29 @@ function FinancePage() {
       }
       return [];
     }
-    // 테이블별 컬럼명 정규화 (payroll_history는 pay_year+pay_month 분리 / paid_amount → net_amount 등)
+    // ✅ v3.20.11: 테이블별 컬럼명 정규화 + net_amount 자동 계산
     function normalizePayroll(row: any, tableName: string): any {
       const norm = { ...row };
-      if (tableName === "payroll_history") {
-        // pay_year + pay_month → "2026-07" 형식
-        if (row.pay_year && row.pay_month) {
-          norm.pay_month = `${row.pay_year}-${String(row.pay_month).padStart(2, "0")}`;
-        }
-        // 컬럼 매핑
-        if (row.paid_amount != null && norm.net_amount == null) norm.net_amount = row.paid_amount;
-        if (row.total != null && norm.net_amount == null) norm.net_amount = row.total;
+      // payroll_history: pay_year + pay_month 분리 → "2026-07" 형식
+      if (row.pay_year != null && row.pay_month != null) {
+        norm.pay_month = `${row.pay_year}-${String(row.pay_month).padStart(2, "0")}`;
+      } else if (row.pay_month != null && typeof row.pay_month === "number") {
+        // pay_month만 있고 숫자이면 현재 연도 사용
+        norm.pay_month = `${new Date().getFullYear()}-${String(row.pay_month).padStart(2, "0")}`;
+      }
+      // paid_amount이 있으면 net_amount 으로 사용
+      if (row.paid_amount != null && (norm.net_amount == null || norm.net_amount === 0)) {
+        norm.net_amount = Number(row.paid_amount);
+      }
+      if (row.total != null && norm.net_amount == null) norm.net_amount = Number(row.total);
+      // ✅ net_amount가 여전히 없거나 0이면 자동 계산 (기본급 + 인센티브 + 보너스 − 공제)
+      if (!norm.net_amount || norm.net_amount === 0) {
+        const base = Number(row.base_salary || 0);
+        const inc  = Number(row.incentive || 0);
+        const bon  = Number(row.bonus || 0);
+        const ded  = Number(row.deduction || 0);
+        const calc = base + inc + bon - ded;
+        if (calc > 0) norm.net_amount = calc;
       }
       return norm;
     }

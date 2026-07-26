@@ -10,10 +10,10 @@ import SignatureAttendanceModal from "@/components/SignatureAttendanceModal";
 import { supabase } from "@/lib/supabase";
 import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import {
-  Calendar, Plus, X, Home, ChevronLeft, ChevronRight,
+  Calendar, Plus, X, Home, ChevronLeft, ChevronRight, ChevronDown,
   Clock, User, DollarSign, Trash2, Check, XCircle,
   AlertCircle, Ban, Repeat, ArrowLeftRight, Grid3x3, LayoutGrid,
-  Move
+  Move, FileText
 } from "lucide-react";
 
 /* ═════ 상수 ═════ */
@@ -122,6 +122,8 @@ export default function SchedulePage() {
   const [quickAction, setQuickAction] = useState<any | null>(null);
   // ✅ v3.20.1: 사인 출결 모달
   const [signatureSlot, setSignatureSlot] = useState<any | null>(null);
+  // ✅ v3.20.11: 매출 상세 팝오버 (셔 설정 날짜별)
+  const [revenueDetailDate, setRevenueDetailDate] = useState<string | null>(null);
   const [actionSheet, setActionSheet] = useState<{ date: string; time?: string } | null>(null);
   // ✅ v3.17.1: 더블클릭 시 onClick 지연 취소용 ref
   const clickTimerRef = useRef<any>(null);
@@ -1078,11 +1080,19 @@ export default function SchedulePage() {
                       }`}>
                         {cell.getDate()}
                       </span>
-                      {/* ✅ v3.20.10: 그날 결제금액 자동 표시 (금액이 있는 날은 금액, 없는 날은 상태 개수) */}
+                      {/* ✅ v3.20.11: 결제금액 클릭 → 매출 상세 팝오버 (셔 설정 데이터) */}
                       {dayPaymentsSum > 0 ? (
-                        <span className="text-[9px] md:text-[10px] font-bold text-pink-600" title={`오늘 결제 합계 ₩${dayPaymentsSum.toLocaleString()}`}>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (clickTimerRef.current) { clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
+                            setRevenueDetailDate(cellStr);
+                          }}
+                          className="text-[9px] md:text-[10px] font-bold text-pink-600 hover:text-pink-800 hover:underline flex items-center gap-0.5"
+                          title={`오늘 결제 합계 ₩${dayPaymentsSum.toLocaleString()} – 상세 보기`}>
                           {dayPaymentsSum.toLocaleString()}
-                        </span>
+                          <ChevronDown className="w-2.5 h-2.5" />
+                        </button>
                       ) : daySlots.length > 0 ? (
                         <span className="text-[9px] md:text-[10px] text-gray-500 font-medium">
                           {daySlots.length}
@@ -1320,7 +1330,150 @@ export default function SchedulePage() {
           onSaved={async () => { setSignatureSlot(null); await loadAll(); }}
         />
       )}
+
+      {/* ✅ v3.20.11: 매출 상세 팝오버 */}
+      {revenueDetailDate && (
+        <RevenueDetailPopover
+          date={revenueDetailDate}
+          payments={payments}
+          members={members}
+          staff={staff}
+          memberships={memberships}
+          onClose={() => setRevenueDetailDate(null)}
+        />
+      )}
     </main>
+  );
+}
+
+/* ═══ v3.20.11: 매출 상세 팝오버 (셔 설정 이미지와 동일 레이아웃) ═══ */
+function RevenueDetailPopover({ date, payments, members, staff, memberships, onClose }: any) {
+  const dayPayments = (payments || []).filter((p: any) => p.paid_at === date);
+  const active = dayPayments.filter((p: any) => p.status !== "cancelled");
+  const refunded = dayPayments.filter((p: any) => p.status === "cancelled" || Number(p.refunded_amount || 0) > 0);
+
+  const totalIncome = active.reduce((s: number, p: any) => s + Math.max(0, (p.amount || 0) - (p.refunded_amount || 0)), 0);
+  const totalRefund = refunded.reduce((s: number, p: any) => s + Number(p.refunded_amount || p.amount || 0), 0);
+  const cardTotal = active.reduce((s: number, p: any) => s + Number(p.pay_card || (p.method === "card" ? p.amount : 0) || 0), 0);
+  const cashTotal = active.reduce((s: number, p: any) => s + Number(p.pay_cash || (p.method === "cash" ? p.amount : 0) || 0), 0);
+  const transferTotal = active.reduce((s: number, p: any) => s + Number(p.pay_transfer || (p.method === "transfer" ? p.amount : 0) || 0), 0);
+
+  // 회원권 유형별 매출
+  const msTypeTotals: Record<string, number> = {};
+  active.forEach((p: any) => {
+    const ms = (memberships || []).find((m: any) => m.id === p.membership_id);
+    const key = ms?.plan_name?.includes("정액") ? "정액권" : (ms?.total_sessions ? "횟수권" : (p.description || "기타"));
+    msTypeTotals[key] = (msTypeTotals[key] || 0) + Math.max(0, (p.amount || 0) - (p.refunded_amount || 0));
+  });
+
+  function timeFmt(t: string | null | undefined) {
+    if (!t) return "";
+    const [h, m] = t.split(":").map(Number);
+    const ampm = h < 12 ? "오전" : "오후";
+    const h12 = h === 0 ? 12 : (h > 12 ? h - 12 : h);
+    return `${ampm} ${String(h12).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/30" />
+      <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-yellow-50 to-amber-50">
+          <div>
+            <div className="text-xs text-gray-500">{date}</div>
+            <div className="text-lg font-bold text-slate-900">💰 매출 상세</div>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-white/70 rounded"><X className="w-4 h-4" /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-3">
+          {dayPayments.length === 0 ? (
+            <div className="py-8 text-center text-gray-400 text-sm">해당 일 결제 내역이 없습니다</div>
+          ) : (
+            <div className="space-y-2">
+              {refunded.map((p: any) => {
+                const mem = members.find((m: any) => m.id === p.member_id);
+                const staffP = p.staff_id ? staff.find((s: any) => s.id === p.staff_id) : null;
+                const refundAmt = Number(p.refunded_amount || p.amount || 0);
+                return (
+                  <div key={p.id + "-refund"} className="p-2 border-b border-gray-100 flex items-start justify-between">
+                    <div>
+                      <div className="text-xs text-red-600 font-semibold">예약금환불</div>
+                      <div className="text-[11px] text-gray-500">{timeFmt(p.paid_time)}</div>
+                      {mem && <div className="text-[11px] text-gray-700">{mem.name}</div>}
+                    </div>
+                    <div className="text-red-600 font-semibold text-sm">-{refundAmt.toLocaleString()}</div>
+                  </div>
+                );
+              })}
+              {active.map((p: any) => {
+                const mem = members.find((m: any) => m.id === p.member_id);
+                const staffP = p.staff_id ? staff.find((s: any) => s.id === p.staff_id) : null;
+                const ms = memberships.find((m: any) => m.id === p.membership_id);
+                const label = ms?.plan_name || p.description || "결제";
+                const net = Math.max(0, (p.amount || 0) - (p.refunded_amount || 0));
+                return (
+                  <div key={p.id} className="p-2 border-b border-gray-100 flex items-start justify-between hover:bg-gray-50">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-slate-800 truncate">{label}</div>
+                      <div className="text-[11px] text-gray-500 mt-0.5">
+                        {timeFmt(p.paid_time)}{mem ? ` · ${mem.name}` : ""}
+                      </div>
+                      {staffP && <div className="text-[11px] text-gray-500">{staffP.name}</div>}
+                    </div>
+                    <div className={`text-sm font-semibold ${net === 0 ? "text-gray-400" : "text-slate-900"}`}>
+                      {net.toLocaleString()}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* 하단 요약 */}
+        <div className="border-t border-gray-200 bg-gray-50/60 px-4 py-3 space-y-1 text-sm">
+          <div className="flex items-center justify-between font-bold text-slate-900">
+            <span>수입합계</span>
+            <span>{totalIncome.toLocaleString()}</span>
+          </div>
+          {cardTotal > 0 && (
+            <div className="flex items-center justify-between text-xs text-gray-600">
+              <span>카드</span>
+              <span>{cardTotal.toLocaleString()}</span>
+            </div>
+          )}
+          {cashTotal > 0 && (
+            <div className="flex items-center justify-between text-xs text-gray-600">
+              <span>현금</span>
+              <span>{cashTotal.toLocaleString()}</span>
+            </div>
+          )}
+          {transferTotal > 0 && (
+            <div className="flex items-center justify-between text-xs text-gray-600">
+              <span>계좌</span>
+              <span>{transferTotal.toLocaleString()}</span>
+            </div>
+          )}
+          {Object.keys(msTypeTotals).length > 0 && (
+            <div className="pt-2 mt-2 border-t border-dashed border-gray-300 space-y-0.5">
+              {Object.entries(msTypeTotals).map(([k, v]) => (
+                <div key={k} className="flex items-center justify-between text-[11px] text-gray-500">
+                  <span>{k}</span>
+                  <span>{v.toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {totalRefund > 0 && (
+            <div className="flex items-center justify-between text-[11px] text-red-500 pt-1">
+              <span>환불 합계</span>
+              <span>-{totalRefund.toLocaleString()}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 

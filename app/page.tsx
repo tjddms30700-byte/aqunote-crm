@@ -81,6 +81,7 @@ const GROUPS = [
       { href: "/finance",                  icon: DollarSign,     title: "💼 센터 재무 · 자동정산",   desc: "수입·지출·정기결제" },
       { href: "/settings/payroll-config",  icon: Briefcase,      title: "👨‍💼 직원 급여 · 수당",      desc: "회당 단가 · 인센티브 · 지급 이력" },
       { href: "/documents",                icon: FileText,       title: "📄 문서 관리",              desc: "센터 관련 서류 (사업자등록증 등)" },
+      { href: "/contracts",                icon: FileText,       title: "📝 계약서 관리",              desc: "근로계약·회원계약·개인정보 동의서 자체 작성" },
       { href: "/settings?tab=policy",      icon: Settings,       title: "⚙️ 지점 정책",              desc: "회원권 · 시간표 · 자동백업" },
       { href: "/settings/accounts",        icon: KeyRound,       title: "🔑 로그인 승인 · 계정",      desc: "가입 승인 · 비밀번호 관리" },
     ],
