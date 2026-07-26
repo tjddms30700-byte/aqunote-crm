@@ -252,8 +252,9 @@ export default function ContractsPage() {
   }), [contracts]);
 
   function openNew(subCat: "staff" | "member") {
+    const contractType = subCat === "staff" ? "employment" : "member_service";
     setEditing({
-      contract_type: subCat === "staff" ? "employment" : "member_service",
+      contract_type: contractType,
       subject_kind: subCat,
       subject_id: "",
       subject_name: "",
@@ -261,7 +262,35 @@ export default function ContractsPage() {
       contract_date: todayStr(),
       start_date: todayStr(),
       end_date: "",
-      body: TEMPLATES[subCat === "staff" ? "employment" : "member_service"] || "",
+      body: TEMPLATES[contractType] || "",
+      // ✅ v3.20.15: 상담신청서처럼 필드별 개별 입력 (form_data JSON 저장)
+      form_data: subCat === "staff" ? {
+        // 근로계약서 기본 필드 (위례아쿠수중운동센터 실제 양식)
+        workplace: "경기도 하남시 위례대로 190, 위례효성 해링턴타워 203호 아쿠수중운동센터",
+        duty: "아동발달에 대한 상담 및 지원사업 (발달바우처, 교육청 바우처 등)에 따른 관련 업무 수행, 행정 업무와 운영업무 보조, 아동발달에 대한 상담 및 치료 수중감각통합 등에 관련한 업무 수행",
+        weekday_hours: "13:00 ~ 22:00 (휴게 19:30~20:30, 1시간)",
+        saturday_hours: "10:00 ~ 14:30 (휴게 12:00~12:30, 30분)",
+        base_salary: 2100000,
+        meal_allowance: 200000,
+        transport_allowance: 0,
+        bonus_yn: "있음 (금액 상이함)",
+        pay_day: 15,
+        pay_method: "근로자 명의 예금통장 입금",
+        insurance_employment: true,
+        insurance_industrial: true,
+        insurance_pension: true,
+        insurance_health: true,
+        employer_name: "위례아쿠수중운동센터",
+        employer_ceo: "하유정",
+        worker_phone: "",
+      } : {
+        // 회원 이용계약서 기본 필드
+        guardian: "",
+        phone: "",
+        plan_name: "",
+        sessions: 0,
+        amount: 0,
+      },
       signature: "",
       counter_signature: "",
       status: "draft",
@@ -291,6 +320,8 @@ export default function ContractsPage() {
       counter_signature: editing.counter_signature || null,
       status: editing.status,
       note: editing.note || null,
+      // ✅ v3.20.15: 필드 값 JSON 저장 (상담신청서과 동일 방식)
+      form_data: editing.form_data || null,
     };
 
     // 자동 컬럼 폴백
@@ -551,8 +582,133 @@ export default function ContractsPage() {
                 <hr className="my-2 border-black" />
               </div>
 
+              {/* ✅ v3.20.15: 상담신청서처럼 필드별 입력폼 (근로계약서) */}
+              {editing.contract_type === "employment" && editing.form_data && (
+                <div className="no-print border-2 border-blue-100 rounded-lg p-3 bg-blue-50/30 space-y-2">
+                  <div className="text-xs font-bold text-blue-800 mb-2">📝 근로계약서 필드 입력</div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <label className="text-xs">
+                      <span className="text-gray-600 font-semibold">근무장소</span>
+                      <input type="text" value={editing.form_data.workplace || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, workplace: e.target.value } })}
+                        className="w-full mt-1 px-2 py-2 border border-gray-200 rounded-lg text-sm" />
+                    </label>
+                    <label className="text-xs">
+                      <span className="text-gray-600 font-semibold">연락처 (근로자)</span>
+                      <input type="tel" value={editing.form_data.worker_phone || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, worker_phone: e.target.value } })}
+                        placeholder="010-0000-0000"
+                        className="w-full mt-1 px-2 py-2 border border-gray-200 rounded-lg text-sm" />
+                    </label>
+                  </div>
+                  <label className="text-xs block">
+                    <span className="text-gray-600 font-semibold">업무의 내용</span>
+                    <textarea value={editing.form_data.duty || ""} rows={2}
+                      onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, duty: e.target.value } })}
+                      className="w-full mt-1 px-2 py-2 border border-gray-200 rounded-lg text-sm" />
+                  </label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <label className="text-xs">
+                      <span className="text-gray-600 font-semibold">평일 근무시간</span>
+                      <input type="text" value={editing.form_data.weekday_hours || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, weekday_hours: e.target.value } })}
+                        className="w-full mt-1 px-2 py-2 border border-gray-200 rounded-lg text-sm" />
+                    </label>
+                    <label className="text-xs">
+                      <span className="text-gray-600 font-semibold">토요일 근무시간</span>
+                      <input type="text" value={editing.form_data.saturday_hours || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, saturday_hours: e.target.value } })}
+                        className="w-full mt-1 px-2 py-2 border border-gray-200 rounded-lg text-sm" />
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <label className="text-xs">
+                      <span className="text-gray-600 font-semibold">월급 (원)</span>
+                      <input type="number" value={editing.form_data.base_salary || 0} step={100000}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, base_salary: Number(e.target.value) } })}
+                        className="w-full mt-1 px-2 py-2 border border-gray-200 rounded-lg text-sm text-right" />
+                    </label>
+                    <label className="text-xs">
+                      <span className="text-gray-600 font-semibold">식대 (원)</span>
+                      <input type="number" value={editing.form_data.meal_allowance || 0} step={10000}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, meal_allowance: Number(e.target.value) } })}
+                        className="w-full mt-1 px-2 py-2 border border-gray-200 rounded-lg text-sm text-right" />
+                    </label>
+                    <label className="text-xs">
+                      <span className="text-gray-600 font-semibold">교통비 (원)</span>
+                      <input type="number" value={editing.form_data.transport_allowance || 0} step={10000}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, transport_allowance: Number(e.target.value) } })}
+                        className="w-full mt-1 px-2 py-2 border border-gray-200 rounded-lg text-sm text-right" />
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="text-xs">
+                      <span className="text-gray-600 font-semibold">지급일 (매월)</span>
+                      <input type="number" value={editing.form_data.pay_day || 15} min={1} max={31}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, pay_day: Number(e.target.value) } })}
+                        className="w-full mt-1 px-2 py-2 border border-gray-200 rounded-lg text-sm" />
+                    </label>
+                    <label className="text-xs">
+                      <span className="text-gray-600 font-semibold">지급 방법</span>
+                      <input type="text" value={editing.form_data.pay_method || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, pay_method: e.target.value } })}
+                        className="w-full mt-1 px-2 py-2 border border-gray-200 rounded-lg text-sm" />
+                    </label>
+                  </div>
+                  <div className="flex flex-wrap gap-3 pt-1 text-xs">
+                    <label className="flex items-center gap-1">
+                      <input type="checkbox" checked={!!editing.form_data.insurance_employment}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, insurance_employment: e.target.checked } })} />
+                      고용보험
+                    </label>
+                    <label className="flex items-center gap-1">
+                      <input type="checkbox" checked={!!editing.form_data.insurance_industrial}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, insurance_industrial: e.target.checked } })} />
+                      산재보험
+                    </label>
+                    <label className="flex items-center gap-1">
+                      <input type="checkbox" checked={!!editing.form_data.insurance_pension}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, insurance_pension: e.target.checked } })} />
+                      국민연금
+                    </label>
+                    <label className="flex items-center gap-1">
+                      <input type="checkbox" checked={!!editing.form_data.insurance_health}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, insurance_health: e.target.checked } })} />
+                      건강보험
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="text-xs">
+                      <span className="text-gray-600 font-semibold">사업체명</span>
+                      <input type="text" value={editing.form_data.employer_name || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, employer_name: e.target.value } })}
+                        className="w-full mt-1 px-2 py-2 border border-gray-200 rounded-lg text-sm" />
+                    </label>
+                    <label className="text-xs">
+                      <span className="text-gray-600 font-semibold">대표자</span>
+                      <input type="text" value={editing.form_data.employer_ceo || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, employer_ceo: e.target.value } })}
+                        className="w-full mt-1 px-2 py-2 border border-gray-200 rounded-lg text-sm" />
+                    </label>
+                  </div>
+                  <button type="button" onClick={() => {
+                    const fd = editing.form_data;
+                    const filled = (TEMPLATES.employment || "")
+                      .replace(/\{\{name\}\}/g, editing.subject_name || "")
+                      .replace(/\{\{start_date\}\}/g, editing.start_date || editing.contract_date || "")
+                      .replace(/\{\{base_salary\}\}/g, Number(fd.base_salary || 0).toLocaleString())
+                      .replace(/\{\{phone\}\}/g, fd.worker_phone || "")
+                      .replace(/\{\{contract_date\}\}/g, editing.contract_date || "");
+                    setEditing({ ...editing, body: filled });
+                    alert("✅ 필드 값이 계약서 본문에 반영되었습니다. 아래 본문을 확인 후 필요시 추가 편집하세요.");
+                  }} className="w-full py-2 bg-blue-500 text-white rounded-lg text-xs hover:bg-blue-600 font-semibold">
+                    🔄 필드 값 계약서 본문에 적용
+                  </button>
+                </div>
+              )}
+
               <label className="text-xs block">
-                <span className="text-gray-600 font-semibold no-print">📄 계약 내용</span>
+                <span className="text-gray-600 font-semibold no-print">📄 계약 본문 (발송 전 직접 수정 가능)</span>
                 <textarea value={editing.body}
                   onChange={e => setEditing({ ...editing, body: e.target.value })}
                   rows={18}

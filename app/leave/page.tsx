@@ -6,12 +6,29 @@ import { supabase } from "@/lib/supabase";
 import HomeButton from "@/components/HomeButton";
 import { FileCheck, Plus, X, Check, Ban, Clock, Edit2, Trash2, RotateCcw } from "lucide-react";
 
+// ✅ v3.20.15: 결재 유형을 휴가 + 물품구매 + 기타로 확장
+const CATEGORIES = [
+  { v: "leave",    label: "휴가 신청",    icon: "🏖️" },
+  { v: "purchase", label: "물품 구매",    icon: "🛒" },
+  { v: "expense",  label: "지출 결재",    icon: "💸" },
+  { v: "other",    label: "기타 결재",    icon: "📄" },
+];
 const TYPES = [
-  { v: "annual",       label: "연차",     color: "bg-blue-100 text-blue-700" },
-  { v: "sick",         label: "병가",     color: "bg-red-100 text-red-700" },
-  { v: "personal",     label: "개인휴가",  color: "bg-purple-100 text-purple-700" },
-  { v: "compensatory", label: "보상휴가",  color: "bg-emerald-100 text-emerald-700" },
-  { v: "other",        label: "기타",     color: "bg-gray-100 text-gray-700" },
+  // 휴가 관련
+  { v: "annual",       label: "연차",       cat: "leave",    color: "bg-blue-100 text-blue-700" },
+  { v: "sick",         label: "병가",       cat: "leave",    color: "bg-red-100 text-red-700" },
+  { v: "personal",     label: "개인휴가",    cat: "leave",    color: "bg-purple-100 text-purple-700" },
+  { v: "compensatory", label: "보상휴가",    cat: "leave",    color: "bg-emerald-100 text-emerald-700" },
+  // 물품구매
+  { v: "office",       label: "사무용품",    cat: "purchase", color: "bg-cyan-100 text-cyan-700" },
+  { v: "equipment",    label: "장비/비품",   cat: "purchase", color: "bg-indigo-100 text-indigo-700" },
+  { v: "supplies",     label: "수업용품",    cat: "purchase", color: "bg-teal-100 text-teal-700" },
+  { v: "marketing",    label: "마케팅/홍보", cat: "purchase", color: "bg-pink-100 text-pink-700" },
+  // 지출 결재
+  { v: "reimburse",    label: "경비 정산",    cat: "expense",  color: "bg-amber-100 text-amber-700" },
+  { v: "business",     label: "출장/외출",    cat: "expense",  color: "bg-orange-100 text-orange-700" },
+  // 기타
+  { v: "other",        label: "기타",       cat: "other",    color: "bg-gray-100 text-gray-700" },
 ];
 const STATUS = {
   pending:  { label: "대기중", color: "bg-yellow-100 text-yellow-700 border-yellow-300" },
@@ -28,10 +45,13 @@ export default function LeavePage() {
   const [isDirector, setIsDirector] = useState(false);
   const [editReq, setEditReq] = useState<any>(null);
   const [form, setForm] = useState<any>({
-    staff_id: "", leave_type: "annual",
+    staff_id: "",
+    category: "leave", leave_type: "annual",
     start_date: new Date().toISOString().slice(0,10),
     end_date: new Date().toISOString().slice(0,10),
     reason: "",
+    // ✅ v3.20.15: 물품구매/지출 결재 필드
+    purchase_amount: 0, purchase_item: "", vendor: "", receipt_url: "",
   });
 
   useEffect(() => {
@@ -56,38 +76,50 @@ export default function LeavePage() {
   }
 
   async function submitRequest() {
-    if (!form.staff_id) return;
+    if (!form.staff_id) return alert("신청자를 선택해 주세요");
     const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
     const days = Math.round((new Date(form.end_date).getTime() - new Date(form.start_date).getTime()) / 86400000) + 1;
-    if (editReq?.id) {
-      const { error } = await supabase.from("leave_requests").update({
-        staff_id: form.staff_id,
-        leave_type: form.leave_type,
-        start_date: form.start_date,
-        end_date: form.end_date,
-        days,
-        reason: form.reason || null,
-      }).eq("id", editReq.id).select();
-      if (error) return alert("수정 실패: " + error.message);
-    } else {
-      const { error } = await supabase.from("leave_requests").insert({
-        org_id: orgId,
-        staff_id: form.staff_id,
-        leave_type: form.leave_type,
-        start_date: form.start_date,
-        end_date: form.end_date,
-        days,
-        reason: form.reason || null,
-        status: "pending",
-      }).select();
-      if (error) return alert("신청 실패: " + error.message);
+
+    // ✅ v3.20.15: category·purchase_* 필드 포함, 없는 컴럼은 자동 폴백
+    const basePayload: any = {
+      staff_id: form.staff_id,
+      category: form.category,
+      leave_type: form.leave_type,
+      start_date: form.start_date,
+      end_date: form.end_date,
+      days,
+      reason: form.reason || null,
+      purchase_amount: Number(form.purchase_amount) || 0,
+      purchase_item: form.purchase_item || null,
+      vendor: form.vendor || null,
+      receipt_url: form.receipt_url || null,
+    };
+
+    async function upsertWithFallback(op: "insert" | "update") {
+      const payload: any = op === "insert" ? { ...basePayload, org_id: orgId, status: "pending" } : { ...basePayload };
+      for (let i = 0; i < 8; i++) {
+        const q = supabase.from("leave_requests");
+        const { error } = op === "update"
+          ? await q.update(payload).eq("id", editReq.id).select()
+          : await q.insert(payload).select();
+        if (!error) return null;
+        const m = (error.message || "").match(/column "([^"]+)"/i);
+        if (m?.[1] && m[1] in payload) { delete payload[m[1]]; continue; }
+        return error;
+      }
+      return new Error("컴럼 폴백 수 초과");
     }
+
+    const err = editReq?.id ? await upsertWithFallback("update") : await upsertWithFallback("insert");
+    if (err) return alert(`❌ ${editReq?.id ? "수정" : "신청"} 실패: ${err.message}\n\n💡 SQL 실행 필요: AQUNOTE_V32015_STAFF_TRIGGER_FIX.sql`);
+
     setShowModal(false);
     setEditReq(null);
-    setForm({ staff_id: "", leave_type: "annual",
+    setForm({ staff_id: "", category: "leave", leave_type: "annual",
       start_date: new Date().toISOString().slice(0,10),
       end_date: new Date().toISOString().slice(0,10),
-      reason: "" });
+      reason: "",
+      purchase_amount: 0, purchase_item: "", vendor: "", receipt_url: "" });
     await loadAll();
   }
 
@@ -95,8 +127,14 @@ export default function LeavePage() {
     if (!isDirector) return alert("원장만 수정할 수 있습니다");
     setEditReq(r);
     setForm({
-      staff_id: r.staff_id, leave_type: r.leave_type,
+      staff_id: r.staff_id,
+      category: r.category || "leave",
+      leave_type: r.leave_type,
       start_date: r.start_date, end_date: r.end_date, reason: r.reason || "",
+      purchase_amount: r.purchase_amount || 0,
+      purchase_item: r.purchase_item || "",
+      vendor: r.vendor || "",
+      receipt_url: r.receipt_url || "",
     });
     setShowModal(true);
   }
@@ -237,12 +275,27 @@ export default function LeavePage() {
 
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3" onClick={() => { setShowModal(false); setEditReq(null); }}>
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-5" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-5 max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-aqu-900">📝 {editReq ? "휴가 신청 수정" : "휴가 신청"}</h2>
+              <h2 className="text-lg font-bold text-aqu-900">📝 {editReq ? "결재 신청 수정" : "결재 신청"}</h2>
               <button onClick={() => { setShowModal(false); setEditReq(null); }}><X className="w-5 h-5 text-gray-400" /></button>
             </div>
             <div className="space-y-3">
+              {/* ✅ v3.20.15: category 탭 */}
+              <div>
+                <label className="text-xs font-semibold text-gray-600 mb-1 block">결재 유형</label>
+                <div className="grid grid-cols-4 gap-1">
+                  {CATEGORIES.map(c => (
+                    <button key={c.v} onClick={() => {
+                      const firstType = TYPES.find(t => t.cat === c.v);
+                      setForm({ ...form, category: c.v, leave_type: firstType?.v || "other" });
+                    }}
+                      className={`py-1.5 rounded text-xs border ${form.category === c.v ? "bg-aqu-600 text-white font-bold border-transparent" : "bg-white border-gray-200 text-gray-600"}`}>
+                      {c.icon} {c.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div>
                 <label className="text-xs font-semibold text-gray-600 mb-1 block">신청자 *</label>
                 <select value={form.staff_id} onChange={e => setForm({ ...form, staff_id: e.target.value })}
@@ -252,9 +305,9 @@ export default function LeavePage() {
                 </select>
               </div>
               <div>
-                <label className="text-xs font-semibold text-gray-600 mb-1 block">종류</label>
-                <div className="grid grid-cols-5 gap-1">
-                  {TYPES.map(t => (
+                <label className="text-xs font-semibold text-gray-600 mb-1 block">세부 종류</label>
+                <div className="grid grid-cols-3 gap-1">
+                  {TYPES.filter(t => t.cat === form.category).map(t => (
                     <button key={t.v} onClick={() => setForm({ ...form, leave_type: t.v })}
                       className={`py-1.5 rounded text-xs border ${form.leave_type === t.v ? t.color + " font-bold border-transparent" : "bg-white border-gray-200"}`}>
                       {t.label}
@@ -262,22 +315,58 @@ export default function LeavePage() {
                   ))}
                 </div>
               </div>
+
+              {/* ✅ v3.20.15: 물품구매 / 지출 결재 전용 필드 */}
+              {(form.category === "purchase" || form.category === "expense") && (
+                <div className="border-2 border-orange-100 bg-orange-50/30 rounded-lg p-3 space-y-2">
+                  <div className="text-xs font-bold text-orange-800">🛒 {form.category === "purchase" ? "구매 정보" : "지출 정보"}</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[11px] font-semibold text-gray-600 mb-1 block">품목내역 *</label>
+                      <input type="text" value={form.purchase_item} onChange={e => setForm({ ...form, purchase_item: e.target.value })}
+                        placeholder="예: 오리가리 보드마커 20개"
+                        className="w-full px-2 py-1.5 border border-gray-200 rounded text-sm" />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-gray-600 mb-1 block">금액 (원) *</label>
+                      <input type="number" value={form.purchase_amount} onChange={e => setForm({ ...form, purchase_amount: Number(e.target.value) })}
+                        step={1000} className="w-full px-2 py-1.5 border border-gray-200 rounded text-sm text-right" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[11px] font-semibold text-gray-600 mb-1 block">구매처 / 거래처</label>
+                      <input type="text" value={form.vendor} onChange={e => setForm({ ...form, vendor: e.target.value })}
+                        placeholder="예: 쿠팡, 이마트"
+                        className="w-full px-2 py-1.5 border border-gray-200 rounded text-sm" />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-gray-600 mb-1 block">영수증 URL / 사진</label>
+                      <input type="url" value={form.receipt_url} onChange={e => setForm({ ...form, receipt_url: e.target.value })}
+                        placeholder="https://"
+                        className="w-full px-2 py-1.5 border border-gray-200 rounded text-sm" />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-xs font-semibold text-gray-600 mb-1 block">시작일</label>
+                  <label className="text-xs font-semibold text-gray-600 mb-1 block">{form.category === "leave" ? "시작일" : "구매일 / 지출일"}</label>
                   <input type="date" value={form.start_date} onChange={e => setForm({ ...form, start_date: e.target.value })}
                     className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm" />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-gray-600 mb-1 block">종료일</label>
+                  <label className="text-xs font-semibold text-gray-600 mb-1 block">{form.category === "leave" ? "종료일" : "정산 희망일"}</label>
                   <input type="date" value={form.end_date} onChange={e => setForm({ ...form, end_date: e.target.value })}
                     className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm" />
                 </div>
               </div>
               <div>
-                <label className="text-xs font-semibold text-gray-600 mb-1 block">사유</label>
+                <label className="text-xs font-semibold text-gray-600 mb-1 block">사유 / 메모</label>
                 <textarea value={form.reason} onChange={e => setForm({ ...form, reason: e.target.value })}
-                  rows={2} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none" />
+                  rows={2} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none"
+                  placeholder={form.category === "purchase" ? "예: 수업용 보드마커 재고 소진" : "사유를 입력해 주세요"} />
               </div>
             </div>
             <div className="flex gap-2 mt-4">

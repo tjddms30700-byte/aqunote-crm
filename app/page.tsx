@@ -46,7 +46,8 @@ const GROUPS = [
     directorOnly: false,
     items: [
       { href: "/attendance-staff", icon: Clock,         title: "직원 출퇴근",  desc: "출퇴근·근태 통계" },
-      { href: "/leave",            icon: FileCheck,     title: "휴가 · 결재",   desc: "전자결재·휴가 신청" },
+      { href: "/attendance-stats", icon: TrendingUp,    title: "📊 실근무 통계",   desc: "월간 근무일·시간·생산성" },
+      { href: "/leave",            icon: FileCheck,     title: "휴가 · 결재",   desc: "휴가·물품구매·지출 결재" },
       { href: "/board",            icon: MessageSquare, title: "사내 게시판",  desc: "공지·Q&A·건의" },
     ],
   },
