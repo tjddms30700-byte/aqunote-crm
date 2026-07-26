@@ -16,6 +16,9 @@ function FinancePage() {
   const [expenses, setExpenses] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [payroll, setPayroll] = useState<any[]>([]);
+  // ✅ v3.20.6: 인건비 자동 계산을 위한 schedule_slots + staff
+  const [scheduleSlots, setScheduleSlots] = useState<any[]>([]);
+  const [staffList, setStaffList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
@@ -30,14 +33,19 @@ function FinancePage() {
 
   async function loadAll() {
     setLoading(true);
-    const [e, p, pr] = await Promise.all([
+    // ✅ v3.20.6: schedule_slots + staff 추가 조회 (인건비 자동 산출용)
+    const [e, p, pr, ss, st] = await Promise.all([
       supabase.from("expenses").select("*").order("spent_at", { ascending: false }),
       supabase.from("payments").select("*"),
       supabase.from("payroll").select("*, staff(name)"),
+      supabase.from("schedule_slots").select("id, staff_id, event_type, event_date, status"),
+      supabase.from("staff").select("id, name, salary_type, salary_amount, session_rate, is_resigned"),
     ]);
     setExpenses(e.data || []);
     setPayments(p.data || []);
     setPayroll(pr.data || []);
+    setScheduleSlots(ss.data || []);
+    setStaffList(st.data || []);
     setLoading(false);
   }
 
@@ -70,7 +78,44 @@ function FinancePage() {
 
   const revenue = monthPayments.reduce((s, p) => s + Math.max(0, (p.amount || 0) - (p.refunded_amount || 0)), 0);
   const totalExpense = monthExpenses.reduce((s, e) => s + e.amount, 0);
-  const totalPayroll = monthPayroll.reduce((s, p) => s + p.net_amount, 0);
+  const paidPayroll = monthPayroll.reduce((s, p) => s + (p.net_amount || 0), 0);
+
+  // ✅ v3.20.6: 인건비 자동 계산 (완료된 수업·체험·보강 × 강사 회당 단가)
+  const staffMap: Record<string, any> = {};
+  staffList.forEach(s => { staffMap[s.id] = s; });
+
+  const autoPayrollByStaff: Record<string, { name: string, done: number, unit: number, amount: number, monthlyAmount: number }> = {};
+  const monthSlots = scheduleSlots.filter(s =>
+    s.staff_id && s.event_date?.startsWith(selectedMonth) &&
+    ["lesson", "trial", "makeup"].includes(s.event_type) &&
+    ["done", "completed", "present"].includes(s.status)
+  );
+  monthSlots.forEach(s => {
+    const st = staffMap[s.staff_id];
+    if (!st || st.is_resigned) return;
+    if (!autoPayrollByStaff[s.staff_id]) {
+      const unit = st.salary_type === "session" ? (st.salary_amount || 0) : (st.session_rate || 30000);
+      const monthlyAmount = st.salary_type === "monthly" ? (st.salary_amount || 0) : 0;
+      autoPayrollByStaff[s.staff_id] = { name: st.name, done: 0, unit, amount: 0, monthlyAmount };
+    }
+    autoPayrollByStaff[s.staff_id].done += 1;
+  });
+  Object.values(autoPayrollByStaff).forEach(row => { row.amount = row.done * row.unit; });
+
+  // 월급제 강사(이번 달 수업 유무와 무관하게 고정 지급) 추가 반영
+  staffList.forEach(st => {
+    if (st.is_resigned || st.salary_type !== "monthly") return;
+    if (!autoPayrollByStaff[st.id]) {
+      autoPayrollByStaff[st.id] = { name: st.name, done: 0, unit: 0, amount: 0, monthlyAmount: st.salary_amount || 0 };
+    }
+  });
+
+  const totalAutoSession = Object.values(autoPayrollByStaff).reduce((sum, r) => sum + r.amount, 0);
+  const totalAutoMonthly = Object.values(autoPayrollByStaff).reduce((sum, r) => sum + r.monthlyAmount, 0);
+  const totalAutoPayroll = totalAutoSession + totalAutoMonthly;
+
+  // 이미 지급된 인건비가 있으면 그것을, 없으면 자동계산 금액 사용
+  const totalPayroll = paidPayroll > 0 ? paidPayroll : totalAutoPayroll;
   const profit = revenue - totalExpense - totalPayroll;
 
   // 카테고리별 지출
@@ -117,7 +162,7 @@ function FinancePage() {
       </div>
 
       {/* Summary KPI */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
         <div className="p-4 bg-white rounded-2xl shadow-md border border-green-200">
           <TrendingUp className="w-6 h-6 text-green-500 mb-1" />
           <div className="text-xs text-gray-500">수입</div>
@@ -130,8 +175,18 @@ function FinancePage() {
         </div>
         <div className="p-4 bg-white rounded-2xl shadow-md border border-orange-200">
           <TrendingDown className="w-6 h-6 text-orange-500 mb-1" />
-          <div className="text-xs text-gray-500">인건비</div>
+          <div className="text-xs text-gray-500 flex items-center gap-1">
+            인건비
+            {paidPayroll === 0 && totalAutoPayroll > 0 && (
+              <span className="text-[9px] px-1 py-0.5 bg-amber-100 text-amber-700 rounded font-semibold">자동산출</span>
+            )}
+          </div>
           <div className="text-lg md:text-xl font-bold text-orange-600">₩{totalPayroll.toLocaleString()}</div>
+          {paidPayroll === 0 && totalAutoPayroll > 0 && (
+            <div className="text-[10px] text-amber-600 mt-1">
+              수업 {monthSlots.length}회 × 단가 + 월급 {Object.values(autoPayrollByStaff).filter(r => r.monthlyAmount > 0).length}명
+            </div>
+          )}
         </div>
         <div className={`p-4 bg-white rounded-2xl shadow-md border ${profit >= 0 ? "border-aqu-200" : "border-red-300"}`}>
           <DollarSign className={`w-6 h-6 ${profit >= 0 ? "text-aqu-500" : "text-red-500"} mb-1`} />
@@ -160,6 +215,58 @@ function FinancePage() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* ✅ v3.20.6: 인건비 자동 산출 상세 */}
+      {Object.keys(autoPayrollByStaff).length > 0 && (
+        <div className="bg-white rounded-2xl shadow-md border border-orange-100 overflow-hidden mb-4">
+          <div className="p-4 border-b border-orange-100 flex items-center justify-between bg-gradient-to-r from-orange-50 to-amber-50">
+            <h3 className="font-bold text-orange-900 flex items-center gap-1.5">
+              👨‍⚕️ 인건비 자동 산출 ({selectedMonth})
+              <span className="text-[10px] px-2 py-0.5 bg-white border border-orange-300 text-orange-700 rounded-full">
+                수업 {monthSlots.length}회 · 강사 {Object.keys(autoPayrollByStaff).length}명
+              </span>
+            </h3>
+            <Link href="/staff" className="text-xs text-orange-600 hover:underline">직원 관리 →</Link>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-orange-50/60 text-orange-900">
+              <tr>
+                <th className="text-left px-4 py-2 text-xs">강사</th>
+                <th className="text-right px-4 py-2 text-xs">수업 완료</th>
+                <th className="text-right px-4 py-2 text-xs">회당 단가</th>
+                <th className="text-right px-4 py-2 text-xs">세션 수당</th>
+                <th className="text-right px-4 py-2 text-xs">월급</th>
+                <th className="text-right px-4 py-2 text-xs">예상 합계</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.values(autoPayrollByStaff).sort((a: any, b: any) => (b.amount + b.monthlyAmount) - (a.amount + a.monthlyAmount)).map((row: any, i: number) => (
+                <tr key={i} className="border-t border-orange-100 hover:bg-orange-50/30">
+                  <td className="px-4 py-2 font-medium text-slate-800">{row.name}</td>
+                  <td className="px-4 py-2 text-right text-xs text-gray-600">{row.done}회</td>
+                  <td className="px-4 py-2 text-right text-xs text-gray-600">₩{row.unit.toLocaleString()}</td>
+                  <td className="px-4 py-2 text-right text-xs text-orange-700">₩{row.amount.toLocaleString()}</td>
+                  <td className="px-4 py-2 text-right text-xs text-blue-700">{row.monthlyAmount > 0 ? `₩${row.monthlyAmount.toLocaleString()}` : "-"}</td>
+                  <td className="px-4 py-2 text-right font-bold text-orange-800">₩{(row.amount + row.monthlyAmount).toLocaleString()}</td>
+                </tr>
+              ))}
+              <tr className="border-t-2 border-orange-300 bg-orange-50 font-bold">
+                <td className="px-4 py-2 text-orange-900">합계</td>
+                <td className="px-4 py-2 text-right text-xs text-orange-900">{monthSlots.length}회</td>
+                <td className="px-4 py-2 text-right"></td>
+                <td className="px-4 py-2 text-right text-orange-800">₩{totalAutoSession.toLocaleString()}</td>
+                <td className="px-4 py-2 text-right text-blue-800">₩{totalAutoMonthly.toLocaleString()}</td>
+                <td className="px-4 py-2 text-right text-orange-900">₩{totalAutoPayroll.toLocaleString()}</td>
+              </tr>
+            </tbody>
+          </table>
+          {paidPayroll > 0 && (
+            <div className="p-3 bg-blue-50 border-t border-blue-200 text-[11px] text-blue-800">
+              💡 <b>payroll 테이블에 이번달 지급 기록이 있어</b>, KPI는 실지급액(₩{paidPayroll.toLocaleString()})을 사용합니다. 이 표는 수업 데이터 기반 예상 상세입니다.
+            </div>
+          )}
         </div>
       )}
 

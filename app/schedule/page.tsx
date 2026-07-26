@@ -130,12 +130,13 @@ export default function SchedulePage() {
   // ✅ v3.16.1: 인라인 결제 등록 모달
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [paymentModalDate, setPaymentModalDate] = useState<string>("");
-  // ✅ v3.20.0: 지점 시간표 설정(타임 간격, 수업 길이) - state는 useEffect·useMemo 이전에 선언
+  // ✅ v3.20.6: 지점 시간표 설정 - 지점 로드 전에 09:00으로 대체되는 문제 방지 위해 별도 로드 완료 플래그 추가
   const [scheduleConfig, setScheduleConfig] = useState<any>({
-    open_time: "09:00", close_time: "22:00", slot_interval: 10, slot_duration: 40,
+    open_time: "10:00", close_time: "22:00", slot_interval: 60, slot_duration: 40,
     lunch_break: { enabled: false, start: "12:00", end: "13:00" },
     custom_slots: [] as string[],
   });
+  const [scheduleConfigLoaded, setScheduleConfigLoaded] = useState(false);
 
   useEffect(() => { loadAll(); loadScheduleConfig(); }, []);
 
@@ -151,25 +152,29 @@ export default function SchedulePage() {
     return () => window.removeEventListener("aqu:schedule_config_changed", onConfigChanged);
   }, []);
 
-  // ✅ v3.20.0: 지점별 schedule_config 로드
+  // ✅ v3.20.6: 지점별 schedule_config 로드 (setScheduleConfig 함수 형태 → 최신 state 기준으로 병합)
   async function loadScheduleConfig() {
     const branchId = getActiveBranchId();
-    if (!branchId) return;
+    if (!branchId) { setScheduleConfigLoaded(true); return; }
     const { data } = await supabase.from("branches").select("schedule_config").eq("id", branchId).maybeSingle();
-    if (data?.schedule_config) {
-      setScheduleConfig({ ...scheduleConfig, ...data.schedule_config });
+    let loaded: any = null;
+    if (data?.schedule_config && typeof data.schedule_config === "object") {
+      loaded = data.schedule_config;
     } else if (typeof window !== "undefined") {
-      // localStorage 폴백
       const local = window.localStorage.getItem(`aqu_schedule_config_${branchId}`);
-      if (local) { try { setScheduleConfig({ ...scheduleConfig, ...JSON.parse(local) }); } catch {} }
+      if (local) { try { loaded = JSON.parse(local); } catch {} }
     }
+    if (loaded) {
+      setScheduleConfig((prev: any) => ({ ...prev, ...loaded }));
+    }
+    setScheduleConfigLoaded(true);
   }
 
   // 지점 시간표 설정을 기반으로 생성된 타임 옵션
-  const timeSlotOptions = (() => {
+  const timeSlotOptions = useMemo(() => {
     if (scheduleConfig.custom_slots && scheduleConfig.custom_slots.length > 0) return scheduleConfig.custom_slots;
     const out: string[] = [];
-    const [oh, om] = (scheduleConfig.open_time || "09:00").split(":").map(Number);
+    const [oh, om] = (scheduleConfig.open_time || "10:00").split(":").map(Number);
     const [ch, cm] = (scheduleConfig.close_time || "22:00").split(":").map(Number);
     let cur = oh * 60 + om;
     const end = ch * 60 + cm;
@@ -188,7 +193,7 @@ export default function SchedulePage() {
       cur += interval;
     }
     return out;
-  })();
+  }, [scheduleConfig]);
 
   const [plans, setPlans] = useState<any[]>([]);
 
@@ -1804,49 +1809,67 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
         </div>
 
         <div className="p-5 space-y-4">
-          {/* ═══ 섹션 1: 기본 정보 ═══ */}
-          <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">
-            <div className="text-xs font-bold text-gray-700 mb-2">⏰ 기본 정보</div>
-            {/* ✅ v3.20.5: 날짜만 한 줄 → 시간은 전체 폭으로 필드를 독립적으로 배치해 장림 방지 */}
+          {/* ═══ 섹션 1: 기본 정보 (v3.20.6 재디자인) ═══ */}
+          <div className="bg-gradient-to-br from-aqu-50/40 to-blue-50/40 border border-aqu-100 rounded-xl p-4">
+            <div className="text-xs font-bold text-aqu-800 mb-3 flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5" /> 기본 정보
+            </div>
+            {/* 날짜 */}
             <Field label="날짜 *">
               <input type="date" value={f.event_date}
                 onChange={e => setF({ ...f, event_date: e.target.value })}
-                className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none bg-white" />
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none bg-white" />
             </Field>
-            <div className="mt-2">
-              <Field label="시간 *">
-                {/* ✅ v3.20.5: 프리셋 select를 전체 넓이로, 직접 입력은 아래 줄로 내려 장림 해결 */}
-                {timeSlotOptions && timeSlotOptions.length > 0 ? (
-                  <div className="space-y-1.5">
-                    <select value={timeSlotOptions.includes(f.time_slot?.slice(0, 5)) ? f.time_slot?.slice(0, 5) : "__custom__"}
-                      onChange={e => {
-                        if (e.target.value !== "__custom__") setF({ ...f, time_slot: e.target.value });
-                      }}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none bg-white">
-                      <option value="__custom__">📝 직접 입력 (아래 시간 상자 사용)</option>
-                      {timeSlotOptions.map((t: string) => (
-                        <option key={t} value={t}>⏰ {t}</option>
-                      ))}
-                    </select>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-gray-500 whitespace-nowrap">🔧 직접 입력:</span>
-                      <input type="time" value={f.time_slot?.slice(0, 5) || ""}
-                        onChange={e => setF({ ...f, time_slot: e.target.value })}
-                        title="운영시간 외 수동 입력"
-                        className="flex-1 px-3 py-1.5 border border-orange-200 bg-orange-50 rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:outline-none" />
-                    </div>
-                    {!timeSlotOptions.includes(f.time_slot?.slice(0, 5)) && f.time_slot && (
-                      <div className="text-[10px] text-orange-600 flex items-center gap-1">
-                        ⚠️ 지점 운영시간 외 사용자 지정: <b>{f.time_slot?.slice(0, 5)}</b>
-                      </div>
-                    )}
+
+            {/* 시간 – 카드 형태로 별도 박스 */}
+            <div className="mt-3">
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-[11px] font-semibold text-gray-600">⏰ 시간 *</label>
+                <span className="text-[10px] text-aqu-600 bg-white px-2 py-0.5 rounded-full border border-aqu-200">
+                  {timeSlotOptions?.length || 0}개 타임 등록됨
+                </span>
+              </div>
+              {timeSlotOptions && timeSlotOptions.length > 0 ? (
+                <div className="bg-white border border-gray-200 rounded-xl p-2.5 space-y-2">
+                  {/* 프리셋 버튼 그리드 */}
+                  <div className="grid grid-cols-4 gap-1">
+                    {timeSlotOptions.map((t: string) => {
+                      const isActive = f.time_slot?.slice(0, 5) === t;
+                      return (
+                        <button key={t} type="button"
+                          onClick={() => setF({ ...f, time_slot: t })}
+                          className={`py-1.5 rounded-lg text-xs font-semibold transition ${isActive ? "bg-aqu-600 text-white shadow-sm" : "bg-gray-50 text-gray-700 hover:bg-aqu-100 border border-gray-200"}`}>
+                          {t}
+                        </button>
+                      );
+                    })}
                   </div>
-                ) : (
-                  <input type="time" value={f.time_slot}
-                    onChange={e => setF({ ...f, time_slot: e.target.value })}
-                    className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none bg-white" />
-                )}
-              </Field>
+                  {/* 구분선 */}
+                  <div className="flex items-center gap-2 text-[10px] text-gray-400">
+                    <div className="flex-1 h-px bg-gray-200" />
+                    <span>또는 직접 입력</span>
+                    <div className="flex-1 h-px bg-gray-200" />
+                  </div>
+                  {/* 직접 입력 */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] text-gray-500">🔧</span>
+                    <input type="time" value={f.time_slot?.slice(0, 5) || ""}
+                      onChange={e => setF({ ...f, time_slot: e.target.value })}
+                      title="운영시간 외 수동 입력"
+                      className="flex-1 px-3 py-2 border border-orange-200 bg-orange-50 rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:outline-none" />
+                    <span className="text-[10px] text-orange-600 whitespace-nowrap">운영시간 외 OK</span>
+                  </div>
+                  {!timeSlotOptions.includes(f.time_slot?.slice(0, 5)) && f.time_slot && (
+                    <div className="text-[10px] text-orange-700 bg-orange-50 border border-orange-200 rounded-lg px-2 py-1.5">
+                      ⚠️ 지점 운영시간 외 사용자 지정 시간: <b>{f.time_slot?.slice(0, 5)}</b>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <input type="time" value={f.time_slot}
+                  onChange={e => setF({ ...f, time_slot: e.target.value })}
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none bg-white" />
+              )}
             </div>
             <div className="mt-2">
               <Field label="유형">
