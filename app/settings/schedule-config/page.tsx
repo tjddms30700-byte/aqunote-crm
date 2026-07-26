@@ -93,16 +93,24 @@ export default function ScheduleConfigPage() {
     if (!branchId) return alert("지점을 선택해주세요");
     setSaving(true);
     const { error } = await supabase.from("branches").update({ schedule_config: config }).eq("id", branchId);
+    let savedOk = false;
     if (error) {
       // schedule_config 컬럼이 없으면 안내
       if (error.message.includes("schedule_config")) {
         alert("⚠️ branches 테이블에 schedule_config 컬럼이 없습니다.\nSQL 마이그레이션(AQUNOTE_V319_CONTACT_STAFF.sql)의 최신 버전을 실행해주세요.\n\n임시로 localStorage에 저장합니다.");
         window.localStorage.setItem(`aqu_schedule_config_${branchId}`, JSON.stringify(config));
+        savedOk = true;
       } else {
         alert("저장 실패: " + error.message);
       }
     } else {
-      alert("✅ 시간표 설정이 저장되었습니다");
+      savedOk = true;
+    }
+    // ✅ v3.20.4: 저장 성공 시 다른 탭에서 감지할 수 있도록 이벤트 + localStorage도 매번 미러링
+    if (savedOk) {
+      try { window.localStorage.setItem(`aqu_schedule_config_${branchId}`, JSON.stringify(config)); } catch {}
+      window.dispatchEvent(new CustomEvent("aqu:schedule_config_changed", { detail: { branchId, config } }));
+      alert("✅ 시간표 설정이 저장되었습니다\n\n→ 통합 시간표·새 일정 등록 화면에서 즉시 적용됩니다.");
     }
     setSaving(false);
   }

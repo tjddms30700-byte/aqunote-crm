@@ -139,6 +139,18 @@ export default function SchedulePage() {
 
   useEffect(() => { loadAll(); loadScheduleConfig(); }, []);
 
+  // ✅ v3.20.4: 시간표 설정 저장 시 즉시 재로드 + 지점 전환 이벤트 수신
+  useEffect(() => {
+    const onConfigChanged = (e: any) => {
+      const activeBid = getActiveBranchId();
+      if (!e?.detail?.branchId || e.detail.branchId === activeBid) {
+        loadScheduleConfig();
+      }
+    };
+    window.addEventListener("aqu:schedule_config_changed", onConfigChanged);
+    return () => window.removeEventListener("aqu:schedule_config_changed", onConfigChanged);
+  }, []);
+
   // ✅ v3.20.0: 지점별 schedule_config 로드
   async function loadScheduleConfig() {
     const branchId = getActiveBranchId();
@@ -798,10 +810,21 @@ export default function SchedulePage() {
     }
   }
 
-  async function deleteSlot(id: string, opts?: { series?: boolean, recurring_id?: string }) {
-    if (opts?.series && opts.recurring_id) {
-      if (!confirm("반복 시리즈 전체를 삭제할까요?")) return;
-      await supabase.from("schedule_slots").delete().eq("recurring_id", opts.recurring_id);
+  // ✅ v3.20.4: mode - 'single' | 'series_all' | 'series_after'
+  async function deleteSlot(id: string, opts?: { mode?: "single" | "series_all" | "series_after", series?: boolean, recurring_id?: string, from_date?: string }) {
+    const recurringId = opts?.recurring_id;
+    // 하위 호환: series=true → series_all
+    const mode: "single" | "series_all" | "series_after" =
+      opts?.mode || (opts?.series ? "series_all" : "single");
+
+    if (mode === "series_all" && recurringId) {
+      if (!confirm("반복 시리즈 전체를 삭제할까요?\n\n⚠️ 과거 수업분까지 모두 삭제됩니다.")) return;
+      await supabase.from("schedule_slots").delete().eq("recurring_id", recurringId);
+    } else if (mode === "series_after" && recurringId && opts?.from_date) {
+      if (!confirm(`🗓️ ${opts.from_date} 이후(해당일 포함) 반복 예약만 삭제할까요?\n\n• 이전 수업은 그대로 유지\n• ${opts.from_date}부터의 반복 예약만 제거`)) return;
+      await supabase.from("schedule_slots").delete()
+        .eq("recurring_id", recurringId)
+        .gte("event_date", opts.from_date);
     } else {
       if (!confirm("이 일정을 삭제할까요?")) return;
       await supabase.from("schedule_slots").delete().eq("id", id);
@@ -1029,7 +1052,7 @@ export default function SchedulePage() {
                             onDragStart={(e) => handleDragStart(s, e)}
                             onClick={(e) => { e.stopPropagation(); openQuickAction(s); }}
                             style={staffTint}
-                            className={`text-[9px] md:text-[10px] px-1 py-0.5 rounded border truncate ${staffP?.color ? "" : meta.color} hover:shadow-sm cursor-move flex items-center gap-0.5`}
+                            className={`text-[9px] md:text-[10px] px-1 py-0.5 rounded border truncate ${(isGrayState || isStaffEvent || staffP?.color) ? "" : meta.color} hover:shadow-sm cursor-move flex items-center gap-0.5`}
                             title={`${s.time_slot} ${memberName(s.member_id) || s.lesson_name || s.note || ""}${staffP ? " (" + staffP.name + ") " + (meta.label || "") : ""} (드래그하여 이월)`}>
                             <span className="font-mono opacity-70">{s.time_slot?.slice(0,5)}</span>
                             <span className="truncate">
@@ -1783,18 +1806,31 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
                   className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none bg-white" />
               </Field>
               <Field label="시간 *">
-                {/* ✅ v3.20.0: 지점 설정의 타임 옵션 자동 노출 */}
+                {/* ✅ v3.20.4: 프리셋 + 수동 입력 토글 (운영시간 외 예약도 가능) */}
                 {timeSlotOptions && timeSlotOptions.length > 0 ? (
-                  <select value={f.time_slot?.slice(0, 5) || ""}
-                    onChange={e => setF({ ...f, time_slot: e.target.value })}
-                    className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none bg-white">
+                  <div className="space-y-1">
+                    <div className="flex gap-1">
+                      <select value={timeSlotOptions.includes(f.time_slot?.slice(0, 5)) ? f.time_slot?.slice(0, 5) : "__custom__"}
+                        onChange={e => {
+                          if (e.target.value !== "__custom__") setF({ ...f, time_slot: e.target.value });
+                        }}
+                        className="flex-1 px-2 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none bg-white">
+                        <option value="__custom__">📝 직접 입력...</option>
+                        {timeSlotOptions.map((t: string) => (
+                          <option key={t} value={t}>⏰ {t}</option>
+                        ))}
+                      </select>
+                      <input type="time" value={f.time_slot?.slice(0, 5) || ""}
+                        onChange={e => setF({ ...f, time_slot: e.target.value })}
+                        title="운영시간 외 수동 입력"
+                        className="w-[110px] px-2 py-2 border border-orange-200 bg-orange-50 rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:outline-none" />
+                    </div>
                     {!timeSlotOptions.includes(f.time_slot?.slice(0, 5)) && f.time_slot && (
-                      <option value={f.time_slot.slice(0, 5)}>{f.time_slot.slice(0, 5)} (사용자 지정)</option>
+                      <div className="text-[10px] text-orange-600 flex items-center gap-1">
+                        ⚠️ 지점 운영시간 외 사용자 지정 시간: <b>{f.time_slot?.slice(0, 5)}</b>
+                      </div>
                     )}
-                    {timeSlotOptions.map((t: string) => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
+                  </div>
                 ) : (
                   <input type="time" value={f.time_slot}
                     onChange={e => setF({ ...f, time_slot: e.target.value })}
@@ -2022,17 +2058,25 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
         <div className="flex gap-2 mt-5">
           {onDelete && (
             <div className="flex flex-col gap-1">
-              <button onClick={() => onDelete()}
+              <button onClick={() => onDelete({ mode: "single" })}
                 className="px-3 py-2 border border-red-200 text-red-500 rounded-lg text-xs hover:bg-red-50 flex items-center gap-1"
                 title="이 일정만 삭제">
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="w-4 h-4" /> 이 일정
               </button>
+              {/* ✅ v3.20.4: 반복 예약은 3단계 선택 (단건/이후/전체) */}
               {isRecurring && (
-                <button onClick={() => onDelete({ series: true, recurring_id: f.recurring_id })}
-                  className="px-2 py-1 border border-red-300 text-red-600 rounded-lg text-[10px] hover:bg-red-50"
-                  title="반복 시리즈 전체 삭제">
-                  시리즈 전체
-                </button>
+                <>
+                  <button onClick={() => onDelete({ mode: "series_after", recurring_id: f.recurring_id, from_date: f.event_date })}
+                    className="px-2 py-1 border border-orange-300 bg-orange-50 text-orange-700 rounded-lg text-[10px] hover:bg-orange-100 font-semibold"
+                    title="이 날짜 이후(포함) 반복 삭제">
+                    🗓️ 이후 삭제
+                  </button>
+                  <button onClick={() => onDelete({ mode: "series_all", recurring_id: f.recurring_id })}
+                    className="px-2 py-1 border border-red-300 text-red-600 rounded-lg text-[10px] hover:bg-red-50"
+                    title="반복 시리즈 전체 삭제">
+                    전체 삭제
+                  </button>
+                </>
               )}
             </div>
           )}

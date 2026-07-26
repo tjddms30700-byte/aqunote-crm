@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { X, RotateCcw, Save } from "lucide-react";
+import { X, RotateCcw, Save, Trash2 } from "lucide-react";
 
 /**
  * v3.20.1: 시간표에서 재사용 가능한 사인 출결 모달
@@ -25,6 +25,21 @@ export default function SignatureAttendanceModal({
     member?.member_type === "child" ? "parent" : "self"
   );
   const [saving, setSaving] = useState(false);
+  // ✅ v3.20.4: 기존 서명 존재 여부
+  const [existingRow, setExistingRow] = useState<any | null>(null);
+
+  // 기존 서명 조회
+  useEffect(() => {
+    if (!member?.id || !date) return;
+    (async () => {
+      const { data } = await supabase.from("attendance")
+        .select("*").eq("member_id", member.id)
+        .or(`date.eq.${date},attendance_date.eq.${date},session_date.eq.${date}`)
+        .not("signature", "is", null)
+        .maybeSingle();
+      if (data) setExistingRow(data);
+    })();
+  }, [member?.id, date]);
 
   useEffect(() => {
     const c = canvasRef.current; if (!c) return;
@@ -198,6 +213,39 @@ export default function SignatureAttendanceModal({
               <Save className="w-3.5 h-3.5" /> {saving ? "저장 중..." : "사인 저장 & 출결 처리"}
             </button>
           </div>
+
+          {/* ✅ v3.20.4: 기존 서명이 있을 때 취소 버튼 노출 */}
+          {existingRow && (
+            <div className="mt-3 p-3 border-2 border-red-200 bg-red-50 rounded-xl">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs font-bold text-red-700">⚠️ 이미 서명된 기록이 있습니다</div>
+                <div className="text-[10px] text-red-600">
+                  {existingRow.signed_at ? new Date(existingRow.signed_at).toLocaleString("ko-KR", { hour12: false }) : ""}
+                </div>
+              </div>
+              {existingRow.signature && (
+                <img src={existingRow.signature} alt="prev" className="h-12 max-w-[220px] bg-white border border-red-200 rounded mb-2" />
+              )}
+              <button onClick={async () => {
+                if (!confirm("이 서명을 취소하고 예약 상태로 되돌릴까요?\n\n• 서명 이미지 삭제\n• attendance 기록 삭제\n• 시간표 슬롯 상태 → scheduled(예약)")) return;
+                setSaving(true);
+                // 1) attendance 삭제
+                const { error: delErr } = await supabase.from("attendance").delete().eq("id", existingRow.id);
+                if (delErr) { setSaving(false); return alert("취소 실패: " + delErr.message); }
+                // 2) schedule_slots 상태 되돌리기
+                if (slot?.id) {
+                  await supabase.from("schedule_slots").update({ status: "scheduled" }).eq("id", slot.id);
+                }
+                setSaving(false);
+                alert("✅ 서명 취소 완료");
+                setExistingRow(null);
+                onSaved();
+              }}
+                className="w-full py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-bold flex items-center justify-center gap-1">
+                <Trash2 className="w-3.5 h-3.5" /> 서명 취소 · 예약으로 되돌리기
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

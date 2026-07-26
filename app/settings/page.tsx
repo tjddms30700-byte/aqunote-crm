@@ -699,14 +699,7 @@ export default function SettingsPage() {
               <div className="mt-2 text-[10px] text-gray-500 group-hover:text-indigo-600">마스터/센터장만 접근 가능</div>
             </Link>
 
-            {/* 안전사고 플로우 */}
-            <Link href="/incidents" className="group bg-gradient-to-br from-red-50 to-orange-50 border-2 border-red-200 rounded-xl p-4 hover:shadow-md hover:border-red-400 transition">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center text-white text-2xl mb-2 shadow">🚨</div>
-              <div className="text-sm font-bold text-red-900">안전사고 정책</div>
-              <div className="text-[11px] text-red-700 mt-1">응급기록·보험 리포트</div>
-              <div className="text-[10px] text-red-500 mt-1">→ 사고 유형·심각도·응대 프리셋</div>
-              <div className="mt-2 text-[10px] text-gray-500 group-hover:text-red-600">지점별 보험사·응급 연락망 관리</div>
-            </Link>
+            {/* ✅ v3.20.4: 안전사고 정책 카드 제거 (홈화면·회원/수업 그룹에 이미 존재) */}
 
             {/* 문서 분류 */}
             <Link href="/documents" className="group bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-200 rounded-xl p-4 hover:shadow-md hover:border-emerald-400 transition">

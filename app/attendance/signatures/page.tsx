@@ -6,7 +6,7 @@ import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import { supabase } from "@/lib/supabase";
 import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
-import { FileSignature, Printer, Search, Calendar, User, Filter, Download, ClipboardCheck, Waves } from "lucide-react";
+import { FileSignature, Printer, Search, Calendar, User, Filter, Download, ClipboardCheck, Waves, Trash2, RotateCcw } from "lucide-react";
 
 /* 상태 라벨 */
 const STATUS_LABEL: Record<string, string> = {
@@ -272,6 +272,7 @@ export default function SignatureAttendanceHistoryPage() {
                 <th className="text-center px-3 py-2 font-semibold text-gray-700">서명자</th>
                 <th className="text-left px-3 py-2 font-semibold text-gray-700">서명시각</th>
                 <th className="text-center px-3 py-2 font-semibold text-gray-700">서명</th>
+                <th className="text-center px-3 py-2 font-semibold text-gray-700 no-print">관리</th>
               </tr>
             </thead>
             <tbody>
@@ -306,6 +307,20 @@ export default function SignatureAttendanceHistoryPage() {
                       ) : (
                         <span className="text-gray-300 text-xs">-</span>
                       )}
+                    </td>
+                    <td className="px-3 py-2 text-center no-print">
+                      <button onClick={async () => {
+                        if (!confirm(`${m.name || "회원"}\u002d\u002d${r._date} 서명을 취소할까요?\n\n• 서명 이미지 삭제\n• attendance 기록 삭제\n• 연결된 시간표 예약 상태 → scheduled로 복원`)) return;
+                        const { error } = await supabase.from("attendance").delete().eq("id", r.id);
+                        if (error) return alert("취소 실패: " + error.message);
+                        if (r.slot_id) await supabase.from("schedule_slots").update({ status: "scheduled" }).eq("id", r.slot_id);
+                        await loadAll();
+                        alert("✅ 서명 취소 완료");
+                      }}
+                        title="서명 취소"
+                        className="p-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded border border-red-200">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </td>
                   </tr>
                 );
