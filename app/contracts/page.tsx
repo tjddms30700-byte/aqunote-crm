@@ -8,8 +8,9 @@ import { supabase } from "@/lib/supabase";
 import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import {
   FileSignature, FileText, Plus, X, Save, Trash2, Search,
-  UserCheck, Users, Calendar, ChevronLeft, Printer, Download
+  UserCheck, Users, Calendar, ChevronLeft, Printer, Download, Mail
 } from "lucide-react";
+import ContractSignaturePad, { CenterSeal } from "@/components/ContractSignaturePad";
 
 /**
  * v3.20.11: 계약서 폼 관리
@@ -105,71 +106,172 @@ const TEMPLATES: Record<string, string> = {
 · 연락처: {{phone}}
 · 성  명: {{name}}          (서명/날인)`,
 
-  member_service: `회 원 이 용 계 약 서
+  member_service: `위례아쿠수중운동센터 회원(보호자) 이용계약서
 
-시설명: 아쿠수중운동센터
-회원명: {{name}}
-보호자명: {{guardian}}
-연락처: {{phone}}
+본 계약은 위례아쿠수중운동센터(이하 "센터")와 보호자(이하 "회원") 간에 센터가 제공하는 교육·운동·체험 서비스 이용과 관련한 제반 사항을 규정함을 목적으로 한다.
 
-제1조 (계약목적)
-아쿠수중운동센터가 제공하는 수중운동 프로그램을 회원이 이용함에 있어 필요한 사항을 정한다.
+제1조 【센터 정보】
+· 상호명: 위례아쿠수중운동센터
+· 대표자: 하유정
+· 사업자등록번호: 680-04-03475
+· 업태/업종: 서비스업 / 교육서비스업 (기타 스포츠 교육기관)
+· 주소: 경기도 하남시 위례대로 190, 위례효성해링턴타워 203호
 
-제2조 (이용회원권)
-- 회원권명: {{plan_name}}
-- 회차: {{sessions}}회
-- 유효기간: {{start_date}} ~ {{end_date}}
-- 결제금액: {{amount}}원
+제2조 【서비스의 성격 및 범위】
+1. 센터에서 제공하는 모든 프로그램은 의료행위, 치료, 재활, 진단을 목적으로 하지 않는 교육·운동·체험 서비스이다.
+2. 본 서비스는 의료기관 또는 치료기관의 진료·치료·재활 서비스를 대체하지 않는다.
+3. 회원은 본 서비스의 성격을 충분히 이해하고 이에 동의한 상태에서 계약을 체결한다.
 
-제3조 (환불 규정)
-- 결제 후 7일 이내: 100% 환불
-- 이용 개시 후: 잔여 회차 × 회당 정상가 차감 후 환불
-- 회원 귀책사유(질병·이사 등): 진단서·증빙자료 제출 시 별도 협의
+제3조 【이용 대상 및 보호자 고지 의무】
+· 성명: {{name}}
+· 생년월일: {{birth}}
+· 연락처: {{phone}}
+1. 회원은 건강 상태, 발달 특성, 질환 이력, 수중 활동에 영향을 줄 수 있는 모든 사항을 사전에 센터에 고지해야 한다.
+2. 고지 의무 불이행으로 발생하는 문제에 대해서는 센터가 책임지지 않는다.
 
-제4조 (수업 참여)
-- 예약제 운영: 최소 24시간 전 예약 필수
-- 노쇼 시: 회원권 1회 차감
-- 병결 시: 진단서 제출로 회차 보존 가능
+제4조 【프로그램 및 이용 형태】
+· 프로그램: [{{plan_std}}] STANDARD  [{{plan_adv}}] ADVANCED  [{{plan_prm}}] PREMIUM
+· 이용 형태: 월권제 (주 {{weekly_count}}회 × 4주 = 월 {{monthly_count}}회)
+· 이용 기간: {{start_date}} ~ {{end_date}}
+· 이용 요일/시간: {{schedule}}
+· 월 결제금액: {{amount}}원
 
-제5조 (안전사고)
-- 회원은 자신의 건강상태를 사전에 고지해야 한다.
-- 시설 이용 중 발생한 상해는 시설물 하자가 아닌 이상 회원 본인 책임이다.
+제5조 【결제 조건】
+1. 모든 프로그램 이용 요금은 선결제를 원칙으로 한다.
+2. 월권제 운영으로, 매월 고정 요일·시간에 해당 월의 수업 횟수를 결제한다.
+3. 결제 완료 후 프로그램 예약이 확정된다.
 
-계약일: {{contract_date}}
+제6조 【결석 및 보강】
+1. 사전 고지 없는 결석은 보강이 제공되지 않는다.
+2. 보강 수업은 센터 운영 일정에 따라 제공되며, 일정 조율이 제한될 수 있다.
+3. 개인 사정으로 인한 결석은 환불 사유에 해당하지 않는다.
 
-시설장 서명: ______________
-회원(보호자) 서명: ______________`,
+제7조 【안전 관리 및 책임 범위】
+1. 센터는 수중 활동 특성에 맞는 안전 수칙을 마련하고 이를 준수한다.
+2. 다만, 수중 활동은 부력·수압·미끄러움 등으로 인해 예측 불가능한 상황이 발생할 수 있음을 회원은 충분히 인지한다.
+3. 센터의 고의 또는 중과실이 없는 한, 수중 활동 중 발생할 수 있는 사고에 대해 법적 책임을 지지 않는다.
 
-  privacy: `개 인 정 보 수 집 · 이 용 동 의 서
+제8조 【계약 해지, 환불 및 위약금】
+1. 회원과 센터는 상호 협의에 따라 본 계약을 해지할 수 있다.
+2. 계약 해지 시 환불 금액은 총 결제금액에서 이미 이용한 회기 금액을 차감한 잔여 금액을 기준으로 산정한다.
+3. 제2항의 잔여 금액에서 위약금 10% 및 결제 수단에 따른 수수료 3%를 공제한 금액을 환불하는 것에 회원은 동의한다.
+4. 프로그램 이용 개시 후에는 단순 변심, 개인 사정, 만족도 저하를 사유로 한 전액 환불은 불가하다.
+5. 센터의 고의 또는 중과실로 인한 계약 해지가 아닌 경우, 본 조에 따른 위약금 및 수수료 공제는 동일하게 적용된다.
+6. 환불은 센터가 지정한 절차에 따라 처리되며, 처리에는 일정 기간이 소요될 수 있다.
+[ ✓ ] 본 조항은 본 계약의 핵심 조항으로, 회원은 충분한 설명을 듣고 이에 명시적으로 동의한다.
 
-아쿠수중운동센터는 「개인정보보호법」에 따라 아래와 같이 개인정보를 수집·이용하고자 합니다.
+제9조 【계약 해지 제한】
+다음 각 호에 해당하는 경우 센터는 계약을 해지하거나 서비스 제공을 중단할 수 있다.
+1. 안전 수칙을 반복적으로 위반한 경우
+2. 타 회원 또는 직원에게 피해를 주는 경우
+3. 허위 정보 제공 또는 고지 의무 위반이 확인된 경우
 
-■ 수집·이용 목적
-- 회원 관리 및 이용료 결제·환불
-- 수업 예약 및 안내 문자 발송
-- 안전사고 발생 시 응급조치 및 보호자 연락
-- 세무 신고 및 법정 의무 이행
+제10조 【분쟁 해결】
+본 계약과 관련하여 발생하는 분쟁은 상호 협의로 해결하며, 협의가 이루어지지 않을 경우 센터 소재지 관할 법원을 따른다.
 
-■ 수집 항목
-[필수] 성명, 생년월일, 연락처(휴대전화), 주소
-[필수-미성년] 보호자 성명 · 관계 · 연락처
-[선택] 이메일, 건강상태·진단명, 비상연락처, 사진
+제11조 【기타】
+본 계약서에 명시되지 않은 사항은 관계 법령 및 일반 상관례에 따른다.
 
-■ 보유·이용 기간
-- 회원 탈퇴 후 5년 (세무·회계 법정 보관 의무)
-- 계약 종료 시 즉시 파기 요청 가능 (일부 법정 항목 제외)
+본인은 위 계약 내용을 충분히 이해하고,
+특히 제8조(계약 해지·환불·위약금) 조항에 대해 명확히 설명을 듣고 동의합니다.
 
-■ 동의를 거부할 권리
-정보주체는 개인정보 수집·이용에 동의하지 않을 수 있습니다. 다만 필수항목 미동의 시 회원 등록이 제한됩니다.
+계약일자: {{contract_date}}
 
-□ 위 개인정보 수집·이용에 동의합니다.       (필수)
-□ 사진·영상 촬영 및 홍보물 활용에 동의합니다. (선택)
-□ 이벤트·프로모션 문자 수신에 동의합니다.    (선택)
+[보호자]
+· 성명: {{name}}
+· 생년원일: {{birth}}
+· 연락처: {{phone}}
+· 서명:                       (서명/날인)
 
-동의일: {{contract_date}}
+[센터]
+· 위례아쿠수중운동센터
+· 대표자: 하유정              (서명/직인)
 
-동의자 성명: {{name}}
-서명: ______________`,
+※ 본 계약서는 교육·운동·체험 서비스 이용을 위한 계약서이며, 의료행위 또는 치료 목적의 계약이 아닙니다.`,
+
+  privacy: `개인정보 및 민감정보 수집·이용 동의서
+
+본 동의서는 「위례아쿠수중운동센터 회원 이용계약서」 제3조(이용 대상 및 보호자 고지 의무) 및 제7조(안전 관리 및 책임 범위)에 근거하여 작성되었습니다.
+위례아쿠수중운동센터(이하 "센터")는 교육·운동·체험 서비스 제공을 위하여 아래와 같이 개인정보를 수집·이용합니다.
+
+1. 개인정보 수집 항목
+① 보호자 정보: 성명 / 주민등록번호 / 연락처
+② 아동 정보: 성명 / 생년원일
+③ 민감정보(보호자 제공 시): 건강 상태 / 발달 특성 / 질환 이력 / 수중 활동에 영향을 줄 수 있는 기타 정보
+④ 서비스 이용 정보: 프로그램 참여 기록 / 상담 기록 / 안전 및 교육 기록
+⑤ 사진·영상 자료: 교육 및 활동 기록 목적의 찬영 자료
+
+2. 개인정보 이용 목적
+· 교육·운동·체험 프로그램 운영
+· 회원 및 아동 안전 관리
+· 상담 및 서비스 제공
+· 분쟁 발생 시 사실 확인
+· 법령상 의무 이행
+
+3. 개인정보 보유 및 이용 기간
+· 계약 종료일로부터 최대 5년 또는
+· 관련 법령에 따른 보관 기간 중 더 긴 기간
+
+4. 개인정보 제공 및 위탁
+· 센터는 수집된 개인정보를 제3자에게 제공하지 않습니다.
+· 단, 법령에 따른 요청이 있는 경우는 예외로 합니다.
+
+5. 동의 거부 권리 및 불이익 안내
+개인정보 제공에 대한 동의를 거부할 수 있으나, 이 경우 센터 서비스 이용이 제한될 수 있습니다.
+
+본인은 위 내용을 충분히 이해하였으며, 개인정보 및 민감정보 수집·이용에 동의합니다.
+
+[보호자 / 본인]
+· 성명: {{name}}
+· 생년원일: {{birth}}
+· 서명:                       (서명/날인)
+· 날짜: {{contract_date}}
+
+※ 본 동의서는 교육·운동·체험 서비스 운영을 위한 필수 동의서입니다.
+위례아쿠수중운동센터 | 대표자: 하유정 | 사업자등록번호: 680-04-03475`,
+
+  // ✅ v3.20.16: 직원 비밀유지서약서
+  nda: `직원 비밀유지 서약서
+
+위례아쿠수중운동센터 (이하 "센터"라 함)와 {{name}} (이하 "직원"이라 함) 간에 직원이 센터에서 근무하는 동안 및 퇴사 이후 수행하게 되는 업무와 관련하여 알게 된 상업비밀 및 영업상 중요 정보의 보호를 위하여 다음과 같이 비밀유지 서약을 체결한다.
+
+제1조 【목적】
+본 서약서는 직원이 센터에서 근무하는 동안 및 퇴사 후에도 지켜야 할 비밀유지 의무와 그 범위를 명확히 하여, 센터의 영업비밀 및 관련 자산을 보호함을 목적으로 한다.
+
+제2조 【비밀정보의 정의】
+본 서약에서 "비밀정보"란 직원이 재직 중 알게 된 다음 각 호의 정보를 말한다.
+1. 회원 개인정보 (성명, 연락처, 주소, 건강상태, 진단명, 보호자 정보 등)
+2. 회원 결제 및 결제 내역 정보
+3. 수업 프로그램, 지도법, 교안 및 교육자료
+4. 직원 급여, 계약조건, 인사 정보
+5. 센터의 경영전략, 마케팅, 거래처 정보
+6. 기타 센터가 비밀로 관리하는 일체의 정보
+
+제3조 【비밀유지 의무】
+1. 직원은 재직 중은 물론 퇴사 이후에도 제2조의 비밀정보를 제3자에게 누설하거나 공개하지 않는다.
+2. 직원은 업무상 부득이한 경우를 제외하고는 비밀정보를 외부로 반출하거나 복사하지 않는다.
+3. 직원은 본인의 급여에 대해 비밀을 유지하여야 하며, 동료 직원의 급여를 물으면 안 된다.
+4. 직원은 센터의 동의 없이 다른 기관에서 동종 업무를 겸직하지 않는다.
+
+제4조 【자료의 반환】
+직원은 퇴사 시에 재직 중 생성·보관하던 모든 자료(종이·전자파일·음성·영상 등 모든 매체)를 센터에 반환하며, 사본을 보유하지 않는다.
+
+제5조 【손해배상】
+직원이 본 서약을 위반하여 센터에 손해를 끼친 경우, 직원은 재직 중 및 퇴사 후를 불문하고 그 손해를 배상하여야 한다.
+
+제6조 【서약의 효력】
+본 서약서는 서명일로부터 효력이 발생하며, 퇴사 이후에도 지속적으로 적용된다.
+
+서약일: {{contract_date}}
+
+[직원]
+· 성명: {{name}}
+· 연락처: {{phone}}
+· 서명:                       (서명/날인)
+
+[센터]
+· 위례아쿠수중운동센터
+· 대표자: 하유정              (서명/직인)`,
 };
 
 function todayStr() {
@@ -358,7 +460,46 @@ export default function ContractsPage() {
   }
 
   function handlePrint() {
+    // ✅ v3.20.16: 브라우저 프린트 다이얼로그에서 'PDF로 저장' 선택 가능
     window.print();
+  }
+
+  // ✅ v3.20.16: 계약서 이메일 발송 (본문 + 링크 mailto 방식)
+  async function sendByEmail() {
+    if (!editing) return;
+    // 회원/직원 이메일 자동 조회
+    let toEmail = "";
+    if (editing.subject_id) {
+      const table = editing.subject_kind === "staff" ? "staff" : "members";
+      const r = await supabase.from(table).select("email").eq("id", editing.subject_id).maybeSingle();
+      toEmail = r.data?.email || "";
+    }
+    const promptedEmail = prompt(
+      `계약서를 이메일로 발송합니다.\n\n수신자 이메일을 입력하세요:`,
+      toEmail || ""
+    );
+    if (!promptedEmail) return;
+
+    // 저장되지 않은 계약서는 먼저 저장
+    if (!editing.id) {
+      const ok = confirm("이메일 발송 전에 계약서를 먼저 저장합니다. 진행하시겠습니까?");
+      if (!ok) return;
+      await save();
+    }
+
+    const subject = encodeURIComponent(`[위례아쿠수중운동센터] ${editing.title || typeLabel(editing.contract_type)}`);
+    const body = encodeURIComponent(
+      `안녕하세요, ${editing.subject_name} 님.\n\n위례아쿠수중운동센터 ${typeLabel(editing.contract_type)}를 전달드립니다.\n\n${"=".repeat(40)}\n\n${editing.body}\n\n${"=".repeat(40)}\n\n계약일: ${editing.contract_date}\n위례아쿠수중운동센터\n대표자: 하유정\n사업자등록번호: 680-04-03475\n경기도 하남시 위례대로 190, 위례효성해링턴타워 203호\n`
+    );
+    // 기본 메일 클라이언트 열기 (Gmail/Outlook 등)
+    window.location.href = `mailto:${promptedEmail}?subject=${subject}&body=${body}`;
+
+    // 발송 이력 상태 업데이트
+    if (editing.id) {
+      await supabase.from("contracts").update({ status: "sent", sent_at: new Date().toISOString(), sent_to: promptedEmail })
+        .eq("id", editing.id);
+      await loadAll();
+    }
   }
 
   return (
@@ -726,26 +867,69 @@ export default function ContractsPage() {
                 </label>
               </div>
 
-              {/* 인쇄용 서명란 */}
-              <div className="print-only mt-8 flex justify-around text-xs">
+              {/* ✅ v3.20.16: 서명 캐버스 3란 (회원/근로자 + 센터 직인) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
                 <div>
-                  <div className="mb-8">시설장 서명</div>
-                  <div className="border-t border-black w-40 mt-8"></div>
+                  <div className="text-xs font-bold text-gray-700 mb-1">
+                    {editing.subject_kind === "staff" ? "근로자 / 직원 서명" : "회원(보호자) 서명"}
+                  </div>
+                  <ContractSignaturePad
+                    label={editing.subject_name || "서명"}
+                    value={editing.signature || ""}
+                    onChange={(dataUrl) => setEditing({ ...editing, signature: dataUrl })}
+                  />
                 </div>
                 <div>
-                  <div className="mb-8">{editing.subject_kind === "staff" ? "근로자" : "회원(보호자)"} 서명</div>
-                  <div className="border-t border-black w-40 mt-8"></div>
+                  <div className="text-xs font-bold text-gray-700 mb-1">위례아쿠수중운동센터 직인</div>
+                  <div className="border-2 border-red-100 rounded-lg p-2 bg-red-50/30 flex items-center justify-between">
+                    <div className="text-[11px] text-gray-600">
+                      대표자: 하유정<br/>
+                      사업자등록번호: 680-04-03475
+                    </div>
+                    <CenterSeal size={80} />
+                  </div>
+                  <label className="flex items-center gap-1 mt-1 text-[11px] text-gray-600">
+                    <input type="checkbox" checked={editing.counter_signature === "seal"}
+                      onChange={e => setEditing({ ...editing, counter_signature: e.target.checked ? "seal" : "" })} />
+                    생성/프린트 시 직인 표시
+                  </label>
+                </div>
+              </div>
+
+              {/* 프린트용 서명란 (이미지 포함) */}
+              <div className="hidden print:flex mt-8 justify-around text-xs">
+                <div className="text-center">
+                  <div className="mb-2 font-bold">{editing.subject_kind === "staff" ? "근로자" : "회원(보호자)"} 서명</div>
+                  {editing.signature
+                    ? <img src={editing.signature} alt="sign" style={{ width: 180, height: 80, objectFit: "contain" }} />
+                    : <div className="border-t border-black w-40 mt-8"></div>}
+                  <div className="mt-1">{editing.subject_name}</div>
+                </div>
+                <div className="text-center">
+                  <div className="mb-2 font-bold">위례아쿠수중운동센터 직인</div>
+                  {editing.counter_signature === "seal" ? <CenterSeal size={100} /> : <div className="border-t border-black w-40 mt-8"></div>}
+                  <div className="mt-1">대표자 하유정</div>
                 </div>
               </div>
             </div>
 
-            <div className="no-print px-5 py-3 border-t border-gray-100 flex items-center justify-between bg-gray-50">
+            <div className="no-print px-5 py-3 border-t border-gray-100 flex items-center justify-between bg-gray-50 flex-wrap gap-2">
               <div className="text-[11px] text-gray-500">
-                💡 <b>{`{{name}}`}, {`{{contract_date}}`}</b> 등 자리표시자는 저장 후 수동 수정하거나 직접 입력하세요.
+                💡 서명 후 저장하면 PDF·프린트·이메일 발송 가능
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <button onClick={() => setEditing(null)}
                   className="px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50">취소</button>
+                {/* ✅ v3.20.16: 이메일 발송 */}
+                <button onClick={sendByEmail}
+                  className="px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm flex items-center gap-1">
+                  <Mail className="w-4 h-4" /> 이메일 발송
+                </button>
+                {/* ✅ v3.20.16: PDF 저장 (브라우저 프린트 다이얼로그→PDF로 저장) */}
+                <button onClick={handlePrint}
+                  className="px-3 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-lg text-sm flex items-center gap-1">
+                  <Download className="w-4 h-4" /> PDF 저장
+                </button>
                 <button onClick={save}
                   className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold flex items-center gap-1">
                   <Save className="w-4 h-4" /> 저장

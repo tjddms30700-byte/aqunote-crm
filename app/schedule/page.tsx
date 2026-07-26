@@ -2317,26 +2317,26 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
           )}
         </div>
 
-        <div className="flex gap-2 mt-5">
+        {/* ✅ v3.20.16: 삭제 버튼 3종 통일 디자인 (동일 크기·글꼴·패딩) */}
+        <div className="flex flex-wrap items-center gap-2 mt-5">
           {onDelete && (
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-wrap gap-1.5">
               <button onClick={() => onDelete({ mode: "single" })}
-                className="px-3 py-2 border border-red-200 text-red-500 rounded-lg text-xs hover:bg-red-50 flex items-center gap-1"
+                className="px-3 py-2 border border-red-200 bg-red-50 text-red-600 rounded-lg text-xs font-semibold hover:bg-red-100 flex items-center gap-1"
                 title="이 일정만 삭제">
-                <Trash2 className="w-4 h-4" /> 이 일정
+                <Trash2 className="w-3.5 h-3.5" /> 이 일정
               </button>
-              {/* ✅ v3.20.4: 반복 예약은 3단계 선택 (단건/이후/전체) */}
               {isRecurring && (
                 <>
                   <button onClick={() => onDelete({ mode: "series_after", recurring_id: f.recurring_id, from_date: f.event_date })}
-                    className="px-2 py-1 border border-orange-300 bg-orange-50 text-orange-700 rounded-lg text-[10px] hover:bg-orange-100 font-semibold"
+                    className="px-3 py-2 border border-orange-200 bg-orange-50 text-orange-700 rounded-lg text-xs font-semibold hover:bg-orange-100 flex items-center gap-1"
                     title="이 날짜 이후(포함) 반복 삭제">
-                    🗓️ 이후 삭제
+                    <Trash2 className="w-3.5 h-3.5" /> 이후 삭제
                   </button>
                   <button onClick={() => onDelete({ mode: "series_all", recurring_id: f.recurring_id })}
-                    className="px-2 py-1 border border-red-300 text-red-600 rounded-lg text-[10px] hover:bg-red-50"
+                    className="px-3 py-2 border border-red-300 bg-red-100 text-red-700 rounded-lg text-xs font-semibold hover:bg-red-200 flex items-center gap-1"
                     title="반복 시리즈 전체 삭제">
-                    전체 삭제
+                    <Trash2 className="w-3.5 h-3.5" /> 전체 삭제
                   </button>
                 </>
               )}

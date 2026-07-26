@@ -27,6 +27,26 @@ export default function SignatureAttendanceModal({
   const [saving, setSaving] = useState(false);
   // ✅ v3.20.4: 기존 서명 존재 여부
   const [existingRow, setExistingRow] = useState<any | null>(null);
+  // ✅ v3.20.16: 회원권 자동 조회
+  const [membership, setMembership] = useState<any | null>(null);
+
+  // 회원권 조회 (목달 생성 순 · 유효기간 내)
+  useEffect(() => {
+    if (!member?.id) return;
+    (async () => {
+      const { data } = await supabase.from("memberships")
+        .select("*")
+        .eq("member_id", member.id)
+        .neq("status", "cancelled")
+        .order("created_at", { ascending: false });
+      const today = new Date().toISOString().slice(0, 10);
+      const active = (data || []).find((m: any) =>
+        (!m.start_date || m.start_date <= today) &&
+        (!m.end_date || m.end_date >= today)
+      ) || (data || [])[0];
+      setMembership(active || null);
+    })();
+  }, [member?.id]);
 
   // 기존 서명 조회
   useEffect(() => {
@@ -156,6 +176,42 @@ export default function SignatureAttendanceModal({
         </div>
 
         <div className="p-4">
+          {/* ✅ v3.20.16: 회원권 정보 (몇회권 중 몇회수업 · 남은 회수) */}
+          {membership ? (() => {
+            const total = (membership.total_sessions || 0) + (membership.adjustment || 0);
+            const used  = membership.used_sessions || 0;
+            const remaining = Math.max(0, total - used);
+            const currentSessionNo = used + 1; // 본 수업이 바로 몇 회수업인지
+            const lowStock = remaining <= 2;
+            return (
+              <div className={`mb-3 p-3 rounded-lg border-2 ${lowStock ? "bg-red-50 border-red-300" : "bg-aqu-50 border-aqu-200"}`}>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="text-sm font-bold text-slate-900">🎯 {membership.plan_name || "회원권"}</div>
+                  <div className="text-[11px] text-gray-600">{membership.start_date} ~ {membership.end_date}</div>
+                </div>
+                <div className="text-[13px] text-gray-800">
+                  전체 <b className="text-aqu-700">{total}회권</b> 중
+                  <b className="text-purple-700 mx-1">{status === "present" ? currentSessionNo : used}회 수업</b>
+                  · 남은 회수 <b className={lowStock ? "text-red-600" : "text-emerald-700"}>{status === "present" ? remaining - 1 : remaining}회</b>
+                </div>
+                {lowStock && (
+                  <div className="mt-2 p-2 bg-red-100 border border-red-400 rounded text-[12px] font-bold text-red-800 flex items-center gap-1">
+                    ⚠️ 남은 회수가 {remaining}회입니다! 결제 안내가 필요합니다.
+                  </div>
+                )}
+                {remaining === 0 && (
+                  <div className="mt-2 p-2 bg-red-200 border-2 border-red-500 rounded text-[12px] font-bold text-red-900">
+                    🚨 회원권 소진! 지금 결제 안내해 주세요.
+                  </div>
+                )}
+              </div>
+            );
+          })() : (
+            <div className="mb-3 p-2 bg-yellow-50 border border-yellow-300 rounded text-[11px] text-yellow-800">
+              ⚠️ 활성 회원권이 없습니다. 결제 등록을 먼저 진행해 주세요.
+            </div>
+          )}
+
           {/* 동의문 */}
           <div className="mb-3 p-2.5 bg-purple-50 border border-purple-200 rounded-lg text-[11px] text-purple-800">
             📝 <b>본 서명으로 당일 출석 및 세션 차감이 처리</b>되며, 서명 정보는 출석 증빙 목적으로 보관됩니다.
