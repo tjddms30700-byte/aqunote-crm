@@ -130,9 +130,9 @@ export default function SchedulePage() {
   // ✅ v3.16.1: 인라인 결제 등록 모달
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [paymentModalDate, setPaymentModalDate] = useState<string>("");
-  // ✅ v3.20.6: 지점 시간표 설정 - 지점 로드 전에 09:00으로 대체되는 문제 방지 위해 별도 로드 완료 플래그 추가
+  // ✅ v3.20.7: 지점 시간표 설정 - 설정 페이지와 동일한 기본값 (interval 70=1시간 10분, duration 40)
   const [scheduleConfig, setScheduleConfig] = useState<any>({
-    open_time: "10:00", close_time: "22:00", slot_interval: 60, slot_duration: 40,
+    open_time: "10:00", close_time: "22:00", slot_interval: 70, slot_duration: 40,
     lunch_break: { enabled: false, start: "12:00", end: "13:00" },
     custom_slots: [] as string[],
   });

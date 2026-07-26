@@ -54,6 +54,8 @@ export default function PaymentsPage() {
   const [plans, setPlans]           = useState<any[]>([]);
   const [loading, setLoading]       = useState(true);
   const [tab, setTab]               = useState<"memberships" | "payments">("memberships");
+  // ✅ v3.20.7: 회원 이름 검색 (회원권 · 결제 이력 공용)
+  const [nameSearch, setNameSearch] = useState("");
   // ✅ v3.16.0: 월별 필터 (기본값: 이번 달)
   const [filterMonth, setFilterMonth] = useState<string>(new Date().toISOString().slice(0, 7));
   const [showModal, setShowModal]   = useState(false);
@@ -567,8 +569,8 @@ export default function PaymentsPage() {
         <KPI label="활성 회원권" val={activeMemberships + "건"} color="text-purple-600" />
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2 mb-4 text-xs md:text-sm">
+      {/* Tabs + ✅ v3.20.7: 회원 검색바 */}
+      <div className="flex gap-2 mb-4 text-xs md:text-sm flex-wrap items-center">
         <button onClick={() => setTab("memberships")}
           className={`px-3 md:px-4 py-2 rounded-lg ${tab === "memberships" ? "bg-aqu-600 text-white" : "bg-white border border-aqu-200 text-aqu-700"}`}>
           🎟️ 회원권 ({memberships.length})
@@ -577,6 +579,15 @@ export default function PaymentsPage() {
           className={`px-3 md:px-4 py-2 rounded-lg ${tab === "payments" ? "bg-aqu-600 text-white" : "bg-white border border-aqu-200 text-aqu-700"}`}>
           💵 결제 이력 ({payments.length})
         </button>
+        <div className="flex-1 min-w-[180px] relative">
+          <input type="text" value={nameSearch} onChange={e => setNameSearch(e.target.value)}
+            placeholder="🔍 회원명 검색 (예: 김라헬)"
+            className="w-full pl-3 pr-8 py-2 border border-aqu-200 rounded-lg text-xs md:text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none" />
+          {nameSearch && (
+            <button onClick={() => setNameSearch("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-500 text-xs">✕</button>
+          )}
+        </div>
       </div>
 
       {/* Table */}
@@ -598,7 +609,7 @@ export default function PaymentsPage() {
                 </tr>
               </thead>
               <tbody>
-                {memberships.map(m => {
+                {memberships.filter(m => !nameSearch.trim() || (m.members?.name || "").toLowerCase().includes(nameSearch.trim().toLowerCase())).map(m => {
                   const remaining = (m.total_sessions || 0) - (m.used_sessions || 0);
                   const expired = m.end_date && new Date(m.end_date) < new Date();
                   const isCancelled = m.status === "cancelled";
@@ -696,7 +707,9 @@ export default function PaymentsPage() {
                 이번 달
               </button>
               {(() => {
-                const filtered = payments.filter((p: any) => !filterMonth || (p.paid_at || "").startsWith(filterMonth));
+                const filtered = payments
+                  .filter((p: any) => !filterMonth || (p.paid_at || "").startsWith(filterMonth))
+                  .filter((p: any) => !nameSearch.trim() || (p.members?.name || "").toLowerCase().includes(nameSearch.trim().toLowerCase()));
                 const revenue = filtered.filter((p: any) => p.status !== "cancelled").reduce((s: number, p: any) => s + (p.amount || 0), 0);
                 return (
                   <div className="flex-1 flex items-center justify-end gap-3 text-xs">
@@ -721,6 +734,7 @@ export default function PaymentsPage() {
               <tbody>
                 {payments
                   .filter((p: any) => !filterMonth || (p.paid_at || "").startsWith(filterMonth))
+                  .filter((p: any) => !nameSearch.trim() || (p.members?.name || "").toLowerCase().includes(nameSearch.trim().toLowerCase()))
                   .map(p => {
                   const isCancelled = p.status === "cancelled";
                   return (
