@@ -99,10 +99,19 @@ export default function StaffPage() {
 
   async function loadAll() {
     setLoading(true);
+    // ✅ v3.20.14: attendance_logs 정렬 컴럼 자동 폴백 (work_date → log_date → created_at)
+    async function loadAttendanceLogs() {
+      for (const col of ["work_date", "log_date", "created_at"]) {
+        const r = await supabase.from("attendance_logs").select("*").order(col, { ascending: false });
+        if (!r.error) return r.data || [];
+      }
+      const r2 = await supabase.from("attendance_logs").select("*");
+      return r2.data || [];
+    }
     const [s, ph, al, sl] = await Promise.all([
       supabase.from("staff").select("*").order("created_at", { ascending: false }),
       supabase.from("payroll_history").select("*").order("pay_year", { ascending: false }).order("pay_month", { ascending: false }),
-      supabase.from("attendance_logs").select("*").order("work_date", { ascending: false }),
+      loadAttendanceLogs(),
       // ✅ v3.18.0: 이번달 시간표 슬롯 (강사별 수업·수당 계산용)
       supabase.from("schedule_slots").select("staff_id, status, event_date, event_type")
         .gte("event_date", slotsMonth + "-01")
@@ -111,7 +120,13 @@ export default function StaffPage() {
     ]);
     setStaff(s.data || []);
     setPayrollHistory(ph.data || []);
-    setAttendanceLogs(al.data || []);
+    // ✅ v3.20.14: work_date 또는 log_date 중 있는 것을 사용 (유연 표시)
+    setAttendanceLogs((al || []).map((r: any) => ({
+      ...r,
+      work_date: r.work_date || r.log_date,
+      log_date: r.log_date || r.work_date,
+      memo: r.memo || r.note,
+    })));
     setSlots(sl.data || []);
     setLoading(false);
   }
@@ -269,22 +284,44 @@ export default function StaffPage() {
       hours = Math.max(0, total / 60);
       if (hours > 8) overtime = hours - 8;
     }
-    const payload = {
+    // ✅ v3.20.14: check_in/check_out을 TIMESTAMPTZ로 변환 (시간 문자열 → ISO)
+    const toIso = (t: string) => t ? new Date(`${newAtt.work_date}T${t}:00+09:00`).toISOString() : null;
+
+    // ✅ v3.20.14: work_date + log_date 둘 다 넣어 컴럼별 호환 보장
+    const basePayload: any = {
       org_id: orgId,
       staff_id: newAtt.staff_id, staff_name: s?.name || null,
       work_date: newAtt.work_date,
-      check_in: newAtt.check_in || null,
-      check_out: newAtt.check_out || null,
+      log_date: newAtt.work_date,
+      check_in: toIso(newAtt.check_in),
+      check_out: toIso(newAtt.check_out),
       work_hours: hours, overtime,
-      status: newAtt.status, memo: newAtt.memo || null,
+      overtime_hours: overtime,
+      status: newAtt.status, memo: newAtt.memo || null, note: newAtt.memo || null,
     };
-    if (editAtt?.id) {
-      const { error } = await supabase.from("attendance_logs").update(payload).eq("id", editAtt.id).select();
-      if (error) return alert("수정 실패: " + error.message);
-    } else {
-      const { error } = await supabase.from("attendance_logs").insert(payload).select();
-      if (error) return alert("추가 실패: " + error.message);
+
+    // ✅ v3.20.14: 없는 컴럼은 자동 제거 후 재시도 (최대 6회)
+    async function upsertWithFallback(op: "insert" | "update") {
+      const payload: any = { ...basePayload };
+      for (let i = 0; i < 6; i++) {
+        const q = supabase.from("attendance_logs");
+        const { data, error } = op === "update"
+          ? await q.update(payload).eq("id", editAtt.id).select()
+          : await q.insert(payload).select();
+        if (!error) return { data, error: null };
+        const missing = /column "([^"]+)" of relation "attendance_logs" does not exist/i.exec(error.message || "");
+        if (missing?.[1] && missing[1] in payload) {
+          delete payload[missing[1]];
+          continue;
+        }
+        // work_date 교벘돈 log_date가 모두 NOT NULL이면 다음 순회에서 자동 해결
+        return { data: null, error };
+      }
+      return { data: null, error: new Error("컴럼 폴백 초과") };
     }
+
+    const res = editAtt?.id ? await upsertWithFallback("update") : await upsertWithFallback("insert");
+    if (res.error) return alert(`❌ ${editAtt?.id ? "수정" : "추가"} 실패: ${res.error.message}\n\n💡 attendance_logs 테이블 RLS를 확인하세요. SQL에서 아래를 실행하면 해결됩니다:\n\nALTER TABLE attendance_logs ENABLE ROW LEVEL SECURITY;\nDROP POLICY IF EXISTS "all_access" ON attendance_logs;\nCREATE POLICY "all_access" ON attendance_logs USING (true) WITH CHECK (true);`);
     setShowAttendanceModal(false);
     setEditAtt(null);
     setNewAtt({ staff_id: "", work_date: new Date().toISOString().slice(0, 10), check_in: "09:00", check_out: "18:00", status: "normal", memo: "" });

@@ -55,45 +55,53 @@ function PayrollConfigInner() {
   async function saveRate(staffId: string) {
     setSavingId(staffId);
     const r = rates[staffId];
-    // ✅ v3.20.11: 0원도 명시적으로 저장, 저장 성공 시 rates state 명시 유지 (loadAll이 stale 데이터 덮어쓰는 문제 방지)
-    const sessionRate = Number.isFinite(Number(r.session_rate)) ? Number(r.session_rate) : 0;
-    const incentiveRate = Number.isFinite(Number(r.incentive_rate)) ? Number(r.incentive_rate) : 0;
+    // ✅ v3.20.14: 0원 명시 저장 + .select()로 응답 검증 + RLS 진단 강화
+    const sessionRate = Number.isFinite(Number(r?.session_rate)) ? Number(r?.session_rate) : 0;
+    const incentiveRate = Number.isFinite(Number(r?.incentive_rate)) ? Number(r?.incentive_rate) : 0;
     const payload: any = { session_rate: sessionRate, incentive_rate: incentiveRate };
     let lastError: any = null;
+    let updatedRows: any[] | null = null;
     for (let attempt = 0; attempt < 4; attempt++) {
-      const { error: updErr } = await supabase.from("staff").update(payload).eq("id", staffId);
+      // ✅ v3.20.14: .select() 추가로 실제 update된 row 반환 (RLS에 막히면 [] 반환)
+      const { data, error: updErr } = await supabase.from("staff").update(payload).eq("id", staffId).select();
       if (updErr) {
         lastError = updErr;
-        const m = updErr.message.match(/'([^']+)' column|column "([^"]+)"/);
-        const missing = m?.[1] || m?.[2];
+        const msg = updErr.message || "";
+        // 다양한 에러 매칭 시도
+        const m = msg.match(/column "([^"]+)"/i) || msg.match(/'([^']+)' column/i) || msg.match(/Could not find the '([^']+)' column/i);
+        const missing = m?.[1];
         if (missing && missing in payload) {
           delete payload[missing];
           continue;
         }
         break;
       }
-      // 저장 성공 후 별도 SELECT로 실제 DB 값 검증
-      const { data: check } = await supabase.from("staff").select("session_rate, incentive_rate").eq("id", staffId).maybeSingle();
-      setSavingId("");
-      if (check) {
-        const dbRate = Number(check.session_rate);
-        const dbInc = Number(check.incentive_rate);
-        // ✅ 성공 여부와 무관하게 rates state를 명시 유지 (사용자 입력값 보존)
-        setRates(prev => ({ ...prev, [staffId]: { session_rate: dbRate, incentive_rate: dbInc } }));
-        // staff 목록의 해당 강사 정보도 즉시 반영 (loadAll 불필요)
-        setStaff(prev => prev.map((st: any) => st.id === staffId ? { ...st, session_rate: dbRate, incentive_rate: dbInc } : st));
-        if (dbRate === sessionRate && dbInc === incentiveRate) {
-          alert(`✅ 수당 설정 저장 완료\n\n• 회당 단가: ₩${dbRate.toLocaleString()}\n• 인센티브: ${dbInc}%`);
-          return;
-        }
-        alert(`❌ 저장 실패 (RLS 또는 트리거)\n\n• 요청: ₩${sessionRate.toLocaleString()} / ${incentiveRate}%\n• DB 값: ₩${dbRate.toLocaleString()} / ${dbInc}%\n\n💡 Supabase SQL Editor 실행:\nAQUNOTE_V32010_STAFF_RLS.sql`);
-        return;
-      }
-      alert(`✅ 저장되었습니다`);
-      return;
+      updatedRows = data;
+      break;
     }
     setSavingId("");
-    alert(`❌ 저장 실패: ${lastError?.message || "알 수 없는 오류"}\n\n💡 SQL 실행:\nALTER TABLE staff ADD COLUMN IF NOT EXISTS session_rate NUMERIC DEFAULT 30000;\nALTER TABLE staff ADD COLUMN IF NOT EXISTS incentive_rate NUMERIC DEFAULT 0;`);
+
+    // ✅ v3.20.14: RLS에 의해 update가 실패해 [] 반환된 경우 감지
+    if (lastError) {
+      alert(`❌ 저장 실패: ${lastError.message}\n\n💡 SQL 실행:\nALTER TABLE staff ADD COLUMN IF NOT EXISTS session_rate NUMERIC DEFAULT 30000;\nALTER TABLE staff ADD COLUMN IF NOT EXISTS incentive_rate NUMERIC DEFAULT 0;\n\n또는 RLS 정책 재설정:\nAQUNOTE_V32010_STAFF_RLS.sql 실행`);
+      return;
+    }
+    if (!updatedRows || updatedRows.length === 0) {
+      alert(`❌ RLS 정책으로 인해 update가 차단되었습니다.\n\n💡 Supabase SQL Editor에서 실행:\n\nALTER TABLE staff ENABLE ROW LEVEL SECURITY;\nDROP POLICY IF EXISTS "staff_all" ON staff;\nCREATE POLICY "staff_all" ON staff FOR ALL USING (true) WITH CHECK (true);\n\n(AQUNOTE_V32010_STAFF_RLS.sql 사용 가능)`);
+      return;
+    }
+
+    // 저장 성공 – 응답 row의 실제 DB 값을 state에 반영
+    const saved = updatedRows[0];
+    const dbRate = Number(saved.session_rate);
+    const dbInc = Number(saved.incentive_rate);
+    setRates(prev => ({ ...prev, [staffId]: { session_rate: dbRate, incentive_rate: dbInc } }));
+    setStaff(prev => prev.map((st: any) => st.id === staffId ? { ...st, session_rate: dbRate, incentive_rate: dbInc } : st));
+    if (dbRate === sessionRate && dbInc === incentiveRate) {
+      alert(`✅ 수당 설정 저장 완료\n\n• 회당 단가: ₩${dbRate.toLocaleString()}\n• 인센티브: ${dbInc}%`);
+    } else {
+      alert(`⚠️ 저장되었으나 값 불일치\n\n• 요청: ₩${sessionRate.toLocaleString()} / ${incentiveRate}%\n• 실제 DB 값: ₩${dbRate.toLocaleString()} / ${dbInc}%\n\n💡 트리거가 값을 변경하고 있을 수 있습니다.`);
+    }
   }
 
   // 강사별 통계 계산
