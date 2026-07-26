@@ -8,7 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import {
   FileSignature, FileText, Plus, X, Save, Trash2, Search,
-  UserCheck, Users, Calendar, ChevronLeft, Printer, Download, Mail
+  UserCheck, Users, Calendar, ChevronLeft, Printer, Download
 } from "lucide-react";
 import ContractSignaturePad, { CenterSeal } from "@/components/ContractSignaturePad";
 
@@ -404,6 +404,24 @@ export default function ContractsPage() {
     if (!editing.subject_name) return alert("대상(회원/직원)명을 입력해 주세요");
     if (!editing.title) return alert("계약서 제목을 입력해 주세요");
 
+    // ✅ v3.20.18: 회원 계약서 필수 동의 체크 검증
+    if (editing.subject_kind === "member" && editing.contract_type === "member_service") {
+      const fd = editing.form_data || {};
+      const missing: string[] = [];
+      if (!fd.agree_contract) missing.push("계약·환불·위약금 조항 동의");
+      if (!fd.agree_privacy)  missing.push("개인정보 수집·이용 동의");
+      if (!fd.agree_safety)   missing.push("안전 관리·책임 조항 동의");
+      if (missing.length > 0) {
+        alert(`❌ 필수 동의 항목이 체크되지 않았습니다:\n\n• ${missing.join("\n• ")}\n\n하단 동의 체크박스를 모두 처리해 주세요.`);
+        return;
+      }
+    }
+    // 근로계약·비밀유지 등 직원 계약서도 서명 유도 검증
+    if (!editing.signature) {
+      const proceed = confirm("⚠️ 아직 서명하지 않았습니다.\n그대로 초안으로 저장하시겠습니까?");
+      if (!proceed) return;
+    }
+
     const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
     const branchId = getActiveBranchId();
     const payload: any = {
@@ -460,47 +478,18 @@ export default function ContractsPage() {
   }
 
   function handlePrint() {
-    // ✅ v3.20.16: 브라우저 프린트 다이얼로그에서 'PDF로 저장' 선택 가능
+    // ✅ v3.20.18: 계약서로 보기 모드에서만 프린트 (편집 UI 숨김)
+    if (editing?._view !== "preview") {
+      setEditing({ ...editing, _view: "preview" });
+      // 대기 후 프린트
+      setTimeout(() => window.print(), 300);
+      return;
+    }
     window.print();
   }
 
-  // ✅ v3.20.16: 계약서 이메일 발송 (본문 + 링크 mailto 방식)
-  async function sendByEmail() {
-    if (!editing) return;
-    // 회원/직원 이메일 자동 조회
-    let toEmail = "";
-    if (editing.subject_id) {
-      const table = editing.subject_kind === "staff" ? "staff" : "members";
-      const r = await supabase.from(table).select("email").eq("id", editing.subject_id).maybeSingle();
-      toEmail = r.data?.email || "";
-    }
-    const promptedEmail = prompt(
-      `계약서를 이메일로 발송합니다.\n\n수신자 이메일을 입력하세요:`,
-      toEmail || ""
-    );
-    if (!promptedEmail) return;
-
-    // 저장되지 않은 계약서는 먼저 저장
-    if (!editing.id) {
-      const ok = confirm("이메일 발송 전에 계약서를 먼저 저장합니다. 진행하시겠습니까?");
-      if (!ok) return;
-      await save();
-    }
-
-    const subject = encodeURIComponent(`[위례아쿠수중운동센터] ${editing.title || typeLabel(editing.contract_type)}`);
-    const body = encodeURIComponent(
-      `안녕하세요, ${editing.subject_name} 님.\n\n위례아쿠수중운동센터 ${typeLabel(editing.contract_type)}를 전달드립니다.\n\n${"=".repeat(40)}\n\n${editing.body}\n\n${"=".repeat(40)}\n\n계약일: ${editing.contract_date}\n위례아쿠수중운동센터\n대표자: 하유정\n사업자등록번호: 680-04-03475\n경기도 하남시 위례대로 190, 위례효성해링턴타워 203호\n`
-    );
-    // 기본 메일 클라이언트 열기 (Gmail/Outlook 등)
-    window.location.href = `mailto:${promptedEmail}?subject=${subject}&body=${body}`;
-
-    // 발송 이력 상태 업데이트
-    if (editing.id) {
-      await supabase.from("contracts").update({ status: "sent", sent_at: new Date().toISOString(), sent_to: promptedEmail })
-        .eq("id", editing.id);
-      await loadAll();
-    }
-  }
+  // ✅ v3.20.18: 이메일 발송 제거 → PDF 저장만 지원 (계약서는 자동으로 contracts 테이블에 저장되며,
+  // 회원·직원 상세 페이지에서 자동 노출됨)
 
   return (
     <main className="max-w-7xl mx-auto px-3 md:px-6 py-6 md:py-10">
@@ -523,26 +512,51 @@ export default function ContractsPage() {
           .no-print { display: none !important; }
           .print-only { display: block !important; }
           body { -webkit-print-color-adjust: exact; print-color-adjust: exact; background: #fff !important; }
-          main { max-width: 100% !important; padding: 0 !important; }
+          main { max-width: 100% !important; padding: 0 !important; margin: 0 !important; }
 
           /* 모달 배경 제거 + A4 여백 */
           .fixed.inset-0 { position: static !important; background: #fff !important; padding: 0 !important; }
           .fixed.inset-0 > div { max-width: 100% !important; width: 100% !important; max-height: none !important; box-shadow: none !important; border-radius: 0 !important; overflow: visible !important; }
           .fixed.inset-0 > div > div { max-height: none !important; overflow: visible !important; }
+          .fixed.inset-0 .bg-gradient-to-r,
+          .fixed.inset-0 .border-b { border: none !important; background: transparent !important; }
 
-          @page { size: A4; margin: 15mm 15mm 18mm 15mm; }
+          /* ✅ v3.20.18: A4 한 페이지에 맞춰 글씨 축소 */
+          @page { size: A4; margin: 10mm 12mm 12mm 12mm; }
+
+          html, body { font-size: 9pt !important; }
 
           .contract-body {
             border: none !important;
             padding: 0 !important;
-            font-size: 11.5pt;
-            line-height: 1.75;
-            min-height: auto;
+            font-size: 9pt !important;
+            line-height: 1.45 !important;
+            min-height: auto !important;
             height: auto !important;
             max-height: none !important;
             overflow: visible !important;
             resize: none;
+            letter-spacing: -0.03em;
+            page-break-inside: auto;
           }
+          .contract-body div { break-inside: auto; }
+
+          /* 상단 모달 헤더(제목)은 감추고 계약서 헤더만 표시 */
+          h2, h3 { font-size: 11pt !important; }
+
+          /* 서명·직인 영여 축소 */
+          .contract-sign-area {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+            margin-top: 12px !important;
+            font-size: 8.5pt !important;
+          }
+          .contract-sign-area img { max-width: 60mm !important; max-height: 20mm !important; }
+
+          /* 입력 필드·체크박스 영역 숨김 */
+          input, textarea, select, button, label { visibility: visible; }
+          .no-print, .no-print * { display: none !important; }
+
           .contract-print { border: none !important; }
         }
         .print-only { display: none; }
@@ -916,14 +930,44 @@ export default function ContractsPage() {
                   className="contract-body w-full mt-1 px-4 py-3 border border-gray-200 rounded-lg bg-white"
                   placeholder="계약서 본문을 입력하세요..." />
               ) : (
-                /* 실계약서 A4 종이 스타일 미리보기 */
+                /* ✅ v3.20.18: 실계약서 A4 종이 스타일 + 서명·직인 실시간 반영 */
                 <div className="contract-body mt-1 px-8 py-10 md:px-12 md:py-14 bg-white border border-gray-300 shadow-sm rounded"
                   style={{ minHeight: "600px" }}>
                   <div className="text-center mb-6 pb-4 border-b-2 border-gray-800">
                     <div className="text-lg font-bold">{editing.title || "계약서"}</div>
                     <div className="text-[10px] text-gray-500 mt-1">위례아쿠수중운동센터 · 계약일 {editing.contract_date}</div>
                   </div>
-                  <div>{editing.body}</div>
+                  <div className="whitespace-pre-wrap">{editing.body}</div>
+
+                  {/* ✅ v3.20.18: 서명·직인 영역 실시간 미리보기 */}
+                  <div className="contract-sign-area grid grid-cols-2 gap-4 mt-8 pt-4 border-t border-gray-200">
+                    <div>
+                      <div className="text-[10px] font-bold text-gray-500 mb-1">
+                        {editing.subject_kind === "staff" ? "근로자" : "회원(보호자)"}
+                      </div>
+                      <div className="text-[11px] text-gray-800 space-y-0.5 mb-2">
+                        <div>연락처: {editing.form_data?.worker_phone || editing.form_data?.phone || "-"}</div>
+                        <div>이  름: <b>{editing.subject_name || "-"}</b></div>
+                      </div>
+                      <div className="h-[70px] flex items-center justify-center border border-gray-100 rounded bg-gray-50/40">
+                        {editing.signature
+                          ? <img src={editing.signature} alt="sign" style={{ maxWidth: 200, maxHeight: 60, objectFit: "contain" }} />
+                          : <span className="text-[10px] text-gray-400">서명 필요</span>}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-bold text-gray-500 mb-1">사업주</div>
+                      <div className="text-[11px] text-gray-800 space-y-0.5 mb-2">
+                        <div>사업체명: <b>위례아쿠수중운동센터</b></div>
+                        <div>대표자: <b>하유정</b></div>
+                      </div>
+                      <div className="h-[70px] flex items-center justify-center border border-gray-100 rounded bg-gray-50/40">
+                        {editing.counter_signature === "seal"
+                          ? <CenterSeal size={60} />
+                          : <span className="text-[10px] text-gray-400">직인 필요</span>}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1015,12 +1059,9 @@ export default function ContractsPage() {
               <div className="flex gap-2 flex-wrap">
                 <button onClick={() => setEditing(null)}
                   className="px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50">취소</button>
-                {/* ✅ v3.20.16: 이메일 발송 */}
-                <button onClick={sendByEmail}
-                  className="px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm flex items-center gap-1">
-                  <Mail className="w-4 h-4" /> 이메일 발송
-                </button>
-                {/* ✅ v3.20.16: PDF 저장 (브라우저 프린트 다이얼로그→PDF로 저장) */}
+                {/* ✅ v3.20.18: PDF 저장 (브라우저 프린트 다이얼로그→PDF로 저장)
+                    계약서는 모두 contracts 테이블에 자동 저장되며,
+                    회원/직원 상세 페이지에 자동으로 노출됩니다. */}
                 <button onClick={handlePrint}
                   className="px-3 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-lg text-sm flex items-center gap-1">
                   <Download className="w-4 h-4" /> PDF 저장

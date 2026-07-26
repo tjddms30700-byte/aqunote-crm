@@ -1250,6 +1250,7 @@ export default function SchedulePage() {
           onCellDoubleClick={(date, time) => openNewModal(date, time)}
           onEdit={openEditModal}
           memberName={memberName}
+          timeSlotOptions={timeSlotOptions}
         />
       ) : (
         <DayView
@@ -1262,6 +1263,7 @@ export default function SchedulePage() {
           onCellDoubleClick={(date, time) => openNewModal(date, time)}
           onEdit={openEditModal}
           memberName={memberName}
+          timeSlotOptions={timeSlotOptions}
         />
       )}
 
@@ -1688,7 +1690,9 @@ function BigStat({ label, val, sub, color }: any) {
 }
 
 /* ═════ 주간 뷰 ═════ */
-function WeekView({ slots, members, staff, onCellClick, onCellDoubleClick, onEdit, memberName }: any) {
+function WeekView({ slots, members, staff, onCellClick, onCellDoubleClick, onEdit, memberName, timeSlotOptions }: any) {
+  // ✅ v3.20.18: 지점 정책의 timeSlotOptions 사용 (fallback: TIMES)
+  const times = (timeSlotOptions && timeSlotOptions.length > 0) ? timeSlotOptions : TIMES;
   const staffMap = useMemo(() => {
     const m: Record<string, any> = {};
     (staff || []).forEach((s: any) => m[s.id] = s);
@@ -1770,7 +1774,7 @@ function WeekView({ slots, members, staff, onCellClick, onCellDoubleClick, onEdi
             </tr>
           </thead>
           <tbody>
-            {TIMES.map(time => (
+            {times.map((time: string) => (
               <tr key={time} className="border-b border-gray-100">
                 <td className="p-2 font-medium text-gray-700 bg-gray-50 text-xs">{time}</td>
                 {weekDates.map((d, di) => {
@@ -1840,7 +1844,9 @@ function WeekView({ slots, members, staff, onCellClick, onCellDoubleClick, onEdi
 }
 
 /* ═════ 일간 뷰 (강사별 컬럼) ═════ */
-function DayView({ date, setDate, slots, members, staff, onCellClick, onCellDoubleClick, onEdit, memberName }: any) {
+function DayView({ date, setDate, slots, members, staff, onCellClick, onCellDoubleClick, onEdit, memberName, timeSlotOptions }: any) {
+  // ✅ v3.20.18: 지점 정책의 timeSlotOptions 사용 (fallback: TIMES)
+  const times = (timeSlotOptions && timeSlotOptions.length > 0) ? timeSlotOptions : TIMES;
   const dayDate = new Date(date);
   // 해당 날짜에 재직 중인 직원만 표시 (퇴사일 이후엔 숨김)
   const workingStaff = (staff || []).filter((s: any) => {
@@ -1901,7 +1907,7 @@ function DayView({ date, setDate, slots, members, staff, onCellClick, onCellDoub
             </tr>
           </thead>
           <tbody>
-            {TIMES.map(time => (
+            {times.map((time: string) => (
               <tr key={time} className="border-b border-gray-100">
                 <td className="p-2 font-medium text-gray-700 bg-gray-50 text-xs">{time}</td>
                 {activeStaff.map((st: any) => {
