@@ -131,13 +131,18 @@ export default function StaffPage() {
       address: newStaff.address || null,
       color: newStaff.color || "#3b82f6",
       hire_date: newStaff.hire_date || null,
-      // ✅ v3.19.0: 강사별 회당 단가 · 인센티브율 (설정 눈라서 자동 수당 계산에 반영)
-      session_rate: Number(newStaff.session_rate || 0) || null,
-      incentive_rate: Number(newStaff.incentive_rate || 0) || null,
+      // ✅ v3.20.12: 0 값 저장 허용 (Number.isFinite로 명시적 검증)
+      session_rate: Number.isFinite(Number(newStaff.session_rate)) ? Number(newStaff.session_rate) : 30000,
+      incentive_rate: Number.isFinite(Number(newStaff.incentive_rate)) ? Number(newStaff.incentive_rate) : 0,
     };
     if (editStaff?.id) {
-      const { error } = await supabase.from("staff").update(payload).eq("id", editStaff.id).select();
-      if (error) return alert("수정 실패: " + error.message);
+      const { data, error } = await supabase.from("staff").update(payload).eq("id", editStaff.id).select();
+      if (error) return alert("수정 실패: " + error.message + "\n\n💡 RLS 정책 확인 필요: AQUNOTE_V32010_STAFF_RLS.sql 실행");
+      // ✅ v3.20.12: 저장 후 DB 실제 값 재검증
+      const saved = data?.[0];
+      if (saved) {
+        alert(`✅ 저장 완료\n\n• 회당단가: ₩${Number(saved.session_rate ?? 0).toLocaleString()}\n• 인센티브율: ${saved.incentive_rate ?? 0}%`);
+      }
     } else {
       const { error } = await supabase.from("staff").insert(payload).select();
       if (error) return alert("추가 실패: " + error.message);

@@ -406,11 +406,21 @@ export default function PaymentsPage() {
   }
 
   // 회원권 회차 조정 (+/-) – ✅ v3.20.9: 잔여/총 회수 명시 + 이중 차감 검증
-  async function adjustSessions(m: any, delta: number) {
+  async function adjustSessions(m: any, sign: number) {
     const total = (m.total_sessions || 0) + (m.adjustment || 0);
     const used  = m.used_sessions || 0;
     const remaining = Math.max(0, total - used);
     const name = m.members?.name || "회원";
+
+    // ✅ v3.20.12: 몇 회 차감/추가할지 개수 입력 받기
+    const countStr = prompt(
+      `${name} 님의 "${m.plan_name}"\n\n📊 현재 잔여: ${remaining}회 / 전체: ${total}회\n\n${sign > 0 ? "➕ 추가" : "➖ 차감"}할 회차 수를 입력하세요\n(1 ~ ${sign > 0 ? 99 : remaining}회)`,
+      "1"
+    );
+    if (countStr === null) return; // 취소
+    const count = Math.abs(parseInt(countStr, 10) || 0);
+    if (count <= 0) { alert("❌ 1 이상의 숫자를 입력해 주세요"); return; }
+    const delta = sign > 0 ? count : -count;
 
     // 차감 시 잔여 부족 검증
     if (delta < 0 && remaining + delta < 0) {

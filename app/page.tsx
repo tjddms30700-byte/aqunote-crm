@@ -76,9 +76,10 @@ const GROUPS = [
     bg: "bg-slate-50",
     directorOnly: true,
     items: [
-      // ✅ v3.20.10: 직원 급여·문서를 운영 탭 별도 카드로 분리 / 지점 정책에는 회원권·시간표·자동백업만 포함
+      // ✅ v3.20.12: 직원관리·직원급여를 별도 카드로 분리
       { href: "/payments",                 icon: CreditCard,     title: "💳 결제 · 매출 분석",       desc: "결제·매출·통계 통합" },
       { href: "/finance",                  icon: DollarSign,     title: "💼 센터 재무 · 자동정산",   desc: "수입·지출·정기결제" },
+      { href: "/staff",                    icon: UserCog,        title: "👥 직원 관리",              desc: "직원 등록 · 재직/퇴사 관리" },
       { href: "/settings/payroll-config",  icon: Briefcase,      title: "👨‍💼 직원 급여 · 수당",      desc: "회당 단가 · 인센티브 · 지급 이력" },
       { href: "/documents",                icon: FileText,       title: "📄 문서 관리",              desc: "센터 관련 서류 (사업자등록증 등)" },
       { href: "/contracts",                icon: FileText,       title: "📝 계약서 관리",              desc: "근로계약·회원계약·개인정보 동의서 자체 작성" },
