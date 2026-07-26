@@ -505,13 +505,45 @@ export default function ContractsPage() {
   return (
     <main className="max-w-7xl mx-auto px-3 md:px-6 py-6 md:py-10">
       <style jsx global>{`
+        /* ✅ v3.20.17: 계약서 본문 실계약서 종이처럼 스타일링 (화면·프린트 공용) */
+        .contract-body {
+          white-space: pre-wrap;
+          font-family: "Nanum Myeongjo", "NanumMyeongjo", "Batang", serif;
+          line-height: 1.85;
+          font-size: 12px;
+          letter-spacing: -0.02em;
+          color: #111;
+          background: #fff;
+          min-height: 520px;
+        }
+        /* 서명 영역 - 페이지 간 잘림 방지 */
+        .contract-sign-area { page-break-inside: avoid; break-inside: avoid; }
+
         @media print {
           .no-print { display: none !important; }
           .print-only { display: block !important; }
-          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; background: #fff !important; }
           main { max-width: 100% !important; padding: 0 !important; }
+
+          /* 모달 배경 제거 + A4 여백 */
+          .fixed.inset-0 { position: static !important; background: #fff !important; padding: 0 !important; }
+          .fixed.inset-0 > div { max-width: 100% !important; width: 100% !important; max-height: none !important; box-shadow: none !important; border-radius: 0 !important; overflow: visible !important; }
+          .fixed.inset-0 > div > div { max-height: none !important; overflow: visible !important; }
+
+          @page { size: A4; margin: 15mm 15mm 18mm 15mm; }
+
+          .contract-body {
+            border: none !important;
+            padding: 0 !important;
+            font-size: 11.5pt;
+            line-height: 1.75;
+            min-height: auto;
+            height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
+            resize: none;
+          }
           .contract-print { border: none !important; }
-          .contract-body { white-space: pre-wrap; font-family: serif; line-height: 1.9; }
         }
         .print-only { display: none; }
       `}</style>
@@ -848,14 +880,83 @@ export default function ContractsPage() {
                 </div>
               )}
 
-              <label className="text-xs block">
-                <span className="text-gray-600 font-semibold no-print">📄 계약 본문 (발송 전 직접 수정 가능)</span>
+              {/* ✅ v3.20.17: 뉴 모드 토글 (편집 / 실계약서 미리보기) */}
+              <div className="no-print flex items-center gap-2">
+                <span className="text-xs text-gray-600 font-semibold">📄 계약 본문</span>
+                <div className="ml-auto flex bg-gray-100 rounded-lg p-0.5 text-[11px]">
+                  <button type="button" onClick={() => setEditing({ ...editing, _view: "edit" })}
+                    className={`px-3 py-1 rounded ${(editing._view || "edit") === "edit" ? "bg-white shadow font-bold text-gray-900" : "text-gray-500"}`}>
+                    ✏️ 편집
+                  </button>
+                  <button type="button" onClick={() => setEditing({ ...editing, _view: "preview" })}
+                    className={`px-3 py-1 rounded ${editing._view === "preview" ? "bg-white shadow font-bold text-gray-900" : "text-gray-500"}`}>
+                    👁️ 계약서로 보기
+                  </button>
+                </div>
+              </div>
+
+              {(editing._view || "edit") === "edit" ? (
                 <textarea value={editing.body}
-                  onChange={e => setEditing({ ...editing, body: e.target.value })}
-                  rows={18}
-                  className="contract-body w-full mt-1 px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono leading-relaxed"
+                  onChange={e => {
+                    setEditing({ ...editing, body: e.target.value });
+                    // auto-resize (프린트 시 본문 잘림 방지)
+                    const el = e.target as HTMLTextAreaElement;
+                    el.style.height = "auto";
+                    el.style.height = Math.max(400, el.scrollHeight) + "px";
+                  }}
+                  rows={20}
+                  ref={(el) => {
+                    if (el && (!el.style.height || el.style.height === "auto")) {
+                      requestAnimationFrame(() => {
+                        el.style.height = "auto";
+                        el.style.height = Math.max(400, el.scrollHeight) + "px";
+                      });
+                    }
+                  }}
+                  className="contract-body w-full mt-1 px-4 py-3 border border-gray-200 rounded-lg bg-white"
                   placeholder="계약서 본문을 입력하세요..." />
-              </label>
+              ) : (
+                /* 실계약서 A4 종이 스타일 미리보기 */
+                <div className="contract-body mt-1 px-8 py-10 md:px-12 md:py-14 bg-white border border-gray-300 shadow-sm rounded"
+                  style={{ minHeight: "600px" }}>
+                  <div className="text-center mb-6 pb-4 border-b-2 border-gray-800">
+                    <div className="text-lg font-bold">{editing.title || "계약서"}</div>
+                    <div className="text-[10px] text-gray-500 mt-1">위례아쿠수중운동센터 · 계약일 {editing.contract_date}</div>
+                  </div>
+                  <div>{editing.body}</div>
+                </div>
+              )}
+
+              {/* ✅ v3.20.17: 회원 계약서 전용 동의 체크박스 */}
+              {editing.subject_kind === "member" && (
+                <div className="border-2 border-emerald-100 bg-emerald-50/40 rounded-lg p-3 mt-3 space-y-1.5">
+                  <div className="text-xs font-bold text-emerald-800 mb-1">✅ 계약 동의 항목 (필수)</div>
+                  <label className="flex items-start gap-2 text-[12px] cursor-pointer">
+                    <input type="checkbox" className="mt-0.5"
+                      checked={!!editing.form_data?.agree_contract}
+                      onChange={e => setEditing({ ...editing, form_data: { ...(editing.form_data || {}), agree_contract: e.target.checked } })} />
+                    <span>본인은 위 계약 내용을 충분히 이해하였으며, <b>제8조(계약 해지·환불·위약금)</b> 조항에 대해 명확히 설명을 듣고 <b>동의합니다</b>.</span>
+                  </label>
+                  <label className="flex items-start gap-2 text-[12px] cursor-pointer">
+                    <input type="checkbox" className="mt-0.5"
+                      checked={!!editing.form_data?.agree_privacy}
+                      onChange={e => setEditing({ ...editing, form_data: { ...(editing.form_data || {}), agree_privacy: e.target.checked } })} />
+                    <span>개인정보 및 민감정보 수집·이용에 <b>동의합니다</b>.</span>
+                  </label>
+                  <label className="flex items-start gap-2 text-[12px] cursor-pointer">
+                    <input type="checkbox" className="mt-0.5"
+                      checked={!!editing.form_data?.agree_safety}
+                      onChange={e => setEditing({ ...editing, form_data: { ...(editing.form_data || {}), agree_safety: e.target.checked } })} />
+                    <span>제7조(안전 관리 및 책임 범위) 조항을 이해하고 <b>동의합니다</b>.</span>
+                  </label>
+                  <label className="flex items-start gap-2 text-[12px] cursor-pointer text-gray-600">
+                    <input type="checkbox" className="mt-0.5"
+                      checked={!!editing.form_data?.agree_photo}
+                      onChange={e => setEditing({ ...editing, form_data: { ...(editing.form_data || {}), agree_photo: e.target.checked } })} />
+                    <span>(선택) 교육·활동 기록 목적의 사진·영상 촬영에 <b>동의합니다</b>.</span>
+                  </label>
+                </div>
+              )}
 
               <div className="no-print">
                 <label className="text-xs">
@@ -867,48 +968,42 @@ export default function ContractsPage() {
                 </label>
               </div>
 
-              {/* ✅ v3.20.16: 서명 캐버스 3란 (회원/근로자 + 센터 직인) */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
-                <div>
-                  <div className="text-xs font-bold text-gray-700 mb-1">
-                    {editing.subject_kind === "staff" ? "근로자 / 직원 서명" : "회원(보호자) 서명"}
+              {/* ✅ v3.20.17: 서명·직인 좀 더 컴팩트하게 좌우 배치 (글자 안 잘리게) */}
+              <div className="contract-sign-area grid grid-cols-2 gap-2 mt-4 print:mt-6">
+                {/* 좌: 근로자/회원 서명 */}
+                <div className="border border-gray-200 rounded-lg p-2 bg-white">
+                  <div className="text-[10px] font-bold text-gray-500 mb-1">
+                    {editing.subject_kind === "staff" ? "근로자" : "회원(보호자)"}
+                  </div>
+                  <div className="space-y-0.5 text-[11px] text-gray-800 mb-1.5">
+                    <div>연락처: {editing.form_data?.worker_phone || editing.form_data?.phone || "-"}</div>
+                    <div>이  름: <b>{editing.subject_name || "-"}</b></div>
                   </div>
                   <ContractSignaturePad
-                    label={editing.subject_name || "서명"}
+                    label="서명"
                     value={editing.signature || ""}
                     onChange={(dataUrl) => setEditing({ ...editing, signature: dataUrl })}
+                    width={240}
+                    height={70}
                   />
                 </div>
-                <div>
-                  <div className="text-xs font-bold text-gray-700 mb-1">위례아쿠수중운동센터 직인</div>
-                  <div className="border-2 border-red-100 rounded-lg p-2 bg-red-50/30 flex items-center justify-between">
-                    <div className="text-[11px] text-gray-600">
-                      대표자: 하유정<br/>
-                      사업자등록번호: 680-04-03475
-                    </div>
-                    <CenterSeal size={80} />
+                {/* 우: 사업주 + 직인 */}
+                <div className="border border-gray-200 rounded-lg p-2 bg-white">
+                  <div className="text-[10px] font-bold text-gray-500 mb-1">사업주</div>
+                  <div className="space-y-0.5 text-[11px] text-gray-800 mb-1.5">
+                    <div>사업체명: <b>위례아쿠수중운동센터</b></div>
+                    <div>대표자: <b>하유정</b></div>
                   </div>
-                  <label className="flex items-center gap-1 mt-1 text-[11px] text-gray-600">
+                  <div className="flex items-center justify-center h-[70px] border border-gray-100 rounded bg-gray-50/40">
+                    {editing.counter_signature === "seal"
+                      ? <CenterSeal size={64} />
+                      : <span className="text-[10px] text-gray-400">직인 표시를 체크하세요</span>}
+                  </div>
+                  <label className="no-print flex items-center gap-1 mt-1 text-[10px] text-gray-600">
                     <input type="checkbox" checked={editing.counter_signature === "seal"}
                       onChange={e => setEditing({ ...editing, counter_signature: e.target.checked ? "seal" : "" })} />
                     생성/프린트 시 직인 표시
                   </label>
-                </div>
-              </div>
-
-              {/* 프린트용 서명란 (이미지 포함) */}
-              <div className="hidden print:flex mt-8 justify-around text-xs">
-                <div className="text-center">
-                  <div className="mb-2 font-bold">{editing.subject_kind === "staff" ? "근로자" : "회원(보호자)"} 서명</div>
-                  {editing.signature
-                    ? <img src={editing.signature} alt="sign" style={{ width: 180, height: 80, objectFit: "contain" }} />
-                    : <div className="border-t border-black w-40 mt-8"></div>}
-                  <div className="mt-1">{editing.subject_name}</div>
-                </div>
-                <div className="text-center">
-                  <div className="mb-2 font-bold">위례아쿠수중운동센터 직인</div>
-                  {editing.counter_signature === "seal" ? <CenterSeal size={100} /> : <div className="border-t border-black w-40 mt-8"></div>}
-                  <div className="mt-1">대표자 하유정</div>
                 </div>
               </div>
             </div>

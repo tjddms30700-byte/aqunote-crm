@@ -12,8 +12,8 @@ export default function ContractSignaturePad({
   label = "서명",
   value = "",
   onChange,
-  width = 300,
-  height = 120,
+  width = 260,
+  height = 90,
 }: {
   label?: string;
   value?: string;
@@ -109,19 +109,18 @@ export default function ContractSignaturePad({
 }
 
 /**
- * v3.20.16: 위례아쿠수중운동센터 직인 SVG
- * - 대표자 하유정 인감을 SVG로 렌더링
+ * v3.20.17: 위례아쿠수중운동센터 실제 직인 PNG 이미지
+ * - /public/center_seal.png (사용자 업로드 직인 파일)
  * - 계약서 저장/프린트 시 자동 삽입
  */
 export function CenterSeal({ size = 100 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="50" cy="50" r="46" fill="none" stroke="#c1272d" strokeWidth="3" />
-      <circle cx="50" cy="50" r="40" fill="none" stroke="#c1272d" strokeWidth="1.5" />
-      <text x="50" y="30" textAnchor="middle" fill="#c1272d" fontSize="10" fontWeight="bold" fontFamily="serif">위례아쿠</text>
-      <text x="50" y="45" textAnchor="middle" fill="#c1272d" fontSize="10" fontWeight="bold" fontFamily="serif">수중운동</text>
-      <text x="50" y="60" textAnchor="middle" fill="#c1272d" fontSize="10" fontWeight="bold" fontFamily="serif">센터</text>
-      <text x="50" y="78" textAnchor="middle" fill="#c1272d" fontSize="9" fontWeight="bold" fontFamily="serif">대표 하유정</text>
-    </svg>
+    <img
+      src="/center_seal.png"
+      alt="위례아쿠수중운동센터 직인"
+      width={size}
+      height={size}
+      style={{ width: size, height: size, objectFit: "contain", display: "inline-block" }}
+    />
   );
 }
