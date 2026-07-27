@@ -4,11 +4,15 @@ import Logo from "@/components/Logo";
 import { CheckCircle2, ChevronRight, ChevronLeft, Loader2, Phone, Clock, AlertCircle } from "lucide-react";
 
 const DAYS = ["월", "화", "수", "목", "금", "토"];
+// v3.20.26: TIME_SLOTS 유지 상태 (이미 19:20~20:30 포함됨) · 20:30~21:40 토임도 포함
 const TIME_SLOTS = [
   "10:00~11:10", "11:10~12:20", "12:20~13:30", "13:30~14:40",
   "14:40~15:50", "15:50~17:00", "17:00~18:10", "18:10~19:20",
   "19:20~20:30", "20:30~21:40",
 ];
+// v3.20.26: 미운영 타임 목록 (안내용)
+const UNAVAILABLE_TIMES = ["10:00~11:10", "11:10~12:20", "12:20~13:30"];
+const UNAVAILABLE_DAYS = ["토"];
 const BRANCHES = ["위례본점"];
 
 export default function ApplyAdultPage() {
@@ -262,11 +266,8 @@ export default function ApplyAdultPage() {
               {/* ✅ v3.16.1: 생활 / 수영 경험 */}
               <div className="grid grid-cols-1 gap-3">
                 <RadioGroup label="평소 활동량"
-                  options={["거의 안 함", "가벼운 산책", "보통 종종 운동", "꼾준히 운동"]}
+                  options={["거의 안 함", "가벼운 산책", "보통 종종 운동", "꾸준히 운동"]}
                   value={form.activity_level} onChange={(v: string) => update("activity_level", v)} />
-                <RadioGroup label="물 경험/수영 실력"
-                  options={["물 무서움움", "잠수 가능", "자유형 가능", "수영선수 수준"]}
-                  value={form.swim_level} onChange={(v: string) => update("swim_level", v)} />
                 <RadioGroup label="수면 상태"
                   options={["좋음", "보통", "불량", "약 복용 중"]}
                   value={form.sleep_quality} onChange={(v: string) => update("sleep_quality", v)} />
@@ -288,7 +289,7 @@ export default function ApplyAdultPage() {
               <RadioGroup label="평소 운동 빈도" options={["안함","주 1회","주 2~3회","주 4회 이상"]}
                 value={form.exercise_freq || ""} onChange={(v: string) => update("exercise_freq", v)} />
               <TextArea label="운동 이력" value={form.exercise_history || ""}
-                onChange={(v: string) => update("exercise_history", v)} placeholder="예: 수영, 필라테스, PT, 헬스 등" rows={2} />
+                onChange={(v: string) => update("exercise_history", v)} placeholder="예: 수영 3년 이상, 헬스 3개월 이상" rows={2} />
               <RadioGroup label="수면 시간" options={["5시간 미만","5~7시간","7~8시간","8시간 이상"]}
                 value={form.sleep || ""} onChange={(v: string) => update("sleep", v)} />
               <RadioGroup label="스트레스 수준" options={["낮음","보통","높음","매우 높음"]}
@@ -309,7 +310,7 @@ export default function ApplyAdultPage() {
                 value={form.heart_condition || ""} onChange={(v: string) => update("heart_condition", v)} />
               <RadioGroup label="당뇨 이력" options={["없음","경계","있음(약물 복용)","있음(인슐린)"]}
                 value={form.diabetes || ""} onChange={(v: string) => update("diabetes", v)} />
-              <RadioGroup label="임신 여부 (해당 시)" options={["해당없음","임신 준비말","임신중","산후"]}
+              <RadioGroup label="임신 여부 (해당 시)" options={["해당없음","임신 준비중","임신중","산후"]}
                 value={form.pregnancy || ""} onChange={(v: string) => update("pregnancy", v)} />
               <RadioGroup label="알레르기 / 피부질환" options={["없음","경미","있음(관리 중)"]}
                 value={form.allergy || ""} onChange={(v: string) => update("allergy", v)} />
@@ -324,43 +325,36 @@ export default function ApplyAdultPage() {
               <h2 className="text-lg font-bold text-blue-900">💬 자기 니즈 · 목표</h2>
               <TextArea label="수중재활을 통해 가장 해결하고 싶은 점" value={form.top_goal || ""}
                 onChange={(v: string) => update("top_goal", v)} rows={2} />
-              <TextArea label="피하고 싶은 동작 / 시유리허지 않는 자세" value={form.avoid_situations || ""}
+              <TextArea label="피하고 싶은 동작 / 하기 어려운 자세" value={form.avoid_situations || ""}
                 onChange={(v: string) => update("avoid_situations", v)} rows={2} />
-              <RadioGroup label="수중재활 경험" options={["처음","1회","2~3회","껾준히 경험"]}
+              <RadioGroup label="수중재활 경험" options={["처음","해본 경험이 있음","꾸준히 경험"]}
                 value={form.aqua_experience || ""} onChange={(v: string) => update("aqua_experience", v)} />
-              <RadioGroup label="물 적응도" options={["매우 좋음","보통","낯설","두려움"]}
+              <RadioGroup label="물 적응도" options={["두려움","낯섬","보통","편안함"]}
                 value={form.water_reaction || ""} onChange={(v: string) => update("water_reaction", v)} />
-              <RadioGroup label="수영 가능 수준" options={["모름","물에 뜨기 가능","자유형 가능","여러 영법 가능"]}
+              <RadioGroup label="수영 가능 수준" options={["모름","부유도구로 물에 뜨기 가능","부유도구로도 물에 뜨기 불가능","자유형 가능"]}
                 value={form.swim_level || ""} onChange={(v: string) => update("swim_level", v)} />
             </div>
           )}
 
-          {/* v3.20.23: STEP 6 신규 – 센터 이용 안내 및 대기 동의 */}
+          {/* v3.20.26: STEP 6 센터 이용 안내 – 수강료 안내 삭제, 문구 전면 교체 */}
           {step === 6 && (
             <div className="space-y-4">
               <h2 className="text-lg font-bold text-blue-900">🏢 센터 이용 안내</h2>
               <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-4 text-sm text-amber-900 leading-relaxed space-y-1">
                 <div className="font-bold text-amber-800">⏰ 운영 시간 안내</div>
                 <ul className="list-disc pl-5 space-y-1">
-                  <li><strong>평일 13:00 ~ 21:40</strong> · 하루 <strong>7타임 고정석</strong> 소수정예 1:1</li>
-                  <li className="text-red-700"><strong>10:00~12:00 오전 타임은 운영하지 않습니다</strong></li>
-                  <li className="text-red-700"><strong>토요일·일요일은 휴무입니다</strong> (주 5일 운영)</li>
+                  <li><strong>평일 13:00~22:00</strong> (하루 고정 7타임만 진행)</li>
+                  <li>평일 오전 타임(10:00~12:00) 및 토요일은 현재 운영하고 있지 않습니다.</li>
+                  <li>일요일 및 공휴일은 휴무입니다.</li>
                 </ul>
               </div>
               <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4 text-sm text-red-900 leading-relaxed space-y-1">
-                <div className="font-bold text-red-800">⚠️ 대기 안내 (반드시 확인)</div>
+                <div className="font-bold text-red-800">⚠️ 대기 시스템 안내</div>
                 <ul className="list-disc pl-5 space-y-1">
-                  <li>현재 정규 수업 타임은 <strong>평균 6개월 이상 대기</strong>가 발생합니다</li>
-                  <li>오전 타임이나 주말 타임은 현재 운영하지 않으나, <strong>추후 오픈 시 대기 순서대로 안내</strong>해드립니다</li>
-                  <li><strong>그럼에도 불구하고 기다리실 분만 신청해주세요</strong></li>
-                  <li>급하신 경우 다른 센터 이용을 권장드립니다</li>
+                  <li>현재 주요 피크타임은 기존 회원들의 고정석으로 거의 다 찬 상태라 <strong>평균 6개월 이상의 대기</strong>가 발생하고 있습니다. (치료가 급하신 경우 다른 센터 이용을 권장드립니다.)</li>
+                  <li>희망 요일 및 시간대를 대기 시스템에 먼저 등록해 주시면, <strong>공석 및 스케줄 변동이 발생하는 대로 대기 순번에 따라 최우선으로 안내</strong>해 드립니다.</li>
+                  <li>일정 조율에 시간이 소요될 수 있는 점 너른 양해 부탁드리며, 정성껏 준비하여 안내 도와드리겠습니다.</li>
                 </ul>
-              </div>
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-900 space-y-1">
-                <div className="font-bold">💰 수강료 안내</div>
-                <div>STANDARD 4회기 <strong>520,000원</strong> · 주 1회 고정수업</div>
-                <div className="text-xs opacity-80">체험 예약금 35,000원 · 수업일 2일전까지 취소 시 전액 환불</div>
-                <div className="text-xs opacity-80">입금계좌: 우리은행 105204643920 (예금주 아쿠수중운동센터 하유정)</div>
               </div>
               <label className="flex items-start gap-3 p-4 rounded-xl border-2 border-blue-200 bg-white cursor-pointer hover:bg-blue-50">
                 <input type="checkbox" checked={!!form.agree_wait_notice}
@@ -368,7 +362,7 @@ export default function ApplyAdultPage() {
                   className="w-5 h-5 mt-0.5" />
                 <div className="text-sm text-gray-800">
                   <div className="font-bold">위 운영 안내 및 대기 이용 조건을 확인하였으며, 대기 지원에 동의합니다.</div>
-                  <div className="text-xs text-gray-500 mt-1">(평일 13:00~21:40 우선 안내, 오전/주말 오픈 시 추가 안내)</div>
+                  <div className="text-xs text-gray-500 mt-1">(평일 13:00~22:00 우선 안내, 오전·주말 오픈 시 추가 안내)</div>
                 </div>
               </label>
             </div>
@@ -378,8 +372,11 @@ export default function ApplyAdultPage() {
           {step === 7 && (
             <div className="space-y-5">
               <h2 className="text-lg font-bold text-blue-900">📅 희망 요일 · 시간</h2>
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
-                ⏰ <strong>가능한 요일·시간을 최대한 많이 선택해주시면 빠른 배정이 가능합니다.</strong>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 leading-relaxed">
+                ⏰ <strong>가능한 요일·시간을 최대한 많이 선택해주시면 최대한 빨리 수업이 가능한 시간으로 안내드립니다.</strong> 정규수업이 가능한 시간이 생긴 경우에만 체험이 가능합니다.
+              </div>
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-800 leading-relaxed">
+                ※ 10시, 11시 10분, 12시 20분 타임과 토요일의 경우 현재 운영하고 있지 않으나 추후 오픈 시 수업을 원하시는 분만 선택해 주세요.
               </div>
 
               <div>
@@ -399,13 +396,18 @@ export default function ApplyAdultPage() {
                   희망 요일 <span className="text-red-500">*</span> ({form.wish_days.length}개)
                 </label>
                 <div className="grid grid-cols-6 gap-2">
-                  {DAYS.map(d => (
-                    <button key={d} type="button" onClick={() => toggleArray("wish_days", d)}
-                      className={`py-3 rounded-lg border-2 font-medium ${form.wish_days.includes(d) ? "bg-blue-500 border-blue-500 text-white" : "border-gray-200"}`}>
-                      {d}
-                    </button>
-                  ))}
+                  {DAYS.map(d => {
+                    const unavailable = UNAVAILABLE_DAYS.includes(d);
+                    return (
+                      <button key={d} type="button" onClick={() => toggleArray("wish_days", d)}
+                        className={`py-3 rounded-lg border-2 font-medium relative ${form.wish_days.includes(d) ? "bg-blue-500 border-blue-500 text-white" : unavailable ? "border-red-200 text-red-500 bg-red-50/40 hover:border-red-300" : "border-gray-200 hover:border-blue-300"}`}>
+                        {d}
+                        {unavailable && <span className="absolute -top-1 -right-1 text-[8px] bg-red-500 text-white rounded-full px-1">미운영</span>}
+                      </button>
+                    );
+                  })}
                 </div>
+                <div className="text-[11px] text-red-700 mt-1">※ 토요일은 현재 운영하지 않으나 추후 오픈 대기를 원하시면 체크 가능</div>
               </div>
 
               <div>
@@ -413,13 +415,18 @@ export default function ApplyAdultPage() {
                   희망 시간대 <span className="text-red-500">*</span> ({form.wish_time_slots.length}개)
                 </label>
                 <div className="grid grid-cols-2 gap-2">
-                  {TIME_SLOTS.map(t => (
-                    <button key={t} type="button" onClick={() => toggleArray("wish_time_slots", t)}
-                      className={`py-2 px-2 rounded-lg border-2 text-sm ${form.wish_time_slots.includes(t) ? "bg-blue-500 border-blue-500 text-white" : "border-gray-200"}`}>
-                      {t}
-                    </button>
-                  ))}
+                  {TIME_SLOTS.map(t => {
+                    const unavailable = UNAVAILABLE_TIMES.includes(t);
+                    return (
+                      <button key={t} type="button" onClick={() => toggleArray("wish_time_slots", t)}
+                        className={`py-2 px-2 rounded-lg border-2 text-sm relative ${form.wish_time_slots.includes(t) ? "bg-blue-500 border-blue-500 text-white" : unavailable ? "border-red-200 text-red-500 bg-red-50/40 hover:border-red-300" : "border-gray-200 hover:border-blue-300"}`}>
+                        {t}
+                        {unavailable && <span className="absolute -top-1 -right-1 text-[8px] bg-red-500 text-white rounded-full px-1">미운영</span>}
+                      </button>
+                    );
+                  })}
                 </div>
+                <div className="text-[11px] text-red-700 mt-1">※ 10시, 11시 10분, 12시 20분 타임은 미운영 상태이며 추후 오픈 시 수업을 원하시는 분만 선택해 주세요.</div>
               </div>
 
               <Field label="희망 시작일 (선택)" type="date" value={form.wish_start_date}
