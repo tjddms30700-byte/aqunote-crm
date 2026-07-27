@@ -271,7 +271,7 @@ export default function ApplyChildPage() {
                 onChange={(v: string) => update("likes", v)} placeholder="예: 공놀이, 숫자, 자동차" />
               <Field label="싫어하는 것 / 민감 사항" value={form.dislikes || ""}
                 onChange={(v: string) => update("dislikes", v)} placeholder="예: 큰 소리, 얼굴에 물 닿는 것" />
-              <RadioGroup label="평소 물에 대한 반응" options={["매우 좋아함","보통","낯섬어함","매우 두려움"]}
+              <RadioGroup label="평소 물에 대한 반응" options={["매우 좋아함","보통","낯설어함","매우 두려움"]}
                 value={form.water_reaction || ""} onChange={(v: string) => update("water_reaction", v)} />
               <RadioGroup label="집중 시간" options={["5분 이하","5~10분","10~20분","20분 이상"]}
                 value={form.attention_span || ""} onChange={(v: string) => update("attention_span", v)} />
@@ -362,9 +362,17 @@ export default function ApplyChildPage() {
                   희망 시간대 <span className="text-red-500">*</span>
                   <span className="ml-2 text-xs text-gray-500">({form.wish_time_slots.length}개 선택)</span>
                 </label>
+                {/* v3.20.27: 토요일 선택 시 모든 시간대 미운영 안내 표시 */}
+                {form.wish_days.includes("토") && (
+                  <div className="mb-2 p-2 rounded-lg bg-red-50 border-2 border-red-300 text-[11px] text-red-800 font-semibold">
+                    ⚠️ 토요일은 <strong>모든 시간대가 현재 운영하고 있지 않습니다.</strong> 추후 오픈 시 수업을 원하시는 분만 시간대를 선택해 주세요.
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-2">
                   {TIME_SLOTS.map(t => {
-                    const unavailable = UNAVAILABLE_TIMES.includes(t);
+                    // v3.20.27: 토요일만 선택된 경우 모든 시간대가 미운영, 그 외에는 오전 3개 타임만 미운영
+                    const satSelected = form.wish_days.includes("토") && !form.wish_days.some((d: string) => d !== "토");
+                    const unavailable = UNAVAILABLE_TIMES.includes(t) || satSelected;
                     return (
                       <button key={t} type="button" onClick={() => toggleArray("wish_time_slots", t)}
                         className={`py-2 px-2 rounded-lg border-2 text-sm relative ${form.wish_time_slots.includes(t) ? "bg-purple-500 border-purple-500 text-white" : unavailable ? "border-red-200 text-red-500 bg-red-50/40 hover:border-red-300" : "border-gray-200 text-gray-700 hover:border-purple-300"}`}>
@@ -374,7 +382,7 @@ export default function ApplyChildPage() {
                     );
                   })}
                 </div>
-                <div className="text-[11px] text-red-700 mt-1">※ 10시, 11시 10분, 12시 20분 타임은 미운영 상태이며 추후 오픈 시 수업을 원하시는 분만 선택해 주세요.</div>
+                <div className="text-[11px] text-red-700 mt-1">※ 10시, 11시 10분, 12시 20분 타임 <strong>및 토요일 전 시간대</strong>는 미운영 상태이며 추후 오픈 시 수업을 원하시는 분만 선택해 주세요.</div>
               </div>
 
               <Field label="희망 시작일 (선택)" type="date" value={form.wish_start_date}

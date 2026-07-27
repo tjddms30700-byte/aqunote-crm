@@ -692,7 +692,14 @@ function IntakeDetailModal({ member, onClose, onMove }: any) {
         </div>
         <div className="p-4 space-y-2 text-sm">
           <Row label="연락처" value={member.phone} />
-          {isChild && <Row label="보호자" value={`${member.guardian_name || f.guardian_name || "-"} (${f.guardian_relation || "?"})`} />}
+          {isChild && (() => {
+            const gName = member.guardian_name || f.guardian_name || "";
+            const gRel = f.guardian_relation || member.guardian_relation || "";
+            const guardianDisplay = gName
+              ? (gRel ? `${gName} (${gRel})` : gName)
+              : (gRel || "-");
+            return <Row label="보호자" value={guardianDisplay} />;
+          })()}
           {f.birth && <Row label="생년월일" value={f.birth} />}
           {f.gender && <Row label="성별" value={f.gender} />}
           {f.height_weight && <Row label="키/체중" value={f.height_weight} />}
@@ -711,7 +718,7 @@ function IntakeDetailModal({ member, onClose, onMove }: any) {
             className="flex-1 px-3 py-2 bg-yellow-100 text-yellow-700 rounded-lg text-sm font-bold hover:bg-yellow-200">⏳ 대기 등록</button>
           <button onClick={() => { onMove(member.id, "trial_scheduled"); onClose(); }}
             className="flex-1 px-3 py-2 bg-blue-100 text-blue-700 rounded-lg text-sm font-bold hover:bg-blue-200">📅 체험 예약</button>
-          <Link href={`/members/${member.id}`} className="flex-1 px-3 py-2 bg-purple-100 text-purple-700 rounded-lg text-sm font-bold hover:bg-purple-200 text-center">매버 상세</Link>
+          <Link href={`/members/${member.id}`} className="flex-1 px-3 py-2 bg-purple-100 text-purple-700 rounded-lg text-sm font-bold hover:bg-purple-200 text-center">신청서 상세</Link>
         </div>
       </div>
     </div>

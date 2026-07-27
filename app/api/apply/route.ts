@@ -108,6 +108,7 @@ export async function POST(req: Request) {
         .select("id").eq("phone", phone).is("deleted_at", null).maybeSingle();
 
       if (!dup.data?.id) {
+        // v3.20.28: birth_date, gender, address, diagnosis 기본 정보 매핑 보강
         const memberPayload: any = {
           org_id: orgId,
           name,
@@ -119,11 +120,32 @@ export async function POST(req: Request) {
           wish_days: body.wish_days || null,
           wish_time_slots: body.wish_time_slots || null,
           guardian_name: isChild ? body.guardian_name || null : null,
+          guardian_relation: isChild ? body.guardian_relation || null : null,
+          // v3.20.28: 기본 정보 1:1 매핑
+          birth_date: body.birth || body.birth_date || null,
+          gender: body.gender || null,
+          address: body.address || null,
+          diagnosis: body.diagnosis || null,
+          main_symptom: body.main_symptom || null,
+          medication: body.medication || null,
+          treatment_history: body.treatment_history || null,
+          special_notes: body.special_notes || null,
+          expected_change: body.expected_change || null,
           extra: {
             consult_form: body,
             leads_inbox_id: data?.id,
             is_new_intake: true,
             intake_at: new Date().toISOString(),
+            // v3.20.28: 자동채우기용 필드 보존 (예외 대비)
+            diagnosis: body.diagnosis || null,
+            birth_date: body.birth || body.birth_date || null,
+            gender: body.gender || null,
+            address: body.address || null,
+            water_response: body.water_reaction || body.water_response || null,
+            emotional_response: body.emotion || body.emotional_response || null,
+            avoid_situation: body.avoid_situations || body.avoid_situation || null,
+            expected_change: body.expected_change || null,
+            aqua_expected_effect: body.top_goal || body.aqua_expected_effect || null,
           },
         };
 

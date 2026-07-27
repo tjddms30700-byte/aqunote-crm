@@ -2043,7 +2043,39 @@ function ConsultationChartPanel({ memberId, member, painMap, setPainMap, sensati
         }
       }
 
-      setF(merged);
+      // v3.20.28: 4번(감각/정서) / 5번(니즈) UI와 신규 표준 필드 alias 브리지
+      const bridged: any = { ...merged };
+      // ○ 4. 감각/정서
+      if (!bridged.water_reaction && (bridged.water_response || formData.water_response || formData.water_reaction)) {
+        bridged.water_reaction = bridged.water_response || formData.water_response || formData.water_reaction;
+      }
+      if (!bridged.water_response && bridged.water_reaction) {
+        bridged.water_response = bridged.water_reaction;
+      }
+      if (!bridged.emotion_status && (bridged.emotional_response || formData.emotional_response || formData.emotion)) {
+        bridged.emotion_status = bridged.emotional_response || formData.emotional_response || formData.emotion;
+      }
+      if (!bridged.emotional_response && bridged.emotion_status) {
+        bridged.emotional_response = bridged.emotion_status;
+      }
+      // ○ 5. 니즈
+      if (!bridged.avoid_situations && (bridged.avoid_situation || formData.avoid_situation || formData.dislikes)) {
+        bridged.avoid_situations = bridged.avoid_situation || formData.avoid_situation || formData.dislikes;
+      }
+      if (!bridged.avoid_situation && bridged.avoid_situations) {
+        bridged.avoid_situation = bridged.avoid_situations;
+      }
+      if (!bridged.water_expected_effect && (bridged.aqua_expected_effect || formData.aqua_expected_effect || formData.top_goal)) {
+        bridged.water_expected_effect = bridged.aqua_expected_effect || formData.aqua_expected_effect || formData.top_goal;
+      }
+      if (!bridged.aqua_expected_effect && bridged.water_expected_effect) {
+        bridged.aqua_expected_effect = bridged.water_expected_effect;
+      }
+      if (!bridged.expected_change && (formData.expected_change || formData.priority_goals)) {
+        bridged.expected_change = formData.expected_change || formData.priority_goals;
+      }
+
+      setF(bridged);
       alert(`✅ 상담폼에서 ${filledCount}개 필드 자동 채우기 완료\n\n• 채워진 필드: ${filledFields.slice(0, 8).join(", ")}${filledFields.length > 8 ? ` 외 ${filledFields.length - 8}개` : ""}\n\n확인 후 상단 "💾 저장" 버튼을 눌러주세요.`);
     } catch (e: any) {
       alert("자동 채우기 실패: " + (e?.message || e));

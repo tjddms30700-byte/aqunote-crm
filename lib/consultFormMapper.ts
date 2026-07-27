@@ -355,13 +355,17 @@ export type MappedChart = {
   body_map_notes?: string;
   // 감각/정서
   water_reaction?: string;
+  water_response?: string; // v3.20.28: 신규 표준 필드 (autoFill 4번)
   emotion_status?: string;
+  emotional_response?: string; // v3.20.28: 신규 표준 필드 (autoFill 4번)
   // ✅ v3.16.1: 대기 시간 요일별 요약 텍스트
   wish_schedule_text?: string;
-  // 니즈
+  // 니즈 (v3.20.28: autoFill 5번 표준 필드)
   avoid_situations?: string;
+  avoid_situation?: string; // v3.20.28: 단수형 표준 필드
   expected_change?: string;
   water_expected_effect?: string;
+  aqua_expected_effect?: string; // v3.20.28: 신규 표준 필드
   recommended_frequency?: string;
   // 결론
   conclusion?: string;
@@ -552,12 +556,17 @@ export function mapConsultFormToChart(
     attention_level: attentionLevel,
     // Body Map
     body_map_notes: bodyMapNotes,
-    // 감각
+    // 감각/정서 (v3.20.28: autoFill 4번 - 표준 필드 병기)
     water_reaction: waterReaction,
-    // 니즈
+    water_response: waterReaction || pick(form, "water_response", "water_experience", "water_exp"),
+    emotion_status: pick(form, "emotion_status", "emotional_reaction", "emotion"),
+    emotional_response: pick(form, "emotional_response", "emotion_status", "emotional_reaction", "emotion"),
+    // 니즈 (v3.20.28: autoFill 5번 - 단수형/신규 필드 병기)
     avoid_situations: avoidSituations,
+    avoid_situation: pick(form, "avoid_situation", "avoid_situations", "dislikes", "avoid") || avoidSituations,
     expected_change: expectedChange,
-    water_expected_effect: pick(form, "water_expected_effect", "expected_effect"),
+    water_expected_effect: pick(form, "water_expected_effect", "expected_effect", "aqua_expected_effect"),
+    aqua_expected_effect: pick(form, "aqua_expected_effect", "water_expected_effect", "expected_effect"),
     // 결론
     conclusion,
     memo,
