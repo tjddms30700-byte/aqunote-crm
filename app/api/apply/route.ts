@@ -121,8 +121,8 @@ export async function POST(req: Request) {
           wish_time_slots: body.wish_time_slots || null,
           guardian_name: isChild ? body.guardian_name || null : null,
           guardian_relation: isChild ? body.guardian_relation || null : null,
-          // v3.20.28: 기본 정보 1:1 매핑
-          birth_date: body.birth || body.birth_date || null,
+          // v3.20.29: members 테이블 실제 컬럼명은 `birth` (not birth_date) - 미스매치 근본해결
+          birth: body.birth || body.birth_date || null,
           gender: body.gender || null,
           address: body.address || null,
           diagnosis: body.diagnosis || null,
@@ -136,8 +136,9 @@ export async function POST(req: Request) {
             leads_inbox_id: data?.id,
             is_new_intake: true,
             intake_at: new Date().toISOString(),
-            // v3.20.28: 자동채우기용 필드 보존 (예외 대비)
+            // v3.20.29: 자동채우기용 필드 보존 (예외 대비) - birth/birth_date 이중 저장
             diagnosis: body.diagnosis || null,
+            birth: body.birth || body.birth_date || null,
             birth_date: body.birth || body.birth_date || null,
             gender: body.gender || null,
             address: body.address || null,

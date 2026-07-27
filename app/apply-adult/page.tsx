@@ -595,11 +595,11 @@ function ThankYou({ name }: { name: string }) {
         <div className="bg-blue-50 rounded-xl p-4 text-sm text-gray-700 mb-6 space-y-2">
           <div className="flex items-center gap-2 justify-center">
             <Clock className="w-4 h-4 text-blue-500" />
-            <span><strong>1~3일 이내</strong>에 연락드리겠습니다</span>
+            <span><strong>확인 후 순차적으로</strong> 연락드리겠습니다</span>
           </div>
           <div className="flex items-center gap-2 justify-center">
             <Phone className="w-4 h-4 text-blue-500" />
-            <span>문의: 010-XXXX-XXXX</span>
+            <span>문의: 010-8114-8275</span>
           </div>
         </div>
         <a href="https://aqua-rehab.jungleweb.link/" target="_blank" rel="noopener noreferrer"

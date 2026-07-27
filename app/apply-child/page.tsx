@@ -54,7 +54,7 @@ export default function ApplyChildPage() {
     walking_level: "", communication_level: "",
     gross_motor: "", fine_motor: "", visit_reason: "",
     sibling: "", likes: "", dislikes: "",
-    water_reaction: "", attention_span: "", avoid_situations: "",
+    water_reaction: "", emotion: "", attention_span: "", avoid_situations: "",
     agree_wait_notice: false,
   });
 
@@ -273,6 +273,9 @@ export default function ApplyChildPage() {
                 onChange={(v: string) => update("dislikes", v)} placeholder="예: 큰 소리, 얼굴에 물 닿는 것" />
               <RadioGroup label="평소 물에 대한 반응" options={["매우 좋아함","보통","낯설어함","매우 두려움"]}
                 value={form.water_reaction || ""} onChange={(v: string) => update("water_reaction", v)} />
+              {/* v3.20.29: 정서 반응 필드 신설 → 자동채우기 4번 카드에 반영 */}
+              <RadioGroup label="평소 정서 반응" options={["안정적","보통","예민/불안","상황마다 다름"]}
+                value={form.emotion || ""} onChange={(v: string) => update("emotion", v)} />
               <RadioGroup label="집중 시간" options={["5분 이하","5~10분","10~20분","20분 이상"]}
                 value={form.attention_span || ""} onChange={(v: string) => update("attention_span", v)} />
               <TextArea label="피하고 싶은 상황 / 자극" value={form.avoid_situations || ""}
@@ -570,11 +573,11 @@ function ThankYou({ name }: { name: string }) {
         <div className="bg-purple-50 rounded-xl p-4 text-sm text-gray-700 mb-6 space-y-2">
           <div className="flex items-center gap-2 justify-center">
             <Clock className="w-4 h-4 text-purple-500" />
-            <span><strong>1~3일 이내</strong>에 연락드리겠습니다</span>
+            <span><strong>확인 후 순차적으로</strong> 연락드리겠습니다</span>
           </div>
           <div className="flex items-center gap-2 justify-center">
             <Phone className="w-4 h-4 text-purple-500" />
-            <span>문의: 010-XXXX-XXXX</span>
+            <span>문의: 010-8114-8275</span>
           </div>
         </div>
         <a href="https://aqua-rehab.jungleweb.link/" target="_blank" rel="noopener noreferrer"
