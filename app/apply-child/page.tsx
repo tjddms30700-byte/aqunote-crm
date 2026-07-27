@@ -45,6 +45,12 @@ export default function ApplyChildPage() {
     // 5단계: 개인정보 동의
     agree_privacy: false,
     agree_medical: false,
+    // v3.20.25: STEP 4~6 신규 필드 상수화 (undefined 방지)
+    walking_level: "", communication_level: "",
+    gross_motor: "", fine_motor: "", visit_reason: "",
+    sibling: "", likes: "", dislikes: "",
+    water_reaction: "", attention_span: "", avoid_situations: "",
+    agree_wait_notice: false,
   });
 
   function update(k: string, v: any) {
@@ -68,11 +74,16 @@ export default function ApplyChildPage() {
       if (!form.phone) return "연락처를 입력해주세요";
       if (!/^01[0-9]-?\d{3,4}-?\d{4}$/.test(form.phone.replace(/\s/g, ""))) return "올바른 휴대폰 번호 형식이 아닙니다";
     }
-    if (step === 4) {
+    // v3.20.25: STEP 4는 선택 입력 (필수값 없음) → 통과
+    // STEP 5도 선택 입력 (필수값 없음) → 통과
+    if (step === 6) {
+      if (!form.agree_wait_notice) return "운영 안내(대기·운영시간)를 확인하고 동의해주세요";
+    }
+    if (step === 7) {
       if (form.wish_days.length === 0) return "희망 요일을 최소 1개 선택해주세요";
       if (form.wish_time_slots.length === 0) return "희망 시간을 최소 1개 선택해주세요";
     }
-    if (step === 5) {
+    if (step === 8) {
       if (!form.agree_privacy) return "개인정보 수집·이용에 동의해주세요";
       if (!form.agree_medical) return "의료정보 수집·이용에 동의해주세요";
     }
@@ -217,6 +228,30 @@ export default function ApplyChildPage() {
               <TextArea label="기대하는 변화" value={form.expected_change}
                 onChange={(v: string) => update("expected_change", v)}
                 placeholder="수중재활을 통해 기대하시는 변화나 목표를 알려주세요" rows={2} />
+            </div>
+          )}
+
+          {/* v3.20.25: STEP 4 신규 – 발달·기능 평가 (이전에 누락되어 빈 박스로 보이던 이슈 수정) */}
+          {step === 4 && (
+            <div className="space-y-5">
+              <h2 className="text-lg font-bold text-purple-900 flex items-center gap-2">
+                🌱 발달·기능 평가
+              </h2>
+              <p className="text-xs text-gray-500">아동의 현재 발달 수준과 생활 기능을 자세하게 알려주세요. 맞춤 수업 설계에 큰 도움이 됩니다.</p>
+              <RadioGroup label="보행 수준" required options={["모름","부모 도움 필요","보조구 필요","독립보행 가능","자유롭게 뛰기 가능"]}
+                value={form.walking_level || ""} onChange={(v: string) => update("walking_level", v)} />
+              <RadioGroup label="의사소통 수준" options={["말 안함","단어","짧은 문장","자유 대화 가능"]}
+                value={form.communication_level || ""} onChange={(v: string) => update("communication_level", v)} />
+              <RadioGroup label="대근육 이용 상태" options={["어려움","보통","양호"]}
+                value={form.gross_motor || ""} onChange={(v: string) => update("gross_motor", v)} />
+              <RadioGroup label="소근육 이용 상태" options={["어려움","보통","양호"]}
+                value={form.fine_motor || ""} onChange={(v: string) => update("fine_motor", v)} />
+              <TextArea label="현재 이용 기관 / 치료프로그램" value={form.institution || ""}
+                onChange={(v: string) => update("institution", v)}
+                placeholder="예: OO암원 주 2회 재활치료, OO센터 주 1회 언어치료" rows={2} />
+              <TextArea label="방문 이유 / 집중 관심사" value={form.visit_reason || ""}
+                onChange={(v: string) => update("visit_reason", v)}
+                placeholder="수중재활을 시작하게 된 계기나 주요 관심사를 적어주세요" rows={2} />
             </div>
           )}
 

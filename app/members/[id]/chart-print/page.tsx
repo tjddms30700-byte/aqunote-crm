@@ -80,11 +80,15 @@ export default function ChartPrintPage() {
         @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/variable/pretendardvariable.css');
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&display=swap');
         @media print {
-          @page { size: A4; margin: 8mm 10mm; }
-          .no-print { display: none !important; }
+          @page { size: A4; margin: 8mm 10mm 8mm 10mm; }
+          .no-print { display: none !important; visibility: hidden !important; }
           body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           .chart-a4 { box-shadow: none !important; border: none !important; padding: 0 !important; width: 100% !important; }
-          .chart-section { page-break-inside: avoid; margin-bottom: 3mm !important; }
+          .chart-section { page-break-inside: avoid !important; margin-bottom: 2mm !important; }
+          .chart-a4 h1 { font-size: 14pt !important; margin: 0 0 3mm 0 !important; padding-bottom: 2px !important; }
+          .chart-a4 h2 { font-size: 9.5pt !important; margin: 2mm 0 1mm 0 !important; }
+          .chart-a4 table { font-size: 8.2pt !important; }
+          .chart-a4 th, .chart-a4 td { padding: 2px 4px !important; }
         }
         .chart-a4 {
           font-family: 'Pretendard Variable', Pretendard, 'Noto Sans KR', 'Nanum Gothic', sans-serif;

@@ -910,18 +910,35 @@ function ContractsPage() {
 <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/variable/pretendardvariable.css" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&family=Nanum+Gothic:wght@400;700;800&display=swap" rel="stylesheet"/>
 <style>
-  @page { size: A4; margin: 8mm 10mm; }
+  /* v3.20.25: A4 1페이지 무조건 수용 – 초압축 CSS */
+  @page { size: A4; margin: 8mm 10mm 8mm 10mm; }
   * { box-sizing: border-box; }
-  body { font-family: 'Pretendard Variable', Pretendard, 'Noto Sans KR', 'Nanum Gothic', sans-serif; font-size: 8.8pt; line-height: 1.4; color: #111; margin: 0; padding: 0; word-break: keep-all; }
-  h1 { text-align: center; font-size: 12pt; border-bottom: 1.5px solid #0284c7; padding-bottom: 3px; margin: 0 0 4mm 0; font-weight: 700; }
-  .meta { display: flex; justify-content: space-between; font-size: 8pt; color: #475569; margin-bottom: 3mm; }
+  body {
+    font-family: 'Pretendard Variable', Pretendard, 'Noto Sans KR', 'Nanum Gothic', sans-serif;
+    font-size: 8.5pt; line-height: 1.35; color: #111;
+    margin: 0; padding: 0; word-break: keep-all;
+    letter-spacing: -0.03em;
+  }
+  h1 { text-align: center; font-size: 14pt; border-bottom: 1.5px solid #0284c7; padding-bottom: 2px; margin: 0 0 3mm 0; font-weight: 700; line-height: 1.2; }
+  h2 { font-size: 10pt; margin: 3px 0 1px 0; padding: 0; line-height: 1.25; }
+  h3 { font-size: 9pt; margin: 2px 0 1px 0; padding: 0; }
+  .meta { display: flex; justify-content: space-between; font-size: 7.5pt; color: #475569; margin-bottom: 2mm; }
   .body { white-space: pre-wrap; letter-spacing: -0.03em; }
-  .body p, .body div, .body li { margin: 0; padding: 0; }
-  .sign { display: flex; justify-content: space-around; margin-top: 4mm; padding-top: 2mm; border-top: 1px solid #cbd5e1; page-break-inside: avoid; break-inside: avoid; }
-  .sign-box { text-align: center; font-size: 8.2pt; line-height: 1.5; }
-  .sign-box img { max-width: 40mm; max-height: 14mm; object-fit: contain; }
-  .footer { text-align: right; font-size: 7.5pt; color: #64748b; margin-top: 3mm; }
-  @media print { .no-print { display:none } }
+  .body p, .body div, .body li, .body ul, .body ol {
+    margin: 0; margin-bottom: 2px; padding: 0; line-height: 1.35;
+  }
+  .body br { line-height: 1; }
+  .sign {
+    display: flex; justify-content: space-around;
+    margin-top: 3mm; padding: 4px 6px;
+    border-top: 1px solid #cbd5e1;
+    page-break-inside: avoid !important; break-inside: avoid !important;
+    page-break-before: auto !important;
+  }
+  .sign-box { text-align: center; font-size: 8pt; line-height: 1.3; padding: 4px 6px; }
+  .sign-box img { max-width: 30mm; max-height: 45px; object-fit: contain; }
+  .footer { text-align: right; font-size: 7pt; color: #64748b; margin-top: 2mm; }
+  @media print { .no-print { display: none !important; } }
 </style></head><body>
 <h1>${title}</h1>
 <div class="meta"><span>대상: <b>${ed.subject_name || "-"}</b></span><span>계약일: <b>${ed.contract_date}</b></span><span>자동연장: <b>${ed.auto_renew !== false ? "O (" + (ed.renew_period_months || 12) + "개월 단위)" : "X"}</b></span></div>
@@ -1010,7 +1027,7 @@ function ContractsPage() {
           .fixed.inset-0 .bg-gradient-to-r,
           .fixed.inset-0 .border-b { border: none !important; background: transparent !important; }
 
-          /* v3.20.24: A4 1페이지 강제 압축 */
+          /* v3.20.25: A4 1페이지 무조건 수용 – 초압축 */
           @page { size: A4; margin: 8mm 10mm 8mm 10mm; }
 
           html, body { font-size: 8.5pt !important; line-height: 1.35 !important; }
@@ -1026,11 +1043,41 @@ function ContractsPage() {
             max-height: none !important;
             overflow: visible !important;
             resize: none;
-            letter-spacing: -0.03em;
+            letter-spacing: -0.03em !important;
             page-break-inside: auto;
             word-break: keep-all;
             font-family: 'Pretendard Variable', Pretendard, 'Noto Sans KR', 'Nanum Gothic', sans-serif !important;
           }
+          /* v3.20.25: 모든 블록 요소 margin/padding을 이전의 50%로 압축 */
+          .contract-body p,
+          .contract-body div,
+          .contract-body li,
+          .contract-body ul,
+          .contract-body ol {
+            margin: 0 !important;
+            margin-bottom: 2px !important;
+            padding: 0 !important;
+            padding-bottom: 0 !important;
+            line-height: 1.35 !important;
+          }
+          .contract-body h1 {
+            font-size: 14pt !important;
+            margin: 0 0 3px 0 !important;
+            padding: 0 0 2px 0 !important;
+            line-height: 1.2 !important;
+          }
+          .contract-body h2 {
+            font-size: 10pt !important;
+            margin: 3px 0 1px 0 !important;
+            padding: 0 !important;
+            line-height: 1.25 !important;
+          }
+          .contract-body h3 {
+            font-size: 9pt !important;
+            margin: 2px 0 1px 0 !important;
+            padding: 0 !important;
+          }
+          .contract-body br { line-height: 1 !important; }
           .contract-body p,
           .contract-body div,
           .contract-body li { margin: 0 !important; padding: 0 !important; break-inside: auto; }
@@ -1041,24 +1088,38 @@ function ContractsPage() {
           h2 { font-size: 10pt !important; margin: 4px 0 2px 0 !important; }
           h3 { font-size: 9pt !important; margin: 3px 0 1px 0 !important; }
 
-          /* v3.20.24: 서명·직인 영역 – A4 1장 최하단 안에 무조건 들어가도록 압축 */
+          /* v3.20.25: 서명·직인 영역 – A4 1장 최하단 안에 무조건 수용 (padding 4~6px) */
           .contract-sign-area {
             page-break-inside: avoid !important;
             break-inside: avoid !important;
-            margin-top: 4mm !important;
-            padding-top: 2mm !important;
+            page-break-before: auto !important;
+            margin-top: 3mm !important;
+            padding: 4px 6px !important;
             font-size: 8pt !important;
             line-height: 1.3 !important;
             gap: 4px !important;
           }
-          .contract-sign-area > * { padding: 0 !important; margin: 0 !important; }
-          .contract-sign-area img { max-width: 32mm !important; max-height: 12mm !important; }
+          .contract-sign-area > * { padding: 4px 6px !important; margin: 0 !important; }
+          .contract-sign-area img {
+            max-width: 30mm !important;
+            max-height: 45px !important;
+            object-fit: contain !important;
+          }
 
-          /* v3.20.24: 모달 내부 입력 폼의 서명·직인 박스를 인쇄 시 완전 숨김 */
+          /* v3.20.25: 모달 내부 입력 폼의 서명·직인 박스를 인쇄 시 완전 숨김 */
           .no-print, .no-print *,
           [data-noprint], [data-noprint] * {
             display: none !important;
             visibility: hidden !important;
+            height: 0 !important;
+            width: 0 !important;
+            overflow: hidden !important;
+          }
+          /* 입력용 폼 요소는 무조건 미포함 (input/textarea/select 자체도 숨김) */
+          input:not(.print-keep),
+          textarea:not(.print-keep),
+          select:not(.print-keep) {
+            display: none !important;
           }
 
           /* 모든 grid/flex 여백 축소 */

@@ -67,6 +67,14 @@ export default function ApplyAdultPage() {
     // 동의
     agree_privacy: false,
     agree_medical: false,
+    // v3.20.25: STEP 3~6 신규 필드 상수화 (undefined 방지)
+    occupation: "", exercise_freq: "", exercise_history: "",
+    sleep: "", stress: "", smoke_alcohol: "",
+    blood_pressure: "", heart_condition: "", diabetes: "",
+    pregnancy: "", allergy: "", other_health: "",
+    top_goal: "", avoid_situations: "", aqua_experience: "",
+    water_reaction: "",
+    agree_wait_notice: false,
   });
 
   function update(k: string, v: any) { setForm({ ...form, [k]: v }); }
@@ -143,11 +151,11 @@ export default function ApplyAdultPage() {
         <div className="bg-white rounded-2xl shadow-lg p-4 mb-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-medium text-blue-700">STEP {step} / {TOTAL}</span>
-            <span className="text-xs text-gray-500">{Math.round(step / 4 * 100)}%</span>
+            <span className="text-xs text-gray-500">{Math.round(step / TOTAL * 100)}% 완료</span>
           </div>
           <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
             <div className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 transition-all duration-300"
-              style={{ width: `${step / 4 * 100}%` }}></div>
+              style={{ width: `${step / TOTAL * 100}%` }}></div>
           </div>
         </div>
 
