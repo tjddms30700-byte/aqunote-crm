@@ -161,25 +161,135 @@ export default function ConsultationsPage() {
   async function quickAdd(payload: any) {
     setSaving(true);
     const branchId = getActiveBranchId();
-    const insertData: any = {
+    // ✅ v3.20.19: members 테이블에 기본정보 + 딥 필드 자동 매핑
+    const memberData: any = {
       org_id: orgId,
       name: payload.name.trim(),
       phone: payload.phone.trim() || null,
       member_type: payload.member_type,
+      gender: payload.gender || null,
+      birth: payload.birth || null,
+      address: payload.address || null,
+      guardian_name: payload.guardian_name || null,
+      guardian_relation: payload.guardian_relation || null,
+      school: payload.school || null,
+      diagnosis: payload.diagnosis || null,
       status: "new",
       source: payload.source || "직접등록",
       memo: payload.memo || null,
-      wish_days: payload.wish_days.length > 0 ? payload.wish_days : null,
-      wish_time_slots: payload.wish_time_slots.length > 0 ? payload.wish_time_slots : null,
+      wish_days: payload.wish_days?.length > 0 ? payload.wish_days : null,
+      wish_time_slots: payload.wish_time_slots?.length > 0 ? payload.wish_time_slots : null,
+      // extra JSON에 전체 상담정보 유지 (상담차트/회원상세에서 자동 사용)
+      extra: {
+        height_weight: payload.height_weight,
+        body_condition: payload.body_condition,
+        main_symptom: payload.main_symptom,
+        surgery_history: payload.surgery_history,
+        medication: payload.medication,
+        allergy: payload.allergy,
+        notes_medical: payload.notes_medical,
+        current_therapy: payload.current_therapy,
+        has_pain: payload.has_pain,
+        pain_area: payload.pain_area,
+        pain_scale: payload.pain_scale,
+        pain_onset: payload.pain_onset,
+        aggravating_factor: payload.aggravating_factor,
+        walking_level: payload.walking_level,
+        sitting_level: payload.sitting_level,
+        comm_level: payload.comm_level,
+        instruction_level: payload.instruction_level,
+        water_reaction: payload.water_reaction,
+        emotional_reaction: payload.emotional_reaction,
+        separation_reaction: payload.separation_reaction,
+        sensory_notes: payload.sensory_notes,
+        likes_activities: payload.likes_activities,
+        dislikes_situations: payload.dislikes_situations,
+        underlying_disease: payload.underlying_disease,
+        start_available_date: payload.start_available_date,
+        diaper_use: payload.diaper_use,
+        most_worry: payload.most_worry,
+        most_improve: payload.most_improve,
+        avoid_situation: payload.avoid_situation,
+        expected_change: payload.expected_change,
+        additional_memo: payload.additional_memo,
+        agree_privacy: payload.agree_privacy,
+        agree_sensitive: payload.agree_sensitive,
+      },
     };
-    if (branchId) insertData.branch_id = branchId;
-    const { error } = await supabase.from("members").insert(insertData);
-    setSaving(false);
-    if (error) alert("등록 실패: " + error.message);
-    else {
-      setShowQuickAdd(false);
-      await loadAll();
+    if (branchId) memberData.branch_id = branchId;
+
+    // 자동 컴럼 폴백 (테이블에 없는 컴럼 자동 제거)
+    let memberId: string | null = null;
+    const insertData = { ...memberData };
+    for (let i = 0; i < 12; i++) {
+      const { data, error } = await supabase.from("members").insert(insertData).select().maybeSingle();
+      if (!error) {
+        memberId = data?.id || null;
+        break;
+      }
+      const m = (error.message || "").match(/column "([^"]+)"/i);
+      if (m?.[1] && m[1] in insertData) { delete insertData[m[1]]; continue; }
+      setSaving(false);
+      alert("등록 실패: " + error.message);
+      return;
     }
+
+    // ✅ consultations 테이블에 딥 정보 기록 (있으면)
+    if (memberId) {
+      const consultData: any = {
+        org_id: orgId, branch_id: branchId,
+        member_id: memberId,
+        name: payload.name, phone: payload.phone,
+        member_type: payload.member_type,
+        diagnosis: payload.diagnosis || null,
+        main_symptom: payload.main_symptom || null,
+        surgery_history: payload.surgery_history || null,
+        medication: payload.medication || null,
+        allergy: payload.allergy || null,
+        notes_medical: payload.notes_medical || null,
+        current_therapy: payload.current_therapy || null,
+        height_weight: payload.height_weight || null,
+        body_condition: payload.body_condition || null,
+        walking_level: payload.walking_level || null,
+        sitting_level: payload.sitting_level || null,
+        comm_level: payload.comm_level || null,
+        instruction_level: payload.instruction_level || null,
+        water_reaction: payload.water_reaction || null,
+        emotional_reaction: payload.emotional_reaction || null,
+        separation_reaction: payload.separation_reaction || null,
+        sensory_notes: payload.sensory_notes || null,
+        likes_activities: payload.likes_activities || null,
+        dislikes_situations: payload.dislikes_situations || null,
+        has_pain: payload.has_pain || false,
+        pain_area: payload.pain_area?.join(",") || null,
+        pain_scale: payload.pain_scale || null,
+        pain_onset: payload.pain_onset || null,
+        aggravating_factor: payload.aggravating_factor?.join(",") || null,
+        underlying_disease: payload.underlying_disease?.join(",") || null,
+        start_available_date: payload.start_available_date || null,
+        diaper_use: payload.diaper_use || null,
+        most_worry: payload.most_worry || null,
+        most_improve: payload.most_improve || null,
+        avoid_situation: payload.avoid_situation || null,
+        expected_change: payload.expected_change || null,
+        additional_memo: payload.additional_memo || null,
+        agree_privacy: !!payload.agree_privacy,
+        agree_sensitive: !!payload.agree_sensitive,
+      };
+      const consultInsert = { ...consultData };
+      for (let i = 0; i < 30; i++) {
+        const { error } = await supabase.from("consultations").insert(consultInsert);
+        if (!error) break;
+        if (error.code === "42P01") break; // 테이블 없음 – 조용히 스킵
+        const m = (error.message || "").match(/column "([^"]+)"/i);
+        if (m?.[1] && m[1] in consultInsert) { delete consultInsert[m[1]]; continue; }
+        break; // 기타 에러는 조용히 무시 (멤버 저장은 성공함)
+      }
+    }
+
+    setSaving(false);
+    setShowQuickAdd(false);
+    await loadAll();
   }
 
   /* ─── 매트릭스 셀 저장 ─── */
@@ -931,95 +1041,467 @@ function CellEditor(props: any) {
 /* ─────────────── 하위 컴포넌트: 신규 등록 모달 ─────────────── */
 
 function QuickAddModal({ onClose, onSave, saving }: any) {
-  const [form, setForm] = useState({
+  // ✅ v3.20.19: 구글폼 아동/성인 7섭션 구조 반영
+  const [step, setStep] = useState(1);
+  const [form, setForm] = useState<any>({
+    // 섭션 1 - 기본정보
     name: "", phone: "", member_type: "adult" as "adult" | "child",
-    source: "직접등록", memo: "",
+    gender: "", birth: "", address: "",
+    guardian_name: "", guardian_relation: "", height_weight: "", school: "",
+    // 섭션 2 - 의학·발달/통증 정보
+    diagnosis: "", body_condition: "", main_symptom: "",
+    surgery_history: "", medication: "", allergy: "", notes_medical: "", current_therapy: "",
+    has_pain: false, pain_area: [] as string[], pain_scale: 0, pain_onset: "", aggravating_factor: [] as string[],
+    // 섭션 3 - 발달·기능 평가 (아동)
+    walking_level: "", sitting_level: "", comm_level: "", instruction_level: "",
+    // 섭션 4 - 감각·정서 (아동) / 건강 위험 (성인)
+    water_reaction: "", emotional_reaction: "", separation_reaction: "",
+    sensory_notes: "", likes_activities: "", dislikes_situations: "",
+    underlying_disease: [] as string[],
+    // 섭션 5 - 수업 일정·니즈
     wish_days: [] as string[], wish_time_slots: [] as string[],
+    start_available_date: "", diaper_use: "",
+    most_worry: "", most_improve: "", avoid_situation: "", expected_change: "",
+    // 섭션 6 - 마무리
+    source: "직접등록", additional_memo: "", memo: "",
+    // 섭션 7 - 동의
+    agree_privacy: false, agree_sensitive: false,
   });
+
+  const isChild = form.member_type === "child";
+  const totalSteps = 7;
 
   function toggle<T>(arr: T[], v: T): T[] {
     return arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v];
   }
 
   function submit() {
-    if (!form.name.trim()) { alert("이름을 입력하세요"); return; }
-    onSave(form);
+    if (!form.name.trim()) { setStep(1); alert("이름을 입력하세요"); return; }
+    if (!form.phone.trim()) { setStep(1); alert("연락처를 입력하세요"); return; }
+    if (!form.agree_privacy || !form.agree_sensitive) {
+      setStep(7);
+      alert("개인정보·민감정보 수집 동의에 체크해 주세요");
+      return;
+    }
+    // ✅ memo에 주요 정보 집약 (기존 스키마 호환)
+    const summaryMemo = [
+      form.diagnosis && `진단: ${form.diagnosis}`,
+      form.main_symptom && `주증상: ${form.main_symptom}`,
+      form.current_therapy && `현진행치료: ${form.current_therapy}`,
+      form.has_pain && form.pain_area?.length > 0 && `통증: ${form.pain_area.join(",")} (${form.pain_scale}/10)`,
+      form.additional_memo,
+    ].filter(Boolean).join(" | ") || form.memo;
+    onSave({ ...form, memo: summaryMemo });
   }
+
+  const PAIN_AREAS = ["목", "어깨", "팔", "손목", "허리", "무릎", "발목", "기타"];
+  const AGGRAVATE = ["움직일 때", "가만히 있을 때", "특정 자세 시", "운동 후", "기타"];
+  const DISEASES = ["없음", "고혈압", "당뇨", "심장질환", "골다공증", "뇌혐관질환", "호흡기질환", "기타"];
+  const SOURCES = ["소개", "검색", "인스타", "블로그", "홈페이지", "기관추천", "간판", "기타"];
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-lg w-full max-h-[85vh] overflow-y-auto shadow-2xl">
-        <div className="sticky top-0 bg-gradient-to-r from-pink-500 to-rose-500 text-white px-6 py-4 flex justify-between items-center">
-          <h2 className="text-lg font-bold">🆕 신규 상담 등록</h2>
+      <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[92vh] overflow-y-auto shadow-2xl">
+        <div className="sticky top-0 bg-gradient-to-r from-pink-500 to-rose-500 text-white px-6 py-4 flex justify-between items-center z-10">
+          <div>
+            <h2 className="text-lg font-bold">🆕 신규 상담 신청서 ({step}/{totalSteps})</h2>
+            <div className="text-[10px] text-white/80 mt-0.5">
+              {step === 1 && "기본정보"}
+              {step === 2 && (isChild ? "의학·발달 정보" : "의학·통증 정보")}
+              {step === 3 && (isChild ? "발달·기능 평가" : "통증 상세 평가")}
+              {step === 4 && (isChild ? "감각·정서 반응" : "건강 위험 평가")}
+              {step === 5 && "수업 일정·니즈"}
+              {step === 6 && "마무리"}
+              {step === 7 && "개인정보 동의"}
+            </div>
+          </div>
           <button onClick={onClose} className="text-white/80 hover:text-white text-2xl leading-none">✕</button>
         </div>
-        <div className="p-6 space-y-3">
-          <div className="grid grid-cols-2 gap-2">
-            <button onClick={() => setForm({ ...form, member_type: "adult" })}
-              className={`py-2 rounded-lg text-sm border-2 ${form.member_type === "adult" ? "bg-purple-100 border-purple-500 text-purple-700 font-bold" : "bg-white border-gray-200 text-gray-500"}`}>
-              👤 성인
-            </button>
-            <button onClick={() => setForm({ ...form, member_type: "child" })}
-              className={`py-2 rounded-lg text-sm border-2 ${form.member_type === "child" ? "bg-blue-100 border-blue-500 text-blue-700 font-bold" : "bg-white border-gray-200 text-gray-500"}`}>
-              🧒 아동
-            </button>
-          </div>
 
-          <div>
-            <label className="text-xs text-gray-600 block mb-1">이름 *</label>
-            <input type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}
-              placeholder="회원 이름" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-          </div>
-          <div>
-            <label className="text-xs text-gray-600 block mb-1">전화번호</label>
-            <input type="tel" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })}
-              placeholder="010-1234-5678" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono" />
-          </div>
-
-          <div>
-            <label className="text-xs text-gray-600 block mb-1">희망 요일</label>
-            <div className="flex flex-wrap gap-1.5">
-              {DAYS.map(d => (
-                <button key={d} onClick={() => setForm({ ...form, wish_days: toggle(form.wish_days, d) })}
-                  className={`px-3 py-1.5 text-xs rounded-lg border ${form.wish_days.includes(d) ? "bg-blue-500 text-white border-blue-500" : "bg-white text-gray-600 border-gray-200"}`}>
-                  {d}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="text-xs text-gray-600 block mb-1">희망 시간대</label>
-            <div className="grid grid-cols-2 gap-1.5">
-              {TIME_SLOTS.map(t => (
-                <button key={t} onClick={() => setForm({ ...form, wish_time_slots: toggle(form.wish_time_slots, t) })}
-                  className={`px-2 py-1.5 text-[11px] rounded-lg border ${form.wish_time_slots.includes(t) ? "bg-cyan-500 text-white border-cyan-500" : "bg-white text-gray-600 border-gray-200"}`}>
-                  {t}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="text-xs text-gray-600 block mb-1">메모</label>
-            <textarea value={form.memo} onChange={e => setForm({ ...form, memo: e.target.value })} rows={2}
-              placeholder="특이사항, 상담 내용..." className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none" />
-          </div>
-
-          <div>
-            <label className="text-xs text-gray-600 block mb-1">유입경로</label>
-            <input type="text" value={form.source} onChange={e => setForm({ ...form, source: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-          </div>
+        {/* 진행 바 */}
+        <div className="h-1 bg-gray-100">
+          <div className="h-full bg-gradient-to-r from-pink-500 to-rose-500 transition-all"
+            style={{ width: `${(step / totalSteps) * 100}%` }} />
         </div>
-        <div className="border-t px-6 py-3 flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg">취소</button>
-          <button onClick={submit} disabled={saving}
-            className="px-4 py-2 text-sm bg-pink-600 text-white rounded-lg hover:bg-pink-700 disabled:opacity-50 flex items-center gap-1">
-            <Save className="w-4 h-4" /> {saving ? "저장 중..." : "저장"}
-          </button>
+
+        <div className="p-5 space-y-3">
+          {/* ── 섭션 1: 기본정보 ── */}
+          {step === 1 && (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => setForm({ ...form, member_type: "adult" })}
+                  className={`py-3 rounded-lg text-sm border-2 ${!isChild ? "bg-purple-100 border-purple-500 text-purple-700 font-bold" : "bg-white border-gray-200 text-gray-500"}`}>
+                  👤 성인
+                </button>
+                <button onClick={() => setForm({ ...form, member_type: "child" })}
+                  className={`py-3 rounded-lg text-sm border-2 ${isChild ? "bg-blue-100 border-blue-500 text-blue-700 font-bold" : "bg-white border-gray-200 text-gray-500"}`}>
+                  🧒 아동
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <F label={isChild ? "아동 이름 *" : "성함 *"}>
+                  <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                </F>
+                <F label="성별 *">
+                  <div className="flex gap-1">
+                    {["남", "여"].map(g => (
+                      <button key={g} onClick={() => setForm({ ...form, gender: g })}
+                        className={`flex-1 py-2 rounded-lg text-xs border ${form.gender === g ? "bg-aqu-500 text-white border-aqu-500" : "bg-white border-gray-200"}`}>{g}</button>
+                    ))}
+                  </div>
+                </F>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <F label={isChild ? "아동 생년원일 *" : "생년원일 *"}>
+                  <input type="date" value={form.birth} onChange={e => setForm({ ...form, birth: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                </F>
+                <F label="연락처 *">
+                  <input type="tel" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })}
+                    placeholder="010-0000-0000"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono" />
+                </F>
+              </div>
+              <F label="주소">
+                <input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+              </F>
+              {isChild && (
+                <>
+                  <div className="grid grid-cols-3 gap-2">
+                    <F label="보호자 성함 *">
+                      <input value={form.guardian_name} onChange={e => setForm({ ...form, guardian_name: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                    </F>
+                    <F label="관계">
+                      <input value={form.guardian_relation} onChange={e => setForm({ ...form, guardian_relation: e.target.value })}
+                        placeholder="부/모/조부모 등"
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                    </F>
+                    <F label="키/체중 *">
+                      <input value={form.height_weight} onChange={e => setForm({ ...form, height_weight: e.target.value })}
+                        placeholder="103cm/17kg"
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                    </F>
+                  </div>
+                  <F label="이용기관/학교">
+                    <input value={form.school} onChange={e => setForm({ ...form, school: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                  </F>
+                </>
+              )}
+            </>
+          )}
+
+          {/* ── 섭션 2: 의학·발달/통증 정보 ── */}
+          {step === 2 && (
+            <>
+              <F label="진단명 *">
+                <input value={form.diagnosis} onChange={e => setForm({ ...form, diagnosis: e.target.value })}
+                  placeholder="병원에서 받은 진단명이 있다면 적어주세요"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+              </F>
+              <F label={isChild ? "현재 신체·발달 상태" : "현재 신체 상태 / 추가 안내"}>
+                <textarea value={form.body_condition} onChange={e => setForm({ ...form, body_condition: e.target.value })}
+                  rows={2} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+              </F>
+              <F label="주증상 *">
+                <textarea value={form.main_symptom} onChange={e => setForm({ ...form, main_symptom: e.target.value })}
+                  rows={2} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+              </F>
+              <div className="grid grid-cols-2 gap-2">
+                <F label="수술력">
+                  <input value={form.surgery_history} onChange={e => setForm({ ...form, surgery_history: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                </F>
+                <F label="복용약">
+                  <input value={form.medication} onChange={e => setForm({ ...form, medication: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                </F>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <F label="알레르기">
+                  <input value={form.allergy} onChange={e => setForm({ ...form, allergy: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                </F>
+                <F label={isChild ? "특이사항/주의사항" : "특이사항"}>
+                  <input value={form.notes_medical} onChange={e => setForm({ ...form, notes_medical: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                </F>
+              </div>
+              <F label={isChild ? "현재 진행 중 치료 *" : "현재 진행 중 치료"}>
+                <input value={form.current_therapy} onChange={e => setForm({ ...form, current_therapy: e.target.value })}
+                  placeholder="물리/작업/언어/ABA/감각통합 등"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+              </F>
+              {!isChild && (
+                <F label="통증 여부 *">
+                  <div className="flex gap-2">
+                    <button onClick={() => setForm({ ...form, has_pain: true })}
+                      className={`flex-1 py-2 rounded-lg text-xs border ${form.has_pain ? "bg-red-100 border-red-400 text-red-700 font-bold" : "bg-white border-gray-200"}`}>통증 있음</button>
+                    <button onClick={() => setForm({ ...form, has_pain: false })}
+                      className={`flex-1 py-2 rounded-lg text-xs border ${!form.has_pain ? "bg-emerald-100 border-emerald-400 text-emerald-700 font-bold" : "bg-white border-gray-200"}`}>통증 없음</button>
+                  </div>
+                </F>
+              )}
+            </>
+          )}
+
+          {/* ── 섭션 3: 아동=발달·기능 / 성인=통증상세 ── */}
+          {step === 3 && isChild && (
+            <>
+              {[
+                { k: "walking_level", l: "보행 가능 여부 *", opts: ["가능", "부분가능(보조)", "어려움"] },
+                { k: "sitting_level", l: "앟기/균형 *", opts: ["가능", "부분가능(보조)", "어려움"] },
+                { k: "comm_level", l: "의사소통 수준 *", opts: ["또래수준", "일부단어", "표정·몸짓 위주", "무반응"] },
+                { k: "instruction_level", l: "지시 수행 능력 *", opts: ["가능", "부분가능(보조)", "어려움"] },
+              ].map(({ k, l, opts }) => (
+                <F key={k} label={l}>
+                  <div className="flex flex-wrap gap-1">
+                    {opts.map(o => (
+                      <button key={o} onClick={() => setForm({ ...form, [k]: o })}
+                        className={`px-3 py-1.5 rounded-lg text-xs border ${form[k] === o ? "bg-aqu-500 text-white border-aqu-500" : "bg-white border-gray-200"}`}>{o}</button>
+                    ))}
+                  </div>
+                </F>
+              ))}
+            </>
+          )}
+          {step === 3 && !isChild && (
+            <>
+              <F label="통증 부위 *">
+                <div className="flex flex-wrap gap-1">
+                  {PAIN_AREAS.map(p => (
+                    <button key={p} onClick={() => setForm({ ...form, pain_area: toggle(form.pain_area, p) })}
+                      className={`px-3 py-1.5 rounded-lg text-xs border ${form.pain_area.includes(p) ? "bg-red-100 text-red-700 border-red-400 font-bold" : "bg-white border-gray-200"}`}>{p}</button>
+                  ))}
+                </div>
+              </F>
+              <F label={`통증 척도 (0~10) : ${form.pain_scale}`}>
+                <input type="range" min={0} max={10} value={form.pain_scale}
+                  onChange={e => setForm({ ...form, pain_scale: Number(e.target.value) })}
+                  className="w-full" />
+              </F>
+              <F label="통증 시작 시기 *">
+                <div className="flex flex-wrap gap-1">
+                  {["최근 1주일", "1달", "6개월 이상", "기타"].map(o => (
+                    <button key={o} onClick={() => setForm({ ...form, pain_onset: o })}
+                      className={`px-3 py-1.5 rounded-lg text-xs border ${form.pain_onset === o ? "bg-aqu-500 text-white border-aqu-500" : "bg-white border-gray-200"}`}>{o}</button>
+                  ))}
+                </div>
+              </F>
+              <F label="증상 악화 요인 *">
+                <div className="flex flex-wrap gap-1">
+                  {AGGRAVATE.map(o => (
+                    <button key={o} onClick={() => setForm({ ...form, aggravating_factor: toggle(form.aggravating_factor, o) })}
+                      className={`px-3 py-1.5 rounded-lg text-xs border ${form.aggravating_factor.includes(o) ? "bg-orange-100 text-orange-700 border-orange-400 font-bold" : "bg-white border-gray-200"}`}>{o}</button>
+                  ))}
+                </div>
+              </F>
+            </>
+          )}
+
+          {/* ── 섭션 4: 감각·정서(아동) / 건강위험(성인) ── */}
+          {step === 4 && isChild && (
+            <>
+              <F label="물에 대한 반응 *">
+                <div className="flex flex-wrap gap-1">
+                  {["매우긍정", "보통", "긴장", "거부"].map(o => (
+                    <button key={o} onClick={() => setForm({ ...form, water_reaction: o })}
+                      className={`px-3 py-1.5 rounded-lg text-xs border ${form.water_reaction === o ? "bg-cyan-500 text-white border-cyan-500" : "bg-white border-gray-200"}`}>{o}</button>
+                  ))}
+                </div>
+              </F>
+              <F label="정서 반응 *">
+                <div className="flex flex-wrap gap-1">
+                  {["안정", "약간 긴장", "회피"].map(o => (
+                    <button key={o} onClick={() => setForm({ ...form, emotional_reaction: o })}
+                      className={`px-3 py-1.5 rounded-lg text-xs border ${form.emotional_reaction === o ? "bg-aqu-500 text-white border-aqu-500" : "bg-white border-gray-200"}`}>{o}</button>
+                  ))}
+                </div>
+              </F>
+              <F label="보호자와 분리 반응">
+                <div className="flex flex-wrap gap-1">
+                  {["가능", "부분 가능", "어려움"].map(o => (
+                    <button key={o} onClick={() => setForm({ ...form, separation_reaction: o })}
+                      className={`px-3 py-1.5 rounded-lg text-xs border ${form.separation_reaction === o ? "bg-aqu-500 text-white border-aqu-500" : "bg-white border-gray-200"}`}>{o}</button>
+                  ))}
+                </div>
+              </F>
+              <F label="감각 특이사항">
+                <input value={form.sensory_notes} onChange={e => setForm({ ...form, sensory_notes: e.target.value })}
+                  placeholder="촉각/소리/빛 예민·둘감 등"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+              </F>
+              <div className="grid grid-cols-2 gap-2">
+                <F label="좋아하는 것">
+                  <input value={form.likes_activities} onChange={e => setForm({ ...form, likes_activities: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                </F>
+                <F label="싫어하는 것">
+                  <input value={form.dislikes_situations} onChange={e => setForm({ ...form, dislikes_situations: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                </F>
+              </div>
+            </>
+          )}
+          {step === 4 && !isChild && (
+            <F label="기저질환 *">
+              <div className="flex flex-wrap gap-1">
+                {DISEASES.map(o => (
+                  <button key={o} onClick={() => setForm({ ...form, underlying_disease: toggle(form.underlying_disease, o) })}
+                    className={`px-3 py-1.5 rounded-lg text-xs border ${form.underlying_disease.includes(o) ? "bg-purple-100 text-purple-700 border-purple-400 font-bold" : "bg-white border-gray-200"}`}>{o}</button>
+                ))}
+              </div>
+            </F>
+          )}
+
+          {/* ── 섭션 5: 수업 일정·니즈 ── */}
+          {step === 5 && (
+            <>
+              <div className="p-2 bg-yellow-50 border border-yellow-200 rounded text-[11px] text-yellow-800">
+                현재 평균 대기 3~6개월 이상으로, 가능한 요일을 많이 선택하실수록 빠른 안내에 도움이 됩니다.
+              </div>
+              <F label="희망 요일 *">
+                <div className="flex flex-wrap gap-1">
+                  {DAYS.map(d => (
+                    <button key={d} onClick={() => setForm({ ...form, wish_days: toggle(form.wish_days, d) })}
+                      className={`px-3 py-1.5 rounded-lg text-xs border ${form.wish_days.includes(d) ? "bg-blue-500 text-white border-blue-500" : "bg-white border-gray-200"}`}>{d}</button>
+                  ))}
+                </div>
+              </F>
+              <F label="희망 시간 *">
+                <div className="grid grid-cols-2 gap-1">
+                  {TIME_SLOTS.map(t => (
+                    <button key={t} onClick={() => setForm({ ...form, wish_time_slots: toggle(form.wish_time_slots, t) })}
+                      className={`px-2 py-1.5 rounded-lg text-[11px] border ${form.wish_time_slots.includes(t) ? "bg-cyan-500 text-white border-cyan-500" : "bg-white border-gray-200"}`}>{t}</button>
+                  ))}
+                </div>
+              </F>
+              <div className="grid grid-cols-2 gap-2">
+                <F label="가능한 시작일 *">
+                  <input type="date" value={form.start_available_date}
+                    onChange={e => setForm({ ...form, start_available_date: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                </F>
+                {isChild && (
+                  <F label="방수 기저귀 *">
+                    <div className="flex gap-1">
+                      {["사용함", "사용 안함", "해당없음"].map(o => (
+                        <button key={o} onClick={() => setForm({ ...form, diaper_use: o })}
+                          className={`flex-1 py-2 rounded-lg text-[10px] border ${form.diaper_use === o ? "bg-aqu-500 text-white border-aqu-500" : "bg-white border-gray-200"}`}>{o}</button>
+                      ))}
+                    </div>
+                  </F>
+                )}
+              </div>
+              <F label={isChild ? "가장 걱정되는 점 *" : "가장 걱정되는 점 *"}>
+                <textarea value={form.most_worry} onChange={e => setForm({ ...form, most_worry: e.target.value })}
+                  rows={2} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+              </F>
+              {isChild && (
+                <F label="가장 개선되었으면 하는 점 *">
+                  <textarea value={form.most_improve} onChange={e => setForm({ ...form, most_improve: e.target.value })}
+                    rows={2} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                </F>
+              )}
+              <F label="피하고 싶은 상황">
+                <textarea value={form.avoid_situation} onChange={e => setForm({ ...form, avoid_situation: e.target.value })}
+                  rows={2} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+              </F>
+              <F label={isChild ? "기대하는 변화 *" : "가장 기대하는 변화 *"}>
+                <textarea value={form.expected_change} onChange={e => setForm({ ...form, expected_change: e.target.value })}
+                  rows={2} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+              </F>
+            </>
+          )}
+
+          {/* ── 섭션 6: 마무리 ── */}
+          {step === 6 && (
+            <>
+              <F label="유입 경로 *">
+                <div className="flex flex-wrap gap-1">
+                  {SOURCES.map(s => (
+                    <button key={s} onClick={() => setForm({ ...form, source: s })}
+                      className={`px-3 py-1.5 rounded-lg text-xs border ${form.source === s ? "bg-pink-500 text-white border-pink-500" : "bg-white border-gray-200"}`}>{s}</button>
+                  ))}
+                </div>
+              </F>
+              <F label="추가 메모">
+                <textarea value={form.additional_memo} onChange={e => setForm({ ...form, additional_memo: e.target.value })}
+                  rows={4} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+              </F>
+            </>
+          )}
+
+          {/* ── 섭션 7: 개인정보 동의 ── */}
+          {step === 7 && (
+            <>
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg space-y-2">
+                <div className="text-xs font-bold text-emerald-800">개인정보 수집·이용 동의</div>
+                <div className="text-[11px] text-gray-700 leading-relaxed">
+                  수집 항목: 이름, 연락처, 생년원일, 성별, 주소{isChild && ", 보호자 정보, 이용기관"}<br/>
+                  이용 목적: 회원 등록 및 이용자 식별<br/>
+                  보유·이용 기간: 동의 철회 시까지
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={form.agree_privacy}
+                    onChange={e => setForm({ ...form, agree_privacy: e.target.checked })} />
+                  <span className="text-xs font-bold">동의합니다</span>
+                </label>
+              </div>
+              <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg space-y-2">
+                <div className="text-xs font-bold text-purple-800">민감정보 수집·이용 동의</div>
+                <div className="text-[11px] text-gray-700 leading-relaxed">
+                  수집 항목: 진단명, {isChild ? "발달 정보, " : "통증, 수술력, "}복용약, 알레르기, 기저질환 등 의학적 정보<br/>
+                  이용 목적: 안전한 운동 진행 및 상담 기록<br/>
+                  보유·이용 기간: 동의 철회 시까지
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={form.agree_sensitive}
+                    onChange={e => setForm({ ...form, agree_sensitive: e.target.checked })} />
+                  <span className="text-xs font-bold">동의합니다</span>
+                </label>
+              </div>
+              <div className="p-3 bg-pink-50 border border-pink-200 rounded-lg text-[11px] text-gray-700 leading-relaxed">
+                📌 안내드릴 점<br/>
+                저희는 1:1 수중재활 전문 센터로서 하루 7타임만 운영하고 있어 현재 평균 대기가 3~6개월 이상입니다. 감사합니다 🙏
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* 하단 이동 버튼 */}
+        <div className="sticky bottom-0 border-t px-5 py-3 bg-white flex justify-between items-center gap-2">
+          <button onClick={onClose} className="px-3 py-2 text-xs bg-gray-100 text-gray-700 rounded-lg">취소</button>
+          <div className="flex gap-2">
+            {step > 1 && (
+              <button onClick={() => setStep(step - 1)}
+                className="px-3 py-2 text-xs bg-gray-100 text-gray-700 rounded-lg">← 이전</button>
+            )}
+            {step < totalSteps ? (
+              <button onClick={() => setStep(step + 1)}
+                className="px-4 py-2 text-xs bg-pink-500 text-white rounded-lg hover:bg-pink-600">다음 →</button>
+            ) : (
+              <button onClick={submit} disabled={saving}
+                className="px-4 py-2 text-xs bg-pink-600 text-white rounded-lg hover:bg-pink-700 disabled:opacity-50 flex items-center gap-1">
+                <Save className="w-4 h-4" /> {saving ? "저장 중..." : "보내기"}
+              </button>
+            )}
+          </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ✅ v3.20.19: 상담폼 필드 래퍼
+function F({ label, children }: { label: string; children: any }) {
+  return (
+    <div>
+      <label className="text-[11px] font-semibold text-gray-600 block mb-1">{label}</label>
+      {children}
     </div>
   );
 }

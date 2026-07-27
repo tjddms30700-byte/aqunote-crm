@@ -6,6 +6,20 @@ import HomeButton from "@/components/HomeButton";
 import { Waves, Plus, X, Save, TrendingUp, TrendingDown, DollarSign } from "lucide-react";
 import DirectorOnly from "@/components/DirectorOnly";
 
+// ✅ v3.20.19: 수입 카테고리 (지원금·대출·기타)
+const INCOME_CATEGORIES = [
+  "정부 지원금",
+  "지자체 지원금",
+  "바우처 정산금",
+  "대출금 수령",
+  "이자 수익",
+  "환급금",
+  "세금 환급",
+  "기부금 수령",
+  "임대 수입",
+  "기타 수입",
+];
+
 // ✅ v3.20.11: 지출 카테고리 추가 (마케팅, 식비, 교육비, 차량유지비, 복리후생, 법무비용, 경조사 등)
 const CATEGORIES = [
   // 공과금
@@ -41,6 +55,19 @@ function FinancePage() {
   const [expenses, setExpenses] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [payroll, setPayroll] = useState<any[]>([]);
+  // ✅ v3.20.19: 수입(지원금·대출·기타)
+  const [incomes, setIncomes] = useState<any[]>([]);
+  const [showIncomeModal, setShowIncomeModal] = useState(false);
+  const [newIncome, setNewIncome] = useState<any>({
+    category: "정부 지원금",
+    source: "",
+    amount: 0,
+    received_at: new Date().toISOString().slice(0, 10),
+    description: "",
+    is_loan: false,
+    repayment_due: "",
+    interest_rate: 0,
+  });
   // ✅ v3.20.6: 인건비 자동 계산을 위한 schedule_slots + staff
   const [scheduleSlots, setScheduleSlots] = useState<any[]>([]);
   const [staffList, setStaffList] = useState<any[]>([]);
@@ -96,19 +123,68 @@ function FinancePage() {
       }
       return norm;
     }
-    const [e, p, pr, ss, st] = await Promise.all([
+    // ✅ v3.20.19: incomes 테이블 자동 폴백 (테이블 없으면 빈 배열)
+    async function loadIncomes(): Promise<any[]> {
+      const r = await supabase.from("incomes").select("*").order("received_at", { ascending: false });
+      return r.error ? [] : (r.data || []);
+    }
+    const [e, p, pr, ss, st, inc] = await Promise.all([
       supabase.from("expenses").select("*").order("spent_at", { ascending: false }),
       supabase.from("payments").select("*"),
       loadPayroll(),
       supabase.from("schedule_slots").select("id, staff_id, event_type, event_date, status"),
       supabase.from("staff").select("id, name, salary_type, salary_amount, session_rate, is_resigned"),
+      loadIncomes(),
     ]);
     setExpenses(e.data || []);
     setPayments(p.data || []);
     setPayroll(pr || []);
     setScheduleSlots(ss.data || []);
     setStaffList(st.data || []);
+    setIncomes(inc || []);
     setLoading(false);
+  }
+
+  // ✅ v3.20.19: 수입 등록/삭제
+  async function addIncome() {
+    if (!newIncome.amount || Number(newIncome.amount) <= 0) return alert("금액을 입력해 주세요");
+    const { data: orgs } = await supabase.from("organizations").select("id").limit(1);
+    const orgId = orgs?.[0]?.id;
+    const payload: any = {
+      org_id: orgId,
+      category: newIncome.category,
+      source: newIncome.source || null,
+      amount: Number(newIncome.amount),
+      received_at: newIncome.received_at,
+      description: newIncome.description || null,
+      is_loan: newIncome.category === "대출금 수령" || !!newIncome.is_loan,
+      repayment_due: newIncome.repayment_due || null,
+      interest_rate: Number(newIncome.interest_rate) || 0,
+    };
+    // 자동 컴럼 폴백
+    for (let i = 0; i < 6; i++) {
+      const { error } = await supabase.from("incomes").insert(payload);
+      if (!error) break;
+      if (error.code === "42P01") {
+        return alert("❌ incomes 테이블이 없습니다.\n\n💡 AQUNOTE_V32019_INCOMES.sql을 Supabase에서 먼저 실행해 주세요.");
+      }
+      const m = (error.message || "").match(/column "([^"]+)"/i);
+      if (m?.[1] && m[1] in payload) { delete payload[m[1]]; continue; }
+      return alert("수입 등록 실패: " + error.message);
+    }
+    setShowIncomeModal(false);
+    setNewIncome({
+      category: "정부 지원금", source: "", amount: 0,
+      received_at: new Date().toISOString().slice(0, 10),
+      description: "", is_loan: false, repayment_due: "", interest_rate: 0,
+    });
+    loadAll();
+  }
+
+  async function deleteIncome(id: string) {
+    if (!confirm("수입 이력을 삭제할까요?")) return;
+    await supabase.from("incomes").delete().eq("id", id);
+    loadAll();
   }
 
   async function addExpense() {
@@ -137,8 +213,15 @@ function FinancePage() {
   const monthPayments = payments.filter((p) => p.status !== "cancelled" && p.paid_at?.startsWith(selectedMonth));
   const monthExpenses = expenses.filter((e) => e.spent_at?.startsWith(selectedMonth));
   const monthPayroll = payroll.filter((p) => p.pay_month === selectedMonth);
+  // ✅ v3.20.19: 이번달 수입(지원금·대출·기타)
+  const monthIncomes = incomes.filter((i: any) => i.received_at?.startsWith(selectedMonth));
 
-  const revenue = monthPayments.reduce((s, p) => s + Math.max(0, (p.amount || 0) - (p.refunded_amount || 0)), 0);
+  // 결제 매출
+  const paymentRevenue = monthPayments.reduce((s, p) => s + Math.max(0, (p.amount || 0) - (p.refunded_amount || 0)), 0);
+  // 기타 수입 (지원금·대출 등)
+  const otherIncome = monthIncomes.reduce((s, i: any) => s + Number(i.amount || 0), 0);
+  // 총 수입 = 결제 매출 + 기타 수입
+  const revenue = paymentRevenue + otherIncome;
   const totalExpense = monthExpenses.reduce((s, e) => s + e.amount, 0);
 
   // ✅ v3.20.8: 인건비 = payroll(세무사 입력 지급 이력) 기준으로만 계산
@@ -209,22 +292,36 @@ function FinancePage() {
         </Link>
       </div>
 
-      {/* Month selector + Add expense */}
+      {/* Month selector + Add income/expense */}
       <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
         <input type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}
           className="px-3 py-2 rounded-lg border border-aqu-200 text-sm" />
-        <button onClick={() => setShowModal(true)}
-          className="px-3 py-1.5 bg-aqu-600 text-white rounded-lg text-sm flex items-center gap-1 hover:bg-aqu-700">
-          <Plus className="w-4 h-4" /> 지출 등록
-        </button>
+        <div className="flex gap-2">
+          {/* ✅ v3.20.19: 수입(지원금·대출·기타) 등록 */}
+          <button onClick={() => setShowIncomeModal(true)}
+            className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm flex items-center gap-1 hover:bg-emerald-700">
+            <TrendingUp className="w-4 h-4" /> 수입 등록
+          </button>
+          <button onClick={() => setShowModal(true)}
+            className="px-3 py-1.5 bg-aqu-600 text-white rounded-lg text-sm flex items-center gap-1 hover:bg-aqu-700">
+            <Plus className="w-4 h-4" /> 지출 등록
+          </button>
+        </div>
       </div>
 
       {/* Summary KPI */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
         <div className="p-4 bg-white rounded-2xl shadow-md border border-green-200">
           <TrendingUp className="w-6 h-6 text-green-500 mb-1" />
-          <div className="text-xs text-gray-500">수입</div>
+          <div className="text-xs text-gray-500 flex items-center gap-1">
+            총 수입
+            <span className="text-[9px] px-1 py-0.5 bg-emerald-100 text-emerald-700 rounded font-semibold">자동집계</span>
+          </div>
           <div className="text-lg md:text-xl font-bold text-green-600">₩{revenue.toLocaleString()}</div>
+          <div className="text-[10px] text-gray-500 mt-1">
+            결제 ₩{paymentRevenue.toLocaleString()}
+            {otherIncome > 0 && <> · 기타 ₩{otherIncome.toLocaleString()}</>}
+          </div>
         </div>
         <div className="p-4 bg-white rounded-2xl shadow-md border border-red-200">
           <TrendingDown className="w-6 h-6 text-red-500 mb-1" />
@@ -339,6 +436,57 @@ function FinancePage() {
         </div>
       )}
 
+      {/* ✅ v3.20.19: 이번달 수입 이력 (지원금·대출·기타) */}
+      <div className="bg-white rounded-2xl shadow-md border border-emerald-100 overflow-hidden mb-4">
+        <div className="p-4 border-b border-emerald-100 flex items-center justify-between bg-emerald-50/40">
+          <h3 className="font-bold text-emerald-900">💰 이번달 수입 이력 ({monthIncomes.length}건) · ₩{otherIncome.toLocaleString()}</h3>
+          <button onClick={() => setShowIncomeModal(true)}
+            className="text-xs px-2 py-1 bg-emerald-500 text-white rounded hover:bg-emerald-600 flex items-center gap-1">
+            <Plus className="w-3 h-3" /> 수입 추가
+          </button>
+        </div>
+        {loading ? (
+          <div className="p-6 text-center text-gray-400 text-xs">불러오는 중…</div>
+        ) : monthIncomes.length === 0 ? (
+          <div className="p-6 text-center text-gray-400 text-xs">이번달 수입 이력이 없습니다. 지원금·대출·기타 수입을 등록하세요.</div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="bg-emerald-50 text-emerald-900">
+              <tr>
+                <th className="text-left px-4 py-2 text-xs">수령일</th>
+                <th className="text-left px-4 py-2 text-xs">카테고리</th>
+                <th className="text-left px-4 py-2 text-xs hidden md:table-cell">지급기관</th>
+                <th className="text-left px-4 py-2 text-xs hidden md:table-cell">내역</th>
+                <th className="text-right px-4 py-2 text-xs">금액</th>
+                <th className="w-8"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {monthIncomes.map((i: any) => (
+                <tr key={i.id} className="border-t border-emerald-50 hover:bg-emerald-50/20">
+                  <td className="px-4 py-2 text-xs">{i.received_at}</td>
+                  <td className="px-4 py-2">
+                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded text-xs">{i.category}</span>
+                    {i.is_loan && <span className="ml-1 text-[9px] px-1.5 py-0.5 bg-orange-100 text-orange-700 rounded font-bold">대출</span>}
+                  </td>
+                  <td className="px-4 py-2 hidden md:table-cell text-xs text-gray-700">{i.source || "-"}</td>
+                  <td className="px-4 py-2 hidden md:table-cell text-xs text-gray-600">
+                    {i.description || "-"}
+                    {i.is_loan && i.repayment_due && (
+                      <div className="text-[10px] text-orange-600 mt-0.5">⏰ 상환예정: {i.repayment_due}{i.interest_rate ? ` · 이자 ${i.interest_rate}%` : ""}</div>
+                    )}
+                  </td>
+                  <td className="px-4 py-2 text-right font-medium text-emerald-700">+₩{Number(i.amount).toLocaleString()}</td>
+                  <td className="px-2">
+                    <button onClick={() => deleteIncome(i.id)} className="text-red-400 hover:text-red-600 text-xs">삭제</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
       {/* Recent expenses */}
       <div className="bg-white rounded-2xl shadow-md border border-aqu-100 overflow-hidden">
         <div className="p-4 border-b border-aqu-100">
@@ -381,6 +529,88 @@ function FinancePage() {
       <div className="mt-6 text-sm">
         <Link href="/staff" className="text-aqu-600 hover:underline">→ 급여 관리로 이동</Link>
       </div>
+
+      {/* ✅ v3.20.19: 수입 등록 모달 */}
+      {showIncomeModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowIncomeModal(false)}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-emerald-800">💰 수입 등록</h3>
+              <button onClick={() => setShowIncomeModal(false)}><X className="w-5 h-5 text-gray-500" /></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-gray-600">카테고리 *</label>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {INCOME_CATEGORIES.map((c) => (
+                    <button key={c} onClick={() => setNewIncome({ ...newIncome, category: c, is_loan: c === "대출금 수령" })}
+                      className={`px-3 py-1.5 rounded-full text-xs ${newIncome.category === c ? "bg-emerald-500 text-white" : "bg-gray-100"}`}>
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-600">지급기관 / 지급처</label>
+                <input value={newIncome.source}
+                  onChange={(e) => setNewIncome({ ...newIncome, source: e.target.value })}
+                  placeholder="예: 하남시청, 국민은행, 가족 등"
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-gray-200 text-sm" />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-semibold text-gray-600">금액 (원) *</label>
+                  <input type="number" value={newIncome.amount} step={10000}
+                    onChange={(e) => setNewIncome({ ...newIncome, amount: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-gray-200 text-sm text-right" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-600">수령일</label>
+                  <input type="date" value={newIncome.received_at}
+                    onChange={(e) => setNewIncome({ ...newIncome, received_at: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-gray-200 text-sm" />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-600">내역 / 메모</label>
+                <input value={newIncome.description}
+                  onChange={(e) => setNewIncome({ ...newIncome, description: e.target.value })}
+                  placeholder="예: 소상공인 임대료 지원, 창업자금 대출"
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-gray-200 text-sm" />
+              </div>
+
+              {/* 대출 선택 시 상환일·이자율 */}
+              {(newIncome.category === "대출금 수령" || newIncome.is_loan) && (
+                <div className="border-2 border-orange-100 bg-orange-50/40 rounded-lg p-3 space-y-2">
+                  <div className="text-xs font-bold text-orange-800">🏦 대출 정보</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[11px] font-semibold text-gray-600">상환 예정일</label>
+                      <input type="date" value={newIncome.repayment_due}
+                        onChange={(e) => setNewIncome({ ...newIncome, repayment_due: e.target.value })}
+                        className="w-full mt-1 px-2 py-1.5 rounded border border-gray-200 text-sm" />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-gray-600">이자율 (%)</label>
+                      <input type="number" value={newIncome.interest_rate} step={0.1}
+                        onChange={(e) => setNewIncome({ ...newIncome, interest_rate: e.target.value })}
+                        className="w-full mt-1 px-2 py-1.5 rounded border border-gray-200 text-sm text-right" />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2 mt-5">
+              <button onClick={() => setShowIncomeModal(false)}
+                className="flex-1 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50">취소</button>
+              <button onClick={addIncome}
+                className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-1">
+                <Save className="w-4 h-4" /> 수입 등록
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Expense Modal */}
       {showModal && (
