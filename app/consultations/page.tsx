@@ -109,7 +109,7 @@ function matchesWish(wishDaysRaw: any[] | null | undefined, wishTimesRaw: any[] 
 /* ─────────────── 메인 페이지 ─────────────── */
 
 export default function ConsultationsPage() {
-  const [tab, setTab] = useState<"kanban" | "match" | "dashboard">("kanban");
+  const [tab, setTab] = useState<"kanban" | "match" | "dashboard" | "faq">("kanban");
   const [members, setMembers] = useState<Member[]>([]);
   const [staff, setStaff] = useState<any[]>([]);
   const [matrix, setMatrix] = useState<MatrixCell[]>([]);
@@ -423,6 +423,7 @@ export default function ConsultationsPage() {
         <TabBtn active={tab === "kanban"} onClick={() => setTab("kanban")} icon="📋" label="칸반 (파이프라인)" />
         <TabBtn active={tab === "match"} onClick={() => setTab("match")} icon="🗓️" label="시간표 매칭" />
         <TabBtn active={tab === "dashboard"} onClick={() => setTab("dashboard")} icon="📊" label="대시보드" />
+        <TabBtn active={tab === "faq"} onClick={() => setTab("faq")} icon="💬" label="상담 FAQ" />
       </div>
 
       {/* ─── 탭 1: 칸반 ─── */}
@@ -448,6 +449,9 @@ export default function ConsultationsPage() {
       {tab === "dashboard" && (
         <DashboardView members={members} stats={stats} onMove={moveMember} />
       )}
+
+      {/* ─── 탭 4: 상담 FAQ (v3.20.22) ─── */}
+      {tab === "faq" && <FaqView />}
 
       {/* 셀 편집 모달 */}
       {selectedCell && (
@@ -1506,7 +1510,207 @@ function F({ label, children }: { label: string; children: any }) {
   );
 }
 
-/* ─────────────── 유틸 컴포넌트 ─────────────── */
+/* ─────────────── 유틸 컴포트 ─────────────── */
+
+// v3.20.22: 상담 FAQ 뷰 – 데스크 직원 누구나 동일하게 응대할 수 있도록
+const FAQ_CATEGORIES = [
+  { v: "all",         label: "전체",   color: "bg-gray-100 text-gray-700" },
+  { v: "payment",     label: "💰 결제/수강료", color: "bg-blue-100 text-blue-700" },
+  { v: "schedule",    label: "🗓️ 시간표/대기", color: "bg-purple-100 text-purple-700" },
+  { v: "refund",      label: "🔄 보강/이월/환불", color: "bg-orange-100 text-orange-700" },
+  { v: "preparation", label: "🎒 준비물/안내", color: "bg-green-100 text-green-700" },
+  { v: "reservation", label: "📅 체험예약", color: "bg-pink-100 text-pink-700" },
+  { v: "general",     label: "ℹ️ 일반", color: "bg-slate-100 text-slate-700" },
+  { v: "template",    label: "📩 카톡 템플릿", color: "bg-amber-100 text-amber-700" },
+];
+
+function FaqView() {
+  const [faqs, setFaqs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [cat, setCat] = useState<string>("all");
+  const [q, setQ] = useState("");
+  const [editing, setEditing] = useState<any | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  useEffect(() => { load(); }, []);
+
+  async function load() {
+    setLoading(true);
+    const { data, error } = await supabase.from("consultation_faqs")
+      .select("*").eq("is_active", true).order("sort_order", { ascending: true });
+    if (error) {
+      console.warn("FAQ load error:", error.message);
+      setFaqs([]);
+    } else {
+      setFaqs(data || []);
+    }
+    setLoading(false);
+  }
+
+  async function saveFaq() {
+    if (!editing?.question || !editing?.answer) return alert("질문과 답변을 모두 입력해 주세요");
+    const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
+    const payload: any = {
+      org_id: orgId,
+      sort_order: editing.sort_order ?? (faqs.length + 1),
+      category: editing.category || "general",
+      question: editing.question,
+      answer: editing.answer,
+      is_active: true,
+      is_template: editing.category === "template",
+      updated_at: new Date().toISOString(),
+    };
+    const call = editing.id
+      ? supabase.from("consultation_faqs").update(payload).eq("id", editing.id)
+      : supabase.from("consultation_faqs").insert(payload);
+    const { error } = await call;
+    if (error) return alert("저장 실패: " + error.message + "\n\n💡 AQUNOTE_V32022_AUTO_RENEW_PDF_FAQ.sql 을 Supabase에 실행해 주세요.");
+    alert(editing.id ? "✅ 수정되었습니다" : "✅ 추가되었습니다");
+    setEditing(null);
+    load();
+  }
+
+  async function delFaq(f: any) {
+    if (!confirm(`"${f.question}"\n\n이 FAQ를 삭제할까요?`)) return;
+    await supabase.from("consultation_faqs").delete().eq("id", f.id);
+    load();
+  }
+
+  function copyAnswer(f: any) {
+    navigator.clipboard.writeText(f.answer).then(() => {
+      setCopiedId(f.id);
+      setTimeout(() => setCopiedId(null), 1500);
+    });
+  }
+
+  const filtered = faqs.filter(f => {
+    if (cat !== "all" && f.category !== cat) return false;
+    if (q) {
+      const s = q.toLowerCase();
+      if (!(f.question || "").toLowerCase().includes(s) && !(f.answer || "").toLowerCase().includes(s)) return false;
+    }
+    return true;
+  });
+
+  return (
+    <div className="max-w-7xl mx-auto">
+      {/* 안내 헤더 */}
+      <div className="bg-gradient-to-r from-amber-50 to-pink-50 border border-amber-200 rounded-xl p-4 mb-4">
+        <div className="text-sm font-bold text-amber-900 mb-1">💬 상담 FAQ · 데스크 응대 통일 스크립트</div>
+        <div className="text-xs text-gray-700 leading-relaxed">
+          누구나 데스크에 앉아도 동일한 품질로 응대할 수 있도록 Q&A와 카톡 템플릿을 모아놓았습니다.
+          답변 카드의 <b>복사</b> 버튼을 누르면 전체 문구가 클립보드에 복사되어 카톡·SMS에 바로 붙여넣기 가능합니다.
+        </div>
+      </div>
+
+      {/* 카테고리 + 검색 */}
+      <div className="flex flex-wrap gap-2 mb-3">
+        {FAQ_CATEGORIES.map(c => {
+          const count = c.v === "all" ? faqs.length : faqs.filter(f => f.category === c.v).length;
+          return (
+            <button key={c.v} onClick={() => setCat(c.v)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition ${cat === c.v ? "border-pink-400 " + c.color : "border-transparent bg-white text-gray-600 hover:bg-gray-50"}`}>
+              {c.label} <span className="ml-1 opacity-70">({count})</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex gap-2 mb-4">
+        <input type="text" value={q} onChange={e => setQ(e.target.value)}
+          placeholder="질문또는 답변 내용 검색"
+          className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:border-pink-400 focus:outline-none" />
+        <button onClick={() => setEditing({ category: cat === "all" ? "general" : cat, question: "", answer: "" })}
+          className="px-4 py-2 bg-gradient-to-r from-pink-500 to-rose-500 text-white rounded-lg text-sm font-bold hover:from-pink-600 hover:to-rose-600">
+          + FAQ 추가
+        </button>
+      </div>
+
+      {/* FAQ 리스트 */}
+      {loading ? (
+        <div className="text-center py-10 text-gray-500">로딩중...</div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-16 text-gray-500 bg-white rounded-xl border border-gray-200">
+          {faqs.length === 0
+            ? "아직 등록된 FAQ가 없습니다. AQUNOTE_V32022_AUTO_RENEW_PDF_FAQ.sql 을 먼저 실행해 주세요."
+            : "검색 결과가 없습니다"}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filtered.map(f => {
+            const cInfo = FAQ_CATEGORIES.find(c => c.v === f.category) || FAQ_CATEGORIES[FAQ_CATEGORIES.length - 2];
+            return (
+              <div key={f.id} className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition">
+                <div className="p-4 border-b border-gray-100 flex items-start justify-between gap-2">
+                  <div className="flex-1">
+                    <div className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${cInfo.color} mb-1.5`}>{cInfo.label}</div>
+                    <div className="text-sm font-bold text-gray-900">{f.question}</div>
+                  </div>
+                  <div className="flex gap-1 flex-shrink-0">
+                    <button onClick={() => copyAnswer(f)}
+                      className={`text-xs px-3 py-1.5 rounded-lg font-semibold transition ${copiedId === f.id ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700 hover:bg-blue-200"}`}>
+                      {copiedId === f.id ? "✓ 복사됨" : "📋 복사"}
+                    </button>
+                    <button onClick={() => setEditing(f)}
+                      className="text-xs px-2 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">수정</button>
+                    <button onClick={() => delFaq(f)}
+                      className="text-xs px-2 py-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100">삭제</button>
+                  </div>
+                </div>
+                <div className="p-4 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed bg-gray-50/50">{f.answer}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* 편집 모달 */}
+      {editing && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-4 border-b flex items-center justify-between">
+              <div className="text-lg font-bold">{editing.id ? "FAQ 수정" : "FAQ 추가"}</div>
+              <button onClick={() => setEditing(null)} className="text-gray-500 hover:text-gray-800">✕</button>
+            </div>
+            <div className="p-4 space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-gray-600 mb-1 block">카테고리</label>
+                <select value={editing.category || "general"}
+                  onChange={e => setEditing({ ...editing, category: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+                  {FAQ_CATEGORIES.filter(c => c.v !== "all").map(c => <option key={c.v} value={c.v}>{c.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-600 mb-1 block">질문 *</label>
+                <input type="text" value={editing.question || ""}
+                  onChange={e => setEditing({ ...editing, question: e.target.value })}
+                  placeholder="예: Q1. 수강료와 수업 회차는 어떻게 되나요?"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-600 mb-1 block">답변 *</label>
+                <textarea value={editing.answer || ""} rows={10}
+                  onChange={e => setEditing({ ...editing, answer: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-600 mb-1 block">정렬 순서</label>
+                <input type="number" value={editing.sort_order ?? 0}
+                  onChange={e => setEditing({ ...editing, sort_order: Number(e.target.value) })}
+                  className="w-32 px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+              </div>
+            </div>
+            <div className="p-4 border-t flex justify-end gap-2">
+              <button onClick={() => setEditing(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200">취소</button>
+              <button onClick={saveFaq} className="px-4 py-2 bg-gradient-to-r from-pink-500 to-rose-500 text-white rounded-lg text-sm font-bold">저장</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function TabBtn({ active, onClick, icon, label }: any) {
   return (

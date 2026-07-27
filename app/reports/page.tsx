@@ -1,7 +1,7 @@
 "use client";
 export const dynamic = "force-dynamic";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -35,7 +35,15 @@ function weekAgoStr() {
   return d.toISOString().slice(0,10);
 }
 
-export default function ReportsPage() {
+export default function ReportsPageWrapper() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-gray-500">로딩중...</div>}>
+      <ReportsPage />
+    </Suspense>
+  );
+}
+
+function ReportsPage() {
   const [members, setMembers] = useState<any[]>([]);
   const [staffList, setStaffList] = useState<any[]>([]);
   const [type, setType] = useState<string>("daily");

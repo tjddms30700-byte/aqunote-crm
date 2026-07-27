@@ -1,7 +1,7 @@
 "use client";
 export const dynamic = "force-dynamic";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
@@ -400,7 +400,15 @@ function todayStr() {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 }
 
-export default function ContractsPage() {
+export default function ContractsPageWrapper() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-gray-500">로딩중...</div>}>
+      <ContractsPage />
+    </Suspense>
+  );
+}
+
+function ContractsPage() {
   const [contracts, setContracts] = useState<any[]>([]);
   const [members, setMembers] = useState<any[]>([]);
   const [staffList, setStaffList] = useState<any[]>([]);
@@ -488,6 +496,9 @@ export default function ContractsPage() {
       body: TEMPLATES[contractType] || "",
       form_data: defaultFormDataFor(contractType, subCat),
       signature: "", counter_signature: "", status: "draft", note: "",
+      // v3.20.22: 자동연장 (해지 전까지 계속 연장)
+      auto_renew: true,
+      renew_period_months: subCat === "staff" ? 12 : 12,
     });
   }
   useBranchWatch(() => loadAll());
@@ -597,6 +608,8 @@ export default function ContractsPage() {
       counter_signature: "",
       status: "draft",
       note: "",
+      auto_renew: true,
+      renew_period_months: 12,
     });
   }
 
@@ -642,6 +655,11 @@ export default function ContractsPage() {
       note: editing.note || null,
       // ✅ v3.20.15: 필드 값 JSON 저장 (상담신청서과 동일 방식)
       form_data: editing.form_data || null,
+      // v3.20.22: 자동연장 설정
+      auto_renew: editing.auto_renew !== false,
+      renew_period_months: editing.renew_period_months || 12,
+      terminated_at: editing.terminated_at || null,
+      termination_reason: editing.termination_reason || null,
     };
 
     // 자동 컬럼 폴백
@@ -657,6 +675,8 @@ export default function ContractsPage() {
         // v3.20.21: 서명 완료 시 회원/직원 문서로 자동 링크
         if (savedId && editing.signature && editing.status === "signed") {
           await autoLinkToDocument(savedId, editing, orgId);
+          // v3.20.22: 서명 완료 시 PDF Storage 자동 생성
+          await generateAndUploadPdf(savedId);
         }
         alert((editing.id ? "✅ 계약서가 수정되었습니다" : "✅ 계약서가 저장되었습니다") +
           (editing.signature && editing.status === "signed"
@@ -759,8 +779,75 @@ export default function ContractsPage() {
     window.print();
   }
 
-  // ✅ v3.20.18: 이메일 발송 제거 → PDF 저장만 지원 (계약서는 자동으로 contracts 테이블에 저장되며,
-  // 회원·직원 상세 페이지에서 자동 노출됨)
+  // v3.20.22: 계약서를 자체 완결형 HTML 문서로 렌더링 (Storage 저장용)
+  function renderContractHtmlForStorage(ed: any): string {
+    const fd = ed.form_data || {};
+    const title = ed.title || typeLabel(ed.contract_type);
+    const bodyHtml = (ed.body || "").replace(/</g, "&lt;").replace(/\n/g, "<br/>");
+    const signImg = ed.signature ? `<img src="${ed.signature}" style="max-width:180px;max-height:60px;object-fit:contain"/>` : "";
+    const sealHtml = ed.counter_signature === "seal" ? `<img src="/center_seal.png" style="width:64px;height:64px;object-fit:contain"/>` : "";
+    return `<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"/>
+<title>${title}</title>
+<link href="https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@400;700;800&display=swap" rel="stylesheet"/>
+<style>
+  @page { size: A4; margin: 12mm 14mm; }
+  body { font-family: "Nanum Myeongjo", Batang, serif; font-size: 10.5pt; line-height: 1.75; color: #111; }
+  h1 { text-align: center; font-size: 15pt; border-bottom: 2px solid #0284c7; padding-bottom: 6px; }
+  .meta { display: flex; justify-content: space-between; font-size: 9.5pt; color: #475569; margin-bottom: 12px; }
+  .body { white-space: pre-wrap; }
+  .sign { display: flex; justify-content: space-around; margin-top: 22px; padding-top: 12px; border-top: 1px solid #cbd5e1; }
+  .sign-box { text-align: center; font-size: 10pt; }
+  .footer { text-align: right; font-size: 9pt; color: #64748b; margin-top: 14px; }
+  @media print { .no-print { display:none } }
+</style></head><body>
+<h1>${title}</h1>
+<div class="meta"><span>대상: <b>${ed.subject_name || "-"}</b></span><span>계약일: <b>${ed.contract_date}</b></span><span>자동연장: <b>${ed.auto_renew !== false ? "O (" + (ed.renew_period_months || 12) + "개월 단위)" : "X"}</b></span></div>
+<div class="body">${bodyHtml}</div>
+<div class="sign">
+  <div class="sign-box">
+    <div>${ed.subject_kind === "staff" ? "근로자" : "회원(보호자)"}: <b>${ed.subject_name || "-"}</b></div>
+    <div>연락처: ${fd.worker_phone || fd.phone || "-"}</div>
+    <div style="margin-top:10px">${signImg}</div>
+  </div>
+  <div class="sign-box">
+    <div>사업자: <b>${fd.employer_name || "위례아쿠수중운동센터"}</b></div>
+    <div>대표자: ${fd.employer_ceo || "하유정"}</div>
+    <div style="margin-top:10px">${sealHtml}</div>
+  </div>
+</div>
+<div class="footer">생성일: ${new Date().toISOString().slice(0,10)} · 위례아쿠수중운동센터 · 사업자등록번호 680-04-03475</div>
+</body></html>`;
+  }
+
+  // v3.20.22: PDF Storage 자동 업로드 (HTML 스냅샷 → 서명 완료 시 호출)
+  async function generateAndUploadPdf(contractId: string) {
+    try {
+      // 계약서 HTML 스냅샷을 base64 PDF 로 변환하려면 외부 툴이 필요.
+      // 이단계에서는 계약서 HTML 본문을 .html 로 저장 (Storage 버킷 documents)
+      const html = renderContractHtmlForStorage(editing);
+      const blob = new Blob([html], { type: "text/html; charset=utf-8" });
+      const safeName = (editing.subject_name || "contract").replace(/[^a-zA-Z0-9가-힣._-]/g, "_");
+      const typeLabelText = typeLabel(editing.contract_type).replace(/^[^ ]+ /, "");
+      const filePath = `contracts/${contractId}/${safeName}_${typeLabelText}_${editing.contract_date}_${Date.now()}.html`;
+
+      const { error: upErr } = await supabase.storage.from("documents")
+        .upload(filePath, blob, { upsert: true, contentType: "text/html; charset=utf-8" });
+      if (upErr) throw upErr;
+
+      const { data: signed } = await supabase.storage.from("documents").createSignedUrl(filePath, 60 * 60 * 24 * 365);
+
+      await supabase.from("contracts").update({
+        pdf_storage_path: filePath,
+        pdf_public_url: signed?.signedUrl || null,
+        pdf_generated_at: new Date().toISOString(),
+      }).eq("id", contractId);
+
+      return { path: filePath, url: signed?.signedUrl };
+    } catch (e: any) {
+      console.warn("generateAndUploadPdf failed:", e);
+      return null;
+    }
+  }
 
   return (
     <main className="max-w-7xl mx-auto px-3 md:px-6 py-6 md:py-10">
@@ -1071,6 +1158,48 @@ export default function ContractsPage() {
                     onChange={e => setEditing({ ...editing, end_date: e.target.value })}
                     className="w-full mt-1 px-2 py-2 border border-gray-200 rounded-lg text-sm" />
                 </label>
+              </div>
+
+              {/* v3.20.22: 자동연장 UI */}
+              <div className="no-print border-2 border-green-100 rounded-lg p-3 bg-green-50/40">
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="checkbox" checked={editing.auto_renew !== false}
+                    onChange={e => setEditing({ ...editing, auto_renew: e.target.checked })}
+                    className="w-4 h-4" />
+                  <span className="font-bold text-green-800">🔄 자동연장 (해지 전까지 계속 연장)</span>
+                </label>
+                {editing.auto_renew !== false && (
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <label className="text-xs">
+                      <span className="text-gray-600 font-semibold">연장 주기 (개월)</span>
+                      <input type="number" value={editing.renew_period_months || 12} min={1} max={60}
+                        onChange={e => setEditing({ ...editing, renew_period_months: Number(e.target.value) })}
+                        className="w-full mt-1 px-2 py-1.5 border border-gray-200 rounded text-sm" />
+                    </label>
+                    <div className="text-xs text-green-700 flex items-end">
+                      💡 종료일 도달 시 자동으로 {editing.renew_period_months || 12}개월 연장됩니다.
+                    </div>
+                  </div>
+                )}
+                {editing.id && editing.auto_renew !== false && (
+                  <button type="button" onClick={() => {
+                    const reason = prompt("해지 사유를 입력하세요 (필수)");
+                    if (!reason) return;
+                    setEditing({ ...editing, auto_renew: false,
+                      terminated_at: new Date().toISOString(),
+                      termination_reason: reason,
+                      status: "terminated",
+                    });
+                    alert("✅ 해지 처리되었습니다. 저장 버튼을 눌러 확정해 주세요.");
+                  }} className="mt-2 text-xs px-3 py-1.5 bg-red-100 text-red-700 rounded hover:bg-red-200">
+                    🗑️ 계약 해지
+                  </button>
+                )}
+                {editing.terminated_at && (
+                  <div className="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2">
+                    ⛔ 해지일: {new Date(editing.terminated_at).toLocaleDateString()} · 사유: {editing.termination_reason || "-"}
+                  </div>
+                )}
               </div>
 
               {/* 인쇄용 헤더 */}

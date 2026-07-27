@@ -7,6 +7,45 @@ import { supabase } from "@/lib/supabase";
 import { Printer, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
+// v3.20.22: 바디맵 좀들 (멤버 상세 페이지와 동일 좌표)
+const BODY_PARTS = [
+  { key: "neck", label: "목", x: 100, y: 40 },
+  { key: "shoulder_l", label: "어깨(좌)", x: 65, y: 65 },
+  { key: "shoulder_r", label: "어깨(우)", x: 135, y: 65 },
+  { key: "arm_l", label: "팔(좌)", x: 45, y: 110 },
+  { key: "arm_r", label: "팔(우)", x: 155, y: 110 },
+  { key: "chest", label: "가슴", x: 100, y: 100 },
+  { key: "back", label: "허리", x: 100, y: 160 },
+  { key: "hip", label: "고관절", x: 100, y: 200 },
+  { key: "knee_l", label: "무릎(좌)", x: 80, y: 260 },
+  { key: "knee_r", label: "무릎(우)", x: 120, y: 260 },
+  { key: "ankle_l", label: "발목(좌)", x: 80, y: 330 },
+  { key: "ankle_r", label: "발목(우)", x: 120, y: 330 },
+];
+
+function BodyMapSvg({ painMap, sensationMap }: { painMap: Record<string, number>; sensationMap: Record<string, string> }) {
+  return (
+    <svg viewBox="0 0 200 400" style={{ width: "38mm", height: "76mm" }}>
+      <ellipse cx={100} cy={45} rx={22} ry={28} fill="#f8fafc" stroke="#0891b2" strokeWidth={1.5} />
+      <rect x={75} y={70} width={50} height={90} rx={20} fill="#f8fafc" stroke="#0891b2" strokeWidth={1.5} />
+      <path d="M75 90 L45 130 L45 190" fill="none" stroke="#0891b2" strokeWidth={1.5} />
+      <path d="M125 90 L155 130 L155 190" fill="none" stroke="#0891b2" strokeWidth={1.5} />
+      <rect x={75} y={160} width={50} height={80} fill="#f8fafc" stroke="#0891b2" strokeWidth={1.5} />
+      <path d="M80 240 L75 340 L70 380" fill="none" stroke="#0891b2" strokeWidth={1.5} />
+      <path d="M120 240 L125 340 L130 380" fill="none" stroke="#0891b2" strokeWidth={1.5} />
+      {BODY_PARTS.map((p) => {
+        const pain = (painMap || {})[p.key] || 0;
+        const sens = (sensationMap || {})[p.key];
+        const size = 6 + pain * 1.1;
+        const color = pain === 0
+          ? (sens === "sensitive" ? "#a78bfa" : sens === "dull" ? "#94a3b8" : sens === "numb" ? "#64748b" : "#e5e7eb")
+          : pain <= 3 ? "#fbbf24" : pain <= 6 ? "#fb923c" : "#dc2626";
+        return <circle key={p.key} cx={p.x} cy={p.y} r={size} fill={color} stroke="#334155" strokeWidth={0.5} opacity={0.85} />;
+      })}
+    </svg>
+  );
+}
+
 // v3.20.21: 상담차트 A4 프린트 (아동/성인 최적화)
 export default function ChartPrintPage() {
   const params = useParams();
@@ -152,9 +191,31 @@ export default function ChartPrintPage() {
           </table>
         </div>
 
-        <div className="chart-section" style={{ marginTop: 14 }}>
-          <h2>6. 상담 메모</h2>
-          <div style={{ minHeight: 60, border: "1px solid #cbd5e1", padding: 6, whiteSpace: "pre-wrap" }}>
+        <div className="chart-section" style={{ marginTop: 10 }}>
+          <h2>6. AQU BODY MAP (통증·감각 지도)</h2>
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+            <div style={{ border: "1px solid #cbd5e1", padding: 4, borderRadius: 4 }}>
+              <BodyMapSvg
+                painMap={F.pain_map || member?.extra?.pain_map || {}}
+                sensationMap={F.sensation_map || member?.extra?.sensation_map || {}}
+              />
+            </div>
+            <div style={{ flex: 1, fontSize: "9pt" }}>
+              <div style={{ marginBottom: 4, fontWeight: 700 }}>메모</div>
+              <div style={{ minHeight: 40, border: "1px solid #cbd5e1", padding: 4, whiteSpace: "pre-wrap", marginBottom: 6 }}>
+                {F.body_map_notes || "-"}
+              </div>
+              <div style={{ fontSize: "8pt", color: "#475569" }}>
+                <b>통증강도</b>: 노랑 1–3 · 주황 4–6 · 빨간 7–9 · 진한빨간 10<br />
+                <b>감각</b>: 보라색 과민 · 회색 둘 · 진회색 무감각
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="chart-section" style={{ marginTop: 10 }}>
+          <h2>7. 상담 메모</h2>
+          <div style={{ minHeight: 50, border: "1px solid #cbd5e1", padding: 6, whiteSpace: "pre-wrap" }}>
             {F.memo || member?.memo || ""}
           </div>
         </div>
