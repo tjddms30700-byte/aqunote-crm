@@ -19,15 +19,20 @@ import ContractSignaturePad, { CenterSeal } from "@/components/ContractSignature
  * - 회원별 · 직원별 이력 관리
  */
 
+// ✅ v3.20.20: 회원용 4종 + 직원용 4종 = 8개 양식 (센터 공식 폼)
 const CONTRACT_TYPES = [
-  { v: "employment",       l: "📄 근로계약서",         cat: "staff",  color: "bg-blue-100 text-blue-800 border-blue-300" },
-  { v: "employment_annex", l: "📎 근로계약 부속합의", cat: "staff",  color: "bg-cyan-100 text-cyan-800 border-cyan-300" },
-  { v: "nda",              l: "🔒 비밀유지서약",      cat: "staff",  color: "bg-slate-100 text-slate-800 border-slate-300" },
-  { v: "member_service",   l: "📝 회원 이용계약서",   cat: "member", color: "bg-purple-100 text-purple-800 border-purple-300" },
-  { v: "privacy",          l: "🛡️ 개인정보동의서",     cat: "member", color: "bg-emerald-100 text-emerald-800 border-emerald-300" },
-  { v: "portrait",         l: "📷 초상권 동의서",     cat: "member", color: "bg-pink-100 text-pink-800 border-pink-300" },
-  { v: "consent_minor",    l: "👶 미성년 보호자 동의서", cat: "member", color: "bg-orange-100 text-orange-800 border-orange-300" },
-  { v: "other",            l: "📌 기타 계약서",        cat: "other",  color: "bg-gray-100 text-gray-800 border-gray-300" },
+  // 직원용 4종
+  { v: "employment",     l: "📄 근로계약서",       cat: "staff",  color: "bg-blue-100 text-blue-800 border-blue-300" },
+  { v: "nda",            l: "🔒 비밀유지서약서",   cat: "staff",  color: "bg-slate-100 text-slate-800 border-slate-300" },
+  { v: "apology",        l: "📝 시말서",             cat: "staff",  color: "bg-amber-100 text-amber-800 border-amber-300" },
+  { v: "resignation",    l: "📬 사직서",             cat: "staff",  color: "bg-rose-100 text-rose-800 border-rose-300" },
+  // 회원용 4종
+  { v: "member_service", l: "📝 회원 이용계약서", cat: "member", color: "bg-purple-100 text-purple-800 border-purple-300" },
+  { v: "privacy",        l: "🛡️ 개인정보 동의서", cat: "member", color: "bg-emerald-100 text-emerald-800 border-emerald-300" },
+  { v: "safety",         l: "⚠️ 안전·백임 동의서",  cat: "member", color: "bg-orange-100 text-orange-800 border-orange-300" },
+  { v: "summary",        l: "📋 이용안내 요약서",     cat: "member", color: "bg-teal-100 text-teal-800 border-teal-300" },
+  // 기타
+  { v: "other",          l: "📌 기타 계약서",         cat: "other",  color: "bg-gray-100 text-gray-800 border-gray-300" },
 ];
 
 function typeLabel(t: string) {
@@ -272,6 +277,121 @@ const TEMPLATES: Record<string, string> = {
 [센터]
 · 위례아쿠수중운동센터
 · 대표자: 하유정              (서명/직인)`,
+
+  // ✅ v3.20.20: 시말서
+  apology: `시  말  서
+
+아래와 같은 사유로 시말서를 제출합니다.
+
+· 소   속: 위례아쿠수중운동센터
+· 직   위: {{position}}
+· 성   명: {{name}}
+
+[사유 및 경위]
+{{apology_reason}}
+
+본인은 공동 사업을 운영하는 책임감을 가진 운영자이자 직원으로서 맡은바 책임과 의무를 다하여 성실히 근무하여야 함에도 불구하고 센터의 이미지 및 명예를 훼손하여 회사 업무에 차질을 주었습니다.
+
+차후 이와 같은 일이 재발하지 않을 것임을 서약하며 이에 시말서를 제출합니다.
+
+상기 기록 사실에 허위가 없습니다.
+
+{{contract_date}}
+
+작성자:  {{name}}          (서명/인)`,
+
+  // ✅ v3.20.20: 사직서
+  resignation: `사  직  서
+
+════════════════════════════════════
+
+· 회   사: 위례아쿠수중운동센터
+· 직   위: {{position}}
+· 성   명: {{name}}
+· 생년원일: {{birth}}
+· 입사년월일: {{hire_date}}
+· 주민등록번호: {{rrn}}
+· 주   소: {{address}}
+
+════════════════════════════════════
+
+상기 본인은 {{resign_date}}자로
+({{resign_reason}})로 사직하고자 하오니
+조치하여 주시기 바랍니다.
+
+{{contract_date}}
+
+신청인:  {{name}}          (서명/인)`,
+
+  // ✅ v3.20.20: 수중활동 안전 및 책임 고지(면책) 동의서
+  safety: `수중활동 안전 및 책임 고지(면책) 동의서
+
+본 동의서는 위례아쿠수중운동센터(이하 "센터")가 제공하는 수중활동의 특성과 상해 위험을 사전에 고지하고, 회원과 보호자가 이를 이해·동의함을 밝히기 위해 작성되었습니다.
+
+1. 수중활동 특성에 대한 인지
+· 수중활동은 부력·수압·미끄러움 등 지상과 다른 물리적 환경으로 인해 예측 불가능한 상황이 발생할 수 있습니다.
+· 음닉·어지럼·높은 심박수 등 수중 특유의 반응이 생길 수 있습니다.
+
+2. 보호자 고지 의무
+· 회원은 건강 상태, 발달 특성, 질환 이력, 수술력, 복용약, 알레르기 등 수중활동에 영향을 줄 수 있는 모든 사항을 사전에 센터에 고지하여야 합니다.
+· 고지 의무 불이행으로 발생하는 문제에 대해서는 센터가 책임지지 않습니다.
+
+3. 센터의 안전 관리 범위
+· 센터는 수중활동 특성에 맞는 안전 수칙을 마련하고 이를 준수합니다.
+· 안전 관리자 1:1 배정 및 물안이·수온 관리를 시행합니다.
+· 지정 안전 수칙을 준수하지 않을 시 진행이 제한될 수 있습니다.
+
+4. 책임 범위 및 면책
+· 센터의 고의 또는 중과실이 없는 한, 수중활동 중 발생할 수 있는 사고에 대해 법적 책임을 지지 않습니다.
+· 회원이 사전 고지 의무를 이행하지 않은 경우 발생하는 문제에 대해서는 센터가 책임을 지지 않습니다.
+
+5. 응급 상황 대응 동의
+· 응급 상황 발생 시 센터는 119 신고 및 응급조치를 시행하며, 보호자에게 즉시 연락합니다.
+· 응급 상황의 초기 대응을 위한 센터의 조치에 동의합니다.
+
+본인은 위 내용을 충분히 이해하였으며, 이에 동의합니다.
+
+[보호자 / 본인]
+· 성   명: {{name}}
+· 생년원일: {{birth}}
+· 서   명:                       (서명/날인)
+· 날   짜: {{contract_date}}
+
+※ 본 동의서는 수중활동의 안전한 진행을 위한 필수 동의서입니다.
+위례아쿠수중운동센터 | 대표자: 하유정 | 사업자등록번호: 680-04-03475`,
+
+  // ✅ v3.20.20: 이용 안내 및 주요 계약내용 요약서
+  summary: `아쿠수중운동센터 이용 안내 및 주요 계약내용 요약
+
+1. 센터 서비스의 성격
+· 본 센터의 모든 프로그램은 교육·운동·체험 서비스입니다.
+· 의료행위, 치료, 재활, 진단을 목적으로 하지 않으며, 의료기관 서비스를 대체하지 않습니다.
+
+2. 프로그램 이용 형태
+· STANDARD / ADVANCED / PREMIUM 중 선택
+· 월권제 운영 – 매월 고정 요일·시간으로 수업 횟수 결제
+· 선결제 원칙 – 결제 완료 후 예약 확정
+
+3. 환불 및 계약 해지
+· 환불액 = 총결제금액 − 이용한 회기 금액
+· 위약금 10% 및 결제수수료 3% 공제 후 환불
+· 단순 변심·개인사정·만족도 저하 사유의 전액환불 불가
+· 취소사유의 공지 의무 및 사전 협의 준수
+
+4. 안전 및 보호자 고지 의무
+· 건강상태·발달특성·질환 이력 등 사전 고지 필수
+· 수중활동 특성에 따른 예측 불가능 상황 인지 및 동의
+· 센터의 고의·중과실 외 법적 책임 없음
+
+5. 개인정보 안내
+· 수집 정보: 이름, 연락처, 생년원일, 보호자 정보, 민감정보(진단명 등)
+· 이용 목적: 교육·운동 프로그램 운영 및 안전관리
+· 보유 기간: 계약 종료일로부터 최대 5년 또는 법령 준수
+
+※ 본 요약서는 이해를 돕기 위한 자료이며, 구체적 조건은 계약서 전문을 기준으로 합니다.
+
+위례아쿠수중운동센터 | 대표자: 하유정 | 사업자등록번호: 680-04-03475
+경기도 하남시 위례대로 190, 위례효성해링턴타워 203호`,
 };
 
 function todayStr() {
@@ -494,16 +614,25 @@ export default function ContractsPage() {
   return (
     <main className="max-w-7xl mx-auto px-3 md:px-6 py-6 md:py-10">
       <style jsx global>{`
-        /* ✅ v3.20.17: 계약서 본문 실계약서 종이처럼 스타일링 (화면·프린트 공용) */
+        /* ✅ v3.20.20: 나눔명조/나눔고딕 웹폰트 로드 (플리쿼우하게 생김) */
+        @import url('https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@400;700;800&family=Nanum+Gothic:wght@400;700;800&display=swap');
+
+        /* 계약서 본문 실계약서 종이처럼 스타일링 (화면·프린트 공용) */
         .contract-body {
           white-space: pre-wrap;
-          font-family: "Nanum Myeongjo", "NanumMyeongjo", "Batang", serif;
-          line-height: 1.85;
-          font-size: 12px;
-          letter-spacing: -0.02em;
+          font-family: "Nanum Myeongjo", "NanumMyeongjo", "나눔명조", "Batang", 바탕, serif;
+          line-height: 2.0;
+          font-size: 13.5px;
+          letter-spacing: -0.01em;
           color: #111;
           background: #fff;
           min-height: 520px;
+          word-break: keep-all;
+          text-align: justify;
+        }
+        .contract-body h1, .contract-body h2, .contract-body h3 {
+          font-family: "Nanum Myeongjo", serif;
+          font-weight: 800;
         }
         /* 서명 영역 - 페이지 간 잘림 방지 */
         .contract-sign-area { page-break-inside: avoid; break-inside: avoid; }

@@ -91,20 +91,29 @@ export function mapConsultFormToMemberInfo(
   //   - 아동: 내원 사유 + 현재 기관 + 형제자매
   //   - 성인: main_symptom 중심 + 통증부위/시작시기
   //   - form1: main_symptom (이전엔 "현재 불편한 점" 필드였음)
+  // ✅ v3.20.20: v3.20.19 딥 필드 30여개 자동 매핑 확장
   let current_status = "";
   if (isChild) {
     current_status = joinFields([
       ["내원 사유", form.visit_reason],
-      ["현재 기관", form.current_institution || form.institution],
+      ["현재 기관", form.current_institution || form.institution || form.school],
       ["키/체중", form.height_weight],
       ["형제 자매", form.siblings],
+      ["신체상태", form.body_condition],
+      ["보행", form.walking_level],
+      ["앟기/균형", form.sitting_level],
+      ["의사소통", form.comm_level],
+      ["지시수행", form.instruction_level],
     ]);
   } else if (isAdult) {
     current_status = joinFields([
       ["", form.main_symptom],
       ["통증 부위", arrOrStr(form.pain_area)],
-      ["통증 시작", form.pain_start],
-      ["악화 요인", form.worsening_factor],
+      ["통증 척도", form.pain_scale != null && form.pain_scale !== "" ? `${form.pain_scale}/10` : ""],
+      ["통증 시작", form.pain_onset || form.pain_start],
+      ["악화 요인", arrOrStr(form.aggravating_factor) || form.worsening_factor],
+      ["기저질환", arrOrStr(form.underlying_disease)],
+      ["신체상태", form.body_condition],
     ]);
   } else {
     // form1 통합 : 현재 상태는 방문이유/상황설명 전용 (주증상과 중복 방지)
@@ -120,12 +129,17 @@ export function mapConsultFormToMemberInfo(
   // ⚠️ 주 증상
   //   - 아동: 좋아하는 것 + 싫어하는 것 + 물 반응
   //   - 성인: 통증 척도 + 통증 부위 + 시작 시기
+  // ✅ v3.20.20: 아동 딥 필드 (water_reaction, emotional_reaction, separation_reaction, sensory_notes) 반영
   let main_symptom = "";
   if (isChild) {
     main_symptom = joinFields([
-      ["좋아하는 것", form.likes],
-      ["싫어하는 것", form.dislikes],
-      ["물 반응", form.water_experience],
+      ["주증상", form.main_symptom],
+      ["좋아하는 것", form.likes_activities || form.likes],
+      ["싫어하는 것", form.dislikes_situations || form.dislikes],
+      ["물 반응", form.water_reaction || form.water_experience],
+      ["정서 반응", form.emotional_reaction],
+      ["분리 반응", form.separation_reaction],
+      ["감각특이", form.sensory_notes],
     ]);
   } else if (isAdult) {
     const scale = form.pain_scale ? `${form.pain_scale}/10` : "";
