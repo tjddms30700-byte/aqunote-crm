@@ -2088,22 +2088,50 @@ function ConsultationChartPanel({ memberId, member, painMap, setPainMap, sensati
   async function saveChart() {
     setSaving(true);
     try {
-      const payload = { ...f, updated_at: new Date().toISOString() };
+      let payload: any = { ...f, updated_at: new Date().toISOString() };
       const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
       if (orgId) payload.org_id = orgId;
 
-      if (chart?.id) {
-        const { error } = await supabase.from("consultation_charts").update(payload).eq("id", chart.id);
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase.from("consultation_charts").insert(payload).select().single();
-        if (error) throw error;
-        setChart(data);
+      // v3.20.21: 누락 컬럼 자동 감지 후 extra JSONB로 폴백 (최대 15회)
+      const extraBucket: Record<string, any> = { ...(payload.extra || {}) };
+      let lastErr: any = null;
+      let saved = false;
+      for (let i = 0; i < 15; i++) {
+        try {
+          if (chart?.id) {
+            const { error } = await supabase.from("consultation_charts").update(payload).eq("id", chart.id);
+            if (error) throw error;
+          } else {
+            const { data, error } = await supabase.from("consultation_charts").insert(payload).select().single();
+            if (error) throw error;
+            setChart(data);
+          }
+          saved = true;
+          break;
+        } catch (e: any) {
+          lastErr = e;
+          // "Could not find the 'xxx' column" 형태 파싱
+          const m = /'([^']+)' column/i.exec(e.message || "") || /column \"([^\"]+)\"/i.exec(e.message || "");
+          const bad = m?.[1];
+          if (bad && bad in payload) {
+            extraBucket[bad] = payload[bad];
+            const { [bad]: _drop, ...rest } = payload;
+            payload = { ...rest, extra: extraBucket };
+            continue;
+          }
+          throw e;
+        }
       }
+      if (!saved) throw lastErr || new Error("저장 실패");
+
       await loadChart();
-      alert("✅ 상담차트가 저장되었습니다");
+      alert("✅ 상담차트가 저장되었습니다" +
+        (Object.keys(extraBucket).length > 0
+          ? `\n\n(누락 컬럼 ${Object.keys(extraBucket).length}개는 extra 로 폴백 저장됨)`
+          : ""));
     } catch (err: any) {
-      alert("저장 실패: " + err.message + "\n\n💡 AQUNOTE_V39_RESET_AND_CHART.sql을 Supabase에 실행해 주세요.");
+      alert("저장 실패: " + err.message +
+        "\n\n💡 완전 정상화를 원하시면 AQUNOTE_V32021_CONTRACTS_DOCS.sql 을 Supabase에 실행해 주세요.");
     } finally {
       setSaving(false);
     }
@@ -2241,6 +2269,10 @@ function ConsultationChartPanel({ memberId, member, painMap, setPainMap, sensati
               title="상담폼(유입 데이터)에서 빈 필드를 자동으로 채웁니다">
               {autofilling ? "생성 중..." : "✨ 상담폼 → 자동채우기"}
             </button>
+            <a href={`/members/${memberId}/chart-print`} target="_blank" rel="noopener noreferrer"
+              className="px-4 py-1.5 bg-white border border-blue-300 text-blue-700 rounded-lg text-sm hover:bg-blue-50">
+              📄 A4
+            </a>
             <button onClick={printChart}
               className="px-4 py-1.5 bg-white border border-purple-300 text-purple-700 rounded-lg text-sm hover:bg-purple-50">
               🖨️ 프린트
@@ -2541,7 +2573,11 @@ function ConsultationChartPanel({ memberId, member, painMap, setPainMap, sensati
       </Section>
 
       {/* 저장 하단 */}
-      <div className="flex justify-end sticky bottom-4 gap-2">
+      <div className="flex justify-end sticky bottom-4 gap-2 flex-wrap">
+        <a href={`/members/${memberId}/chart-print`} target="_blank" rel="noopener noreferrer"
+          className="px-5 py-3 bg-white border-2 border-blue-500 text-blue-700 rounded-xl font-bold shadow-lg hover:bg-blue-50">
+          📄 A4 프린트 ({member?.member_type === "child" ? "아동" : "성인"})
+        </a>
         <button onClick={printChart}
           className="px-5 py-3 bg-white border-2 border-purple-500 text-purple-700 rounded-xl font-bold shadow-lg hover:bg-purple-50">
           🖨️ 프린트

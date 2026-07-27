@@ -2,6 +2,7 @@
 export const dynamic = "force-dynamic";
 
 import { useEffect, useState, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import { supabase } from "@/lib/supabase";
@@ -408,8 +409,87 @@ export default function ContractsPage() {
   const [filterType, setFilterType] = useState("");
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<any | null>(null);
+  const searchParams = useSearchParams();
 
   useEffect(() => { loadAll(); }, []);
+
+  // v3.20.21: URL 파라미터 자동 로드 (/reports 양식 탭에서 진입)
+  useEffect(() => {
+    const newType = searchParams?.get("new");
+    const subjectKind = searchParams?.get("subject_kind") as "staff" | "member" | null;
+    const subjectId = searchParams?.get("subject_id");
+    const subjectName = searchParams?.get("subject_name");
+    if (newType && subjectKind) {
+      openNewByType(newType, subjectKind, subjectId || "", subjectName || "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  // v3.20.21: 계약서 유형별 자동 폼장이 주입
+  function defaultFormDataFor(contractType: string, subCat: "staff" | "member") {
+    if (contractType === "employment") return {
+      workplace: "경기도 하남시 위례대로 190, 위례효성 해링턴타워 203호 아쿠수중운동센터",
+      duty: "아동발달에 대한 상담 및 지원사업, 행정 및 운영업무 보조",
+      weekday_hours: "13:00 ~ 22:00 (휴게 19:30~20:30, 1시간)",
+      saturday_hours: "10:00 ~ 14:30 (휴게 12:00~12:30, 30분)",
+      base_salary: 2100000, meal_allowance: 200000, transport_allowance: 0,
+      bonus_yn: "있음 (금액 상이함)", pay_day: 15,
+      pay_method: "근로자 명의 예금통장 입금",
+      insurance_employment: true, insurance_industrial: true,
+      insurance_pension: true, insurance_health: true,
+      employer_name: "위례아쿠수중운동센터", employer_ceo: "하유정",
+      worker_phone: "",
+    };
+    if (contractType === "nda") return {
+      employer_name: "위례아쿠수중운동센터", employer_ceo: "하유정",
+      worker_phone: "",
+      confidential_scope: "회원·보호자 개인정보, 결제·매출 자료, 진단·치료 기록, 센터 운영 노하우 일체",
+      duration_years: 3,
+      penalty: "민형상 배상 및 근로계약 해지",
+    };
+    if (contractType === "resignation") return {
+      worker_phone: "", birth_date: "",
+      hire_date: "", last_work_date: todayStr(),
+      reason: "개인 사유",
+      handover_notes: "담당 회원 인수인계 및 자료 정리 완료",
+    };
+    if (contractType === "incident") return {
+      worker_phone: "", incident_date: todayStr(),
+      incident_desc: "", cause: "", pledge: "동일 사유로 재발 시 징계를 감수하겠습니다",
+    };
+    if (contractType === "member_service") return {
+      guardian: "", phone: "", plan_name: "", sessions: 0, amount: 0,
+      agree_contract: false, agree_privacy: false, agree_safety: false, agree_photo: false,
+    };
+    if (contractType === "privacy") return {
+      guardian: "", phone: "", birth_date: "",
+      agree_required: false, agree_optional_photo: false, agree_optional_marketing: false,
+    };
+    if (contractType === "safety") return {
+      guardian: "", phone: "", health_note: "",
+      agree_risk: false, agree_emergency: false,
+    };
+    if (contractType === "consent_minor") return {
+      guardian: "", relation: "부", phone: "", child_name: "", child_birth: "",
+    };
+    return {};
+  }
+
+  function openNewByType(contractType: string, subCat: "staff" | "member", subjectId: string, subjectName: string) {
+    setEditing({
+      contract_type: contractType,
+      subject_kind: subCat,
+      subject_id: subjectId,
+      subject_name: subjectName,
+      title: subjectName ? `${new Date().getFullYear()}년 ${typeLabel(contractType).replace(/^[^ ]+ /, "")} (${subjectName})` : "",
+      contract_date: todayStr(),
+      start_date: todayStr(),
+      end_date: "",
+      body: TEMPLATES[contractType] || "",
+      form_data: defaultFormDataFor(contractType, subCat),
+      signature: "", counter_signature: "", status: "draft", note: "",
+    });
+  }
   useBranchWatch(() => loadAll());
 
   async function loadAll() {
@@ -566,13 +646,22 @@ export default function ContractsPage() {
 
     // 자동 컬럼 폴백
     let lastErr: any = null;
+    let savedId: string | null = editing.id || null;
     for (let attempt = 0; attempt < 8; attempt++) {
       const call = editing.id
-        ? supabase.from("contracts").update(payload).eq("id", editing.id)
-        : supabase.from("contracts").insert(payload);
-      const { error } = await call;
+        ? supabase.from("contracts").update(payload).eq("id", editing.id).select().single()
+        : supabase.from("contracts").insert(payload).select().single();
+      const { data, error } = await call;
       if (!error) {
-        alert(editing.id ? "✅ 계약서가 수정되었습니다" : "✅ 계약서가 저장되었습니다");
+        savedId = data?.id || editing.id;
+        // v3.20.21: 서명 완료 시 회원/직원 문서로 자동 링크
+        if (savedId && editing.signature && editing.status === "signed") {
+          await autoLinkToDocument(savedId, editing, orgId);
+        }
+        alert((editing.id ? "✅ 계약서가 수정되었습니다" : "✅ 계약서가 저장되었습니다") +
+          (editing.signature && editing.status === "signed"
+            ? `\n\n📄 ${editing.subject_kind === "staff" ? "직원 문서함" : "회원 문서함"}으로 자동 저장되었습니다`
+            : ""));
         setEditing(null);
         loadAll();
         return;
@@ -588,6 +677,68 @@ export default function ContractsPage() {
       break;
     }
     alert("저장 실패: " + (lastErr?.message || "알 수 없는 오류"));
+  }
+
+  // v3.20.21: 계약서 서명 완료 시 회원/직원 문서함으로 자동 복사
+  async function autoLinkToDocument(contractId: string, ed: any, orgId: string | undefined) {
+    try {
+      const subjectKind = ed.subject_kind;
+      const subjectId = ed.subject_id;
+      if (!subjectId || !subjectKind) return;
+
+      const typeLabelText = typeLabel(ed.contract_type);
+      const fileName = `${ed.subject_name}_${typeLabelText}_${ed.contract_date}.pdf`;
+      const category = ed.contract_type === "employment" ? "contract"
+                      : ed.contract_type === "nda" ? "contract"
+                      : ed.contract_type === "resignation" ? "resignation"
+                      : ed.contract_type === "incident" ? "incident"
+                      : ed.contract_type === "member_service" ? "contract"
+                      : ed.contract_type === "privacy" ? "privacy"
+                      : ed.contract_type === "safety" ? "safety"
+                      : "contract";
+
+      if (subjectKind === "staff") {
+        // 이미 링크된 문서 있는지 확인
+        const { data: existing } = await supabase.from("staff_documents")
+          .select("id").eq("contract_id", contractId).maybeSingle();
+        if (existing?.id) return;
+
+        const { data: ins, error } = await supabase.from("staff_documents").insert({
+          staff_id: subjectId,
+          org_id: orgId,
+          category,
+          title: `${typeLabelText} (자동생성)`,
+          file_name: fileName,
+          file_size: 0,
+          mime_type: "application/pdf",
+          memo: `계약서 관리에서 자동 생성된 문서 (계약서 ID: ${contractId})`,
+          contract_id: contractId,
+        }).select().single();
+        if (!error && ins?.id) {
+          await supabase.from("contracts").update({ auto_doc_id: ins.id }).eq("id", contractId);
+        }
+      } else if (subjectKind === "member") {
+        const { data: existing } = await supabase.from("documents")
+          .select("id").eq("contract_id", contractId).maybeSingle();
+        if (existing?.id) return;
+
+        const { data: ins, error } = await supabase.from("documents").insert({
+          org_id: orgId,
+          member_id: subjectId,
+          category,
+          filename: fileName,
+          file_size: 0,
+          mime_type: "application/pdf",
+          description: `${typeLabelText} - 계약서 관리에서 자동 생성 (계약서 ID: ${contractId})`,
+          contract_id: contractId,
+        }).select().single();
+        if (!error && ins?.id) {
+          await supabase.from("contracts").update({ auto_doc_id: ins.id }).eq("id", contractId);
+        }
+      }
+    } catch (e) {
+      console.warn("autoLinkToDocument fallback:", e);
+    }
   }
 
   async function del(c: any) {
@@ -853,7 +1004,36 @@ export default function ContractsPage() {
                 </label>
               </div>
 
-              <div className="no-print grid grid-cols-2 gap-2">
+              {/* v3.20.21: 회원/직원 검색 셀렉터 */}
+              <div className="no-print grid grid-cols-1 md:grid-cols-2 gap-2">
+                <label className="text-xs">
+                  <span className="text-gray-600 font-semibold">대상자 검색 (클릭 시 자동 입력)</span>
+                  <select value={editing.subject_id || ""}
+                    onChange={e => {
+                      const list = editing.subject_kind === "staff" ? staffList : members;
+                      const found = list.find((x: any) => x.id === e.target.value);
+                      if (found) {
+                        const fd = { ...(editing.form_data || {}) };
+                        if (editing.subject_kind === "staff") fd.worker_phone = found.phone || fd.worker_phone;
+                        else { fd.phone = found.phone || fd.phone; fd.guardian = found.guardian_name || fd.guardian; }
+                        setEditing({
+                          ...editing,
+                          subject_id: found.id,
+                          subject_name: found.name,
+                          title: editing.title || `${new Date().getFullYear()}년 ${typeLabel(editing.contract_type).replace(/^[^ ]+ /, "")} (${found.name})`,
+                          form_data: fd,
+                        });
+                      } else {
+                        setEditing({ ...editing, subject_id: "" });
+                      }
+                    }}
+                    className="w-full mt-1 px-2 py-2 border border-gray-200 rounded-lg text-sm">
+                    <option value="">— {editing.subject_kind === "staff" ? "직원" : "회원"} 선택 —</option>
+                    {(editing.subject_kind === "staff" ? staffList : members).map((x: any) => (
+                      <option key={x.id} value={x.id}>{x.name}{x.phone ? ` (${x.phone})` : ""}</option>
+                    ))}
+                  </select>
+                </label>
                 <label className="text-xs">
                   <span className="text-gray-600 font-semibold">대상자명 *</span>
                   <input type="text" value={editing.subject_name}
@@ -861,6 +1041,8 @@ export default function ContractsPage() {
                     placeholder="회원명 또는 직원명"
                     className="w-full mt-1 px-2 py-2 border border-gray-200 rounded-lg text-sm" />
                 </label>
+              </div>
+              <div className="no-print">
                 <label className="text-xs">
                   <span className="text-gray-600 font-semibold">계약서 제목 *</span>
                   <input type="text" value={editing.title}
@@ -1020,6 +1202,108 @@ export default function ContractsPage() {
                   }} className="w-full py-2 bg-blue-500 text-white rounded-lg text-xs hover:bg-blue-600 font-semibold">
                     🔄 필드 값 계약서 본문에 적용
                   </button>
+                </div>
+              )}
+
+              {/* v3.20.21: NDA 비밀유지서약서 자동 폼 */}
+              {editing.contract_type === "nda" && editing.form_data && (
+                <div className="no-print border-2 border-purple-100 rounded-lg p-3 bg-purple-50/30 space-y-2">
+                  <div className="text-xs font-bold text-purple-800 mb-2">🔒 비밀유지서약서(NDA) 필드</div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <label className="text-xs"><span className="text-gray-600 font-semibold">근로자 연락처</span>
+                      <input type="tel" value={editing.form_data.worker_phone || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, worker_phone: e.target.value } })}
+                        className="w-full mt-1 px-2 py-1.5 border border-gray-200 rounded text-sm" />
+                    </label>
+                    <label className="text-xs"><span className="text-gray-600 font-semibold">유지 기간(년)</span>
+                      <input type="number" value={editing.form_data.duration_years || 3}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, duration_years: Number(e.target.value) } })}
+                        className="w-full mt-1 px-2 py-1.5 border border-gray-200 rounded text-sm" />
+                    </label>
+                  </div>
+                  <label className="text-xs block"><span className="text-gray-600 font-semibold">비밀정보 범위</span>
+                    <textarea value={editing.form_data.confidential_scope || ""} rows={2}
+                      onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, confidential_scope: e.target.value } })}
+                      className="w-full mt-1 px-2 py-1.5 border border-gray-200 rounded text-sm" />
+                  </label>
+                  <label className="text-xs block"><span className="text-gray-600 font-semibold">위반 시 제재</span>
+                    <input type="text" value={editing.form_data.penalty || ""}
+                      onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, penalty: e.target.value } })}
+                      className="w-full mt-1 px-2 py-1.5 border border-gray-200 rounded text-sm" />
+                  </label>
+                </div>
+              )}
+
+              {/* v3.20.21: 사직서 자동 폼 */}
+              {editing.contract_type === "resignation" && editing.form_data && (
+                <div className="no-print border-2 border-orange-100 rounded-lg p-3 bg-orange-50/30 space-y-2">
+                  <div className="text-xs font-bold text-orange-800 mb-2">📝 사직서 필드</div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <label className="text-xs"><span className="text-gray-600 font-semibold">연락처</span>
+                      <input type="tel" value={editing.form_data.worker_phone || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, worker_phone: e.target.value } })}
+                        className="w-full mt-1 px-2 py-1.5 border border-gray-200 rounded text-sm" />
+                    </label>
+                    <label className="text-xs"><span className="text-gray-600 font-semibold">생년월일</span>
+                      <input type="date" value={editing.form_data.birth_date || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, birth_date: e.target.value } })}
+                        className="w-full mt-1 px-2 py-1.5 border border-gray-200 rounded text-sm" />
+                    </label>
+                    <label className="text-xs"><span className="text-gray-600 font-semibold">입사일</span>
+                      <input type="date" value={editing.form_data.hire_date || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, hire_date: e.target.value } })}
+                        className="w-full mt-1 px-2 py-1.5 border border-gray-200 rounded text-sm" />
+                    </label>
+                    <label className="text-xs"><span className="text-gray-600 font-semibold">마지막 근무일</span>
+                      <input type="date" value={editing.form_data.last_work_date || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, last_work_date: e.target.value } })}
+                        className="w-full mt-1 px-2 py-1.5 border border-gray-200 rounded text-sm" />
+                    </label>
+                    <label className="text-xs md:col-span-2"><span className="text-gray-600 font-semibold">퇴사 사유</span>
+                      <input type="text" value={editing.form_data.reason || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, reason: e.target.value } })}
+                        className="w-full mt-1 px-2 py-1.5 border border-gray-200 rounded text-sm" />
+                    </label>
+                  </div>
+                  <label className="text-xs block"><span className="text-gray-600 font-semibold">인수인계 계획</span>
+                    <textarea value={editing.form_data.handover_notes || ""} rows={2}
+                      onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, handover_notes: e.target.value } })}
+                      className="w-full mt-1 px-2 py-1.5 border border-gray-200 rounded text-sm" />
+                  </label>
+                </div>
+              )}
+
+              {/* v3.20.21: 시말서 자동 폼 */}
+              {editing.contract_type === "incident" && editing.form_data && (
+                <div className="no-print border-2 border-red-100 rounded-lg p-3 bg-red-50/30 space-y-2">
+                  <div className="text-xs font-bold text-red-800 mb-2">⚠️ 시말서 필드</div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <label className="text-xs"><span className="text-gray-600 font-semibold">연락처</span>
+                      <input type="tel" value={editing.form_data.worker_phone || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, worker_phone: e.target.value } })}
+                        className="w-full mt-1 px-2 py-1.5 border border-gray-200 rounded text-sm" />
+                    </label>
+                    <label className="text-xs"><span className="text-gray-600 font-semibold">사건 발생일</span>
+                      <input type="date" value={editing.form_data.incident_date || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, incident_date: e.target.value } })}
+                        className="w-full mt-1 px-2 py-1.5 border border-gray-200 rounded text-sm" />
+                    </label>
+                  </div>
+                  <label className="text-xs block"><span className="text-gray-600 font-semibold">사건 경위</span>
+                    <textarea value={editing.form_data.incident_desc || ""} rows={3}
+                      onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, incident_desc: e.target.value } })}
+                      className="w-full mt-1 px-2 py-1.5 border border-gray-200 rounded text-sm" />
+                  </label>
+                  <label className="text-xs block"><span className="text-gray-600 font-semibold">원인 및 반성</span>
+                    <textarea value={editing.form_data.cause || ""} rows={2}
+                      onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, cause: e.target.value } })}
+                      className="w-full mt-1 px-2 py-1.5 border border-gray-200 rounded text-sm" />
+                  </label>
+                  <label className="text-xs block"><span className="text-gray-600 font-semibold">서약 사항</span>
+                    <input type="text" value={editing.form_data.pledge || ""}
+                      onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, pledge: e.target.value } })}
+                      className="w-full mt-1 px-2 py-1.5 border border-gray-200 rounded text-sm" />
+                  </label>
                 </div>
               )}
 

@@ -3,9 +3,24 @@ export const dynamic = "force-dynamic";
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import HomeButton from "@/components/HomeButton";
-import { FileText, Download, User, Calendar, Printer, Loader2 } from "lucide-react";
+import { FileText, Download, User, Calendar, Printer, Loader2, ClipboardList, Search } from "lucide-react";
+
+// v3.20.21: 직원용/회원용 양식 라이브러리
+const STAFF_FORMS = [
+  { v: "employment", label: "📄 근로계약서", desc: "표준 근로계약서 자동 생성" },
+  { v: "nda",        label: "🔒 비밀유지서약서(NDA)", desc: "직원 기밀 보호 서약" },
+  { v: "resignation",label: "📝 사직서",       desc: "퇴사 자동 설문" },
+  { v: "incident",   label: "⚠️ 시말서",       desc: "징계/사유서 자동 설문" },
+];
+const MEMBER_FORMS = [
+  { v: "member_service", label: "📝 회원 이용계약서", desc: "STANDARD/ADVANCED/PREMIUM" },
+  { v: "privacy",        label: "🔐 개인정보 동의서", desc: "수집·이용 동의" },
+  { v: "safety",         label: "🏊 안전·입수 동의서", desc: "수중 안전 및 책임" },
+  { v: "consent_minor",  label: "👶 미성년자 보호자 동의서", desc: "미성년 회원 보호자 동의" },
+];
 
 const REPORT_TYPES = [
   { v: "daily",    label: "📝 일일 수업일지",     desc: "특정 날짜의 세션·활동 요약" },
@@ -22,21 +37,46 @@ function weekAgoStr() {
 
 export default function ReportsPage() {
   const [members, setMembers] = useState<any[]>([]);
+  const [staffList, setStaffList] = useState<any[]>([]);
   const [type, setType] = useState<string>("daily");
   const [selectedMember, setSelectedMember] = useState<string>("");
   const [startDate, setStartDate] = useState(weekAgoStr());
   const [endDate, setEndDate] = useState(todayStr());
   const [generating, setGenerating] = useState(false);
   const [reportHtml, setReportHtml] = useState<string>("");
+  // v3.20.21: 상단 탭 (보고서 / 양식)
+  const searchParams = useSearchParams();
+  const [topTab, setTopTab] = useState<"report" | "forms">("report");
+  const [formsCat, setFormsCat] = useState<"staff" | "member">("staff");
+  const [formSearch, setFormSearch] = useState("");
+
+  useEffect(() => {
+    const t = searchParams?.get("tab");
+    if (t === "forms") setTopTab("forms");
+  }, [searchParams]);
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.from("members").select("id, name, member_type, status")
+      const { data } = await supabase.from("members").select("id, name, member_type, status, phone")
         .is("deleted_at", null).eq("status", "regular").order("name");
       setMembers(data || []);
       if (data && data.length > 0) setSelectedMember(data[0].id);
+      const { data: sd } = await supabase.from("staff").select("id, name, role, phone").order("name");
+      setStaffList(sd || []);
     })();
   }, []);
+
+  // v3.20.21: 양식 검색 필터링
+  const filteredStaff = useMemo(() => {
+    if (!formSearch) return staffList;
+    const q = formSearch.toLowerCase();
+    return staffList.filter(s => (s.name || "").toLowerCase().includes(q) || (s.phone || "").includes(q));
+  }, [staffList, formSearch]);
+  const filteredMembers = useMemo(() => {
+    if (!formSearch) return members;
+    const q = formSearch.toLowerCase();
+    return members.filter(m => (m.name || "").toLowerCase().includes(q) || (m.phone || "").includes(q));
+  }, [members, formSearch]);
 
   async function generate() {
     if (!selectedMember) { alert("회원을 선택하세요"); return; }
@@ -116,11 +156,94 @@ export default function ReportsPage() {
     <main className="max-w-5xl mx-auto px-3 md:px-6 py-6 md:py-10">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <h1 className="text-xl md:text-3xl font-bold text-aqu-900 flex items-center gap-2">
-          <FileText className="w-6 h-6 md:w-7 md:h-7 text-blue-500" /> 보고서 생성
+          <FileText className="w-6 h-6 md:w-7 md:h-7 text-blue-500" /> 보고서 · 양식
         </h1>
         <HomeButton />
       </div>
 
+      {/* v3.20.21: 상단 탭 */}
+      <div className="flex gap-2 mb-4 bg-white p-1.5 rounded-xl border border-aqu-100 shadow-sm">
+        <button onClick={() => setTopTab("report")}
+          className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-bold transition ${topTab==="report" ? "bg-gradient-to-r from-aqu-500 to-blue-600 text-white shadow" : "text-gray-600 hover:bg-gray-50"}`}>
+          📊 보고서
+        </button>
+        <button onClick={() => setTopTab("forms")}
+          className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-bold transition ${topTab==="forms" ? "bg-gradient-to-r from-aqu-500 to-blue-600 text-white shadow" : "text-gray-600 hover:bg-gray-50"}`}>
+          📋 양식
+        </button>
+      </div>
+
+      {topTab === "forms" && (
+        <div className="bg-white rounded-2xl shadow-md border border-aqu-100 p-5 mb-5">
+          {/* 양식 하위 탭 – 직원용 / 회원용 */}
+          <div className="flex gap-2 mb-4">
+            <button onClick={() => setFormsCat("staff")}
+              className={`px-4 py-2 rounded-lg text-sm font-bold border-2 transition ${formsCat==="staff" ? "border-aqu-500 bg-aqu-50 text-aqu-900" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+              👥 직원용 ({STAFF_FORMS.length})
+            </button>
+            <button onClick={() => setFormsCat("member")}
+              className={`px-4 py-2 rounded-lg text-sm font-bold border-2 transition ${formsCat==="member" ? "border-aqu-500 bg-aqu-50 text-aqu-900" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+              🏊‍♀️ 회원용 ({MEMBER_FORMS.length})
+            </button>
+          </div>
+
+          {/* 대상자 검색 */}
+          <div className="relative mb-4">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input type="text" value={formSearch} onChange={e => setFormSearch(e.target.value)}
+              placeholder={formsCat === "staff" ? "직원 이름/연락처로 검색" : "회원 이름/연락처로 검색"}
+              className="w-full pl-10 pr-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:border-aqu-500 focus:outline-none" />
+          </div>
+
+          {/* 양식 목록 */}
+          <div className="mb-4">
+            <div className="text-xs font-bold text-gray-600 mb-2">1. 양식 종류 선택</div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              {(formsCat === "staff" ? STAFF_FORMS : MEMBER_FORMS).map(f => (
+                <Link key={f.v}
+                  href={`/contracts?new=${f.v}&subject_kind=${formsCat}`}
+                  className="p-3 rounded-lg text-left border-2 border-gray-200 hover:border-aqu-400 hover:bg-aqu-50 transition">
+                  <div className="text-sm font-bold">{f.label}</div>
+                  <div className="text-[10px] text-gray-500 mt-0.5">{f.desc}</div>
+                </Link>
+              ))}
+            </div>
+          </div>
+
+          {/* 대상자 목록 */}
+          <div>
+            <div className="text-xs font-bold text-gray-600 mb-2">
+              2. {formsCat === "staff" ? "직원 선택" : "회원 선택"} ({formsCat === "staff" ? filteredStaff.length : filteredMembers.length}명)
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-80 overflow-y-auto">
+              {formsCat === "staff" ? filteredStaff.map(s => (
+                <Link key={s.id}
+                  href={`/contracts?new=employment&subject_kind=staff&subject_id=${s.id}&subject_name=${encodeURIComponent(s.name)}`}
+                  className="p-2.5 rounded-lg border border-gray-200 hover:border-aqu-400 hover:bg-aqu-50 transition">
+                  <div className="text-sm font-bold text-gray-800">{s.name}</div>
+                  <div className="text-[10px] text-gray-500">{s.role || "직원"} · {s.phone || "-"}</div>
+                </Link>
+              )) : filteredMembers.map(m => (
+                <Link key={m.id}
+                  href={`/contracts?new=member_service&subject_kind=member&subject_id=${m.id}&subject_name=${encodeURIComponent(m.name)}`}
+                  className="p-2.5 rounded-lg border border-gray-200 hover:border-aqu-400 hover:bg-aqu-50 transition">
+                  <div className="text-sm font-bold text-gray-800">{m.name}</div>
+                  <div className="text-[10px] text-gray-500">{m.member_type === "child" ? "아동" : "성인"} · {m.phone || "-"}</div>
+                </Link>
+              ))}
+            </div>
+            {((formsCat === "staff" ? filteredStaff.length : filteredMembers.length) === 0) && (
+              <div className="text-center text-sm text-gray-500 py-6">검색 결과가 없습니다</div>
+            )}
+          </div>
+
+          <div className="mt-4 text-[11px] text-gray-500 bg-gray-50 rounded-lg p-3">
+            💡 양식과 대상자를 선택하면 계약서 관리 페이지가 자동으로 열려 해당 양식으로 새 계약서가 생성됩니다. 서명 완료 시 직원은 “직원 문서함”, 회원은 “회원 문서함”에 자동 저장됩니다.
+          </div>
+        </div>
+      )}
+
+      {topTab === "report" && (
       <div className="bg-white rounded-2xl shadow-md border border-aqu-100 p-5 mb-5">
         {/* 보고서 종류 */}
         <div className="mb-4">
@@ -163,6 +286,7 @@ export default function ReportsPage() {
           {generating ? "생성 중..." : "보고서 생성"}
         </button>
       </div>
+      )}
 
       {/* 미리보기 */}
       {reportHtml && (

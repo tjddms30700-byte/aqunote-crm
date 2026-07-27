@@ -371,6 +371,7 @@ export default function DashboardPage() {
             <QuickLink href="/schedule" label="시간표" icon="📅" />
             <QuickLink href="/attendance" label="출결" icon="✅" />
             <QuickLink href="/reports" label="보고서" icon="📄" />
+            <QuickLink href="/reports?tab=forms" label="양식" icon="📋" />
           </div>
         </div>
       </div>
