@@ -413,14 +413,16 @@ export function mapConsultFormToChart(
     else if (/알레르기|천식|고혈압|당뇨|약복용|증상/.test(cautionSrc)) attentionLevel = "주의";
   }
 
-  // 물 반응 키워드 감지
-  let waterReaction: string | undefined;
-  const waterExp = pick(form, "water_experience", "water_exp");
-  if (waterExp) {
-    if (/매우 좋|적극|즐거|자주/.test(waterExp)) waterReaction = "매우 긍정";
-    else if (/대체로|보통|좀/.test(waterExp)) waterReaction = "보통";
-    else if (/긴장|무서워|불안/.test(waterExp)) waterReaction = "긴장";
-    else if (/싫어|거부|공포|허종/.test(waterExp)) waterReaction = "거부";
+  // 물 반응 키워드 감지 (v3.20.24: 신규 신청폼 water_reaction 필드 우선)
+  let waterReaction: string | undefined = pick(form, "water_reaction");
+  if (!waterReaction) {
+    const waterExp = pick(form, "water_experience", "water_exp");
+    if (waterExp) {
+      if (/매우 좋|적극|즐거|자주/.test(waterExp)) waterReaction = "매우 긍정";
+      else if (/대체로|보통|좀/.test(waterExp)) waterReaction = "보통";
+      else if (/긴장|무서워|불안/.test(waterExp)) waterReaction = "긴장";
+      else if (/싫어|거부|공포|허종/.test(waterExp)) waterReaction = "거부";
+    }
   }
 
   // Body Map 메모
@@ -432,8 +434,9 @@ export function mapConsultFormToChart(
     pick(form, "current_status") && `현재 상태: ${pick(form, "current_status")}`,
   ]);
 
-  // 피해야 할 상황
+  // 피해야 할 상황 (v3.20.24: avoid_situations 신규 필드 통합)
   const avoidSituations = joinNonEmpty([
+    pick(form, "avoid_situations") && `피하고 싶은 상황: ${pick(form, "avoid_situations")}`,
     pick(form, "dislikes") && `싫어하는 것: ${pick(form, "dislikes")}`,
     pick(form, "avoid") && `피해야 할 상황: ${pick(form, "avoid")}`,
     pick(form, "caution") && `주의사항: ${pick(form, "caution")}`,
@@ -449,11 +452,26 @@ export function mapConsultFormToChart(
   if (attentionLevel === "고주의") conclusionParts.push(`⚠️ 고주의 회원 - 수업 전 안전 확인 필수`);
   const conclusion = conclusionParts.length ? conclusionParts.join("\n") : undefined;
 
-  // 메모 (기타 상담폼 정보)
+  // 메모 (v3.20.24: 아동 5·6단계 · 성인 3~5단계 신규 필드 모두 통합)
   const memo = joinNonEmpty([
     pick(form, "likes") && `💙 좋아하는 것: ${pick(form, "likes")}`,
-    pick(form, "siblings") && `가족/형제: ${pick(form, "siblings")}`,
+    pick(form, "siblings", "sibling") && `가족/형제: ${pick(form, "siblings", "sibling")}`,
     pick(form, "visit_reason") && `내원 사유: ${pick(form, "visit_reason")}`,
+    pick(form, "attention_span") && `집중 시간: ${pick(form, "attention_span")}`,
+    pick(form, "occupation") && `직업: ${pick(form, "occupation")}`,
+    pick(form, "exercise_history") && `운동 이력: ${pick(form, "exercise_history")}`,
+    pick(form, "exercise_freq") && `운동 빈도: ${pick(form, "exercise_freq")}`,
+    pick(form, "top_goal") && `최우선 목표: ${pick(form, "top_goal")}`,
+    pick(form, "aqua_experience") && `수중재활 경험: ${pick(form, "aqua_experience")}`,
+    pick(form, "swim_level") && `수영 수준: ${pick(form, "swim_level")}`,
+    pick(form, "blood_pressure") && `혈압: ${pick(form, "blood_pressure")}`,
+    pick(form, "heart_condition") && `심장질환: ${pick(form, "heart_condition")}`,
+    pick(form, "diabetes") && `당뇨: ${pick(form, "diabetes")}`,
+    pick(form, "pregnancy") && `임신 여부: ${pick(form, "pregnancy")}`,
+    pick(form, "allergy") && `알레르기: ${pick(form, "allergy")}`,
+    pick(form, "sleep") && `수면: ${pick(form, "sleep")}`,
+    pick(form, "stress") && `스트레스: ${pick(form, "stress")}`,
+    pick(form, "smoke_alcohol") && `흡연·음주: ${pick(form, "smoke_alcohol")}`,
   ]);
 
   const { wish_days, wish_time_slots } = extractWishFieldsForMember(form);

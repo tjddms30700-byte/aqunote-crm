@@ -337,7 +337,7 @@ export default function MemberDetail() {
       if (m?.extra?.consult_form) {
         try {
           const { mapConsultFormToMemberInfo, mergeMappedInfo } = await import("@/lib/consultFormMapper");
-          const mapped = mapConsultFormToMemberInfo(m.extra.consult_form, m.member_type);
+          const mapped = mapConsultFormToMemberInfo(m?.extra?.consult_form || {}, m?.member_type);
           const merged = mergeMappedInfo(baseExtInfo, mapped, "fill_empty");
           setExtInfo(merged);
         } catch (e) {
@@ -803,8 +803,8 @@ export default function MemberDetail() {
                       if (!mode) return;
                       try {
                         const { mapConsultFormToMemberInfo, mergeMappedInfo, extractWishFieldsForMember } = await import("@/lib/consultFormMapper");
-                        const consultForm = member.extra.consult_form;
-                        const mapped = mapConsultFormToMemberInfo(consultForm, member.member_type);
+                        const consultForm = member?.extra?.consult_form || {};
+                        const mapped = mapConsultFormToMemberInfo(consultForm, member?.member_type);
                         const merged = mergeMappedInfo(extInfo, mapped, "fill_empty");
                         setExtInfo(merged);
 

@@ -22,8 +22,10 @@ import ContractSignaturePad, { CenterSeal } from "@/components/ContractSignature
 
 // ✅ v3.20.20: 회원용 4종 + 직원용 4종 = 8개 양식 (센터 공식 폼)
 const CONTRACT_TYPES = [
-  // 직원용 4종
-  { v: "employment",     l: "📄 근로계약서",       cat: "staff",  color: "bg-blue-100 text-blue-800 border-blue-300" },
+  // v3.20.24: 직원용 – 근로계약서 3종 세분화
+  { v: "employment",         l: "📄 근로계약서 (정규직)",  cat: "staff",  color: "bg-blue-100 text-blue-800 border-blue-300" },
+  { v: "employment_fixed",   l: "📝 근로계약서 (계약직)",  cat: "staff",  color: "bg-indigo-100 text-indigo-800 border-indigo-300" },
+  { v: "employment_daily",   l: "⏱️ 근로계약서 (일용·시급제)", cat: "staff",  color: "bg-cyan-100 text-cyan-800 border-cyan-300" },
   { v: "nda",            l: "🔒 비밀유지서약서",   cat: "staff",  color: "bg-slate-100 text-slate-800 border-slate-300" },
   { v: "apology",        l: "📝 시말서",             cat: "staff",  color: "bg-amber-100 text-amber-800 border-amber-300" },
   { v: "resignation",    l: "📬 사직서",             cat: "staff",  color: "bg-rose-100 text-rose-800 border-rose-300" },
@@ -43,10 +45,94 @@ function typeColor(t: string) {
   return CONTRACT_TYPES.find(x => x.v === t)?.color || "bg-gray-100 text-gray-800 border-gray-300";
 }
 
+// v3.20.24: 계약직 · 일용·시급제 근로계약서 템플릿 상수
+const EMPLOYMENT_FIXED_TPL = `위례아쿠수중운동센터 근로계약서
+(계약직 · 기간의 정함이 있는 경우)
+
+위례아쿠수중운동센터 (이하 "사업주"라 함)과(와) {{name}} (이하 "근로자"라 함)은 다음과 같이 근로계약을 체결한다.
+
+제1조 근로계약기간
+· 계약기간: {{start_date}} 이후 {{end_date}} 까지
+· 수습기간: 입사일로부터 3개월 (수습기간 중 임금은 본입금 100%로 지급)
+· 갱신 조입: 계약종료 30일 전 상호 협의를 통해 재계약 가능하며, 재계약 시 근로조건을 새롭게 정한다.
+
+제2조 근무장소
+{{workplace}}
+
+제3조 업무의 내용
+{{duty}}
+
+제4조 소정근로시간
+· 평일: {{weekday_hours}}
+· 토요일: {{saturday_hours}}
+· 일요일·공휴일: 휴무
+
+제5조 임금
+· 기본급: {{base_salary}}원 (월급)
+· 식대: {{meal_allowance}}원
+· 지급일: 매월 15일
+· 지급방법: {{pay_method}}
+
+제6조 계약의 해지
+· 계약기간 만료로 당연히 종료하며, 별도의 해지 예고를 요하지 않는다.
+· 계약기간 중 근로자의 사직은 30일 전 서면 통보로 한다.
+
+제7조 사회보험
+· 고용보험 · 산재보험 · 국민연금 · 건강보험 가입
+
+제8조 비밀유지
+· 근로자는 재직 중 및 퇴직 후에도 업무상 알게 된 모든 보호자·회원·이용 정보와 수당 생산 내역을 외부에 누설하지 않는다.
+
+제9조 기타
+· 본 계약에 명시되지 않은 사항은 근로기준법을 따른다.
+
+계약일자: {{contract_date}}
+
+사업주: 위례아쿠수중운동센터 · 대표자 하유정 (서명/직인)
+근로자: {{name}} · 연락처 {{phone}} (서명)
+`;
+
+const EMPLOYMENT_DAILY_TPL = `위례아쿠수중운동센터 근로계약서
+(일용·시급제)
+
+위례아쿠수중운동센터 (이하 "사업주"라 함)과(와) {{name}} (이하 "근로자"라 함)은 다음과 같이 일용·시급제 근로계약을 체결한다.
+
+제1조 근로형태 및 근무일
+· 근로형태: 일용·시간제 (예약 기반 호출)
+· 근무일: 사업주가 사전 통보한 날에 한함
+
+제2조 근무장소
+{{workplace}}
+
+제3조 업무의 내용
+{{duty}}
+
+제4조 소정근로시간
+· 근무일 당 {{daily_hours}}시간 (휴게시간 별도)
+· 휴게시간: {{break_time}}
+
+제5조 임금
+· 시급: {{hourly_wage}}원 (또는 일급 {{daily_wage}}원)
+· 지급일: 매월 15일 (또는 근무 종료 후 즉시 지급)
+· 지급방법: {{pay_method}}
+· 주휴수당: 주 15시간 이상 근무 시 근로기준법에 따라 지급
+
+제6조 기타
+· 사회보험: 산재보험 필수 가입 (적용 대상 시 고용보험 가입)
+· 본 계약에 명시되지 않은 사항은 근로기준법을 따른다.
+
+계약일자: {{contract_date}}
+
+사업주: 위례아쿠수중운동센터 · 대표자 하유정 (서명/직인)
+근로자: {{name}} · 연락처 {{phone}} (서명)
+`;
+
 // 기본 템플릿 문구
 const TEMPLATES: Record<string, string> = {
+  employment_fixed: EMPLOYMENT_FIXED_TPL,
+  employment_daily: EMPLOYMENT_DAILY_TPL,
   employment: `위례아쿠수중운동센터 근로계약서
-(기간의 정함이 없는 경우)
+(정규직 · 기간의 정함이 없는 경우)
 
 위례아쿠수중운동센터 (이하 "사업주"라 함)과(와) {{name}} (이하 "근로자"라 함)은 다음과 같이 근로계약을 체결한다.
 
@@ -436,6 +522,7 @@ function ContractsPage() {
   // v3.20.21: 계약서 유형별 자동 폼장이 주입
   function defaultFormDataFor(contractType: string, subCat: "staff" | "member") {
     if (contractType === "employment") return {
+      employment_type: "정규직",
       workplace: "경기도 하남시 위례대로 190, 위례효성 해링턴타워 203호 아쿠수중운동센터",
       duty: "아동발달에 대한 상담 및 지원사업, 행정 및 운영업무 보조",
       weekday_hours: "13:00 ~ 22:00 (휴게 19:30~20:30, 1시간)",
@@ -445,6 +532,38 @@ function ContractsPage() {
       pay_method: "근로자 명의 예금통장 입금",
       insurance_employment: true, insurance_industrial: true,
       insurance_pension: true, insurance_health: true,
+      employer_name: "위례아쿠수중운동센터", employer_ceo: "하유정",
+      worker_phone: "",
+    };
+    // v3.20.24: 계약직 근로계약서
+    if (contractType === "employment_fixed") return {
+      employment_type: "계약직",
+      workplace: "경기도 하남시 위례대로 190, 위례효성 해링턴타워 203호 아쿠수중운동센터",
+      duty: "아동발달에 대한 상담 및 지원사업, 행정 및 운영업무 보조",
+      weekday_hours: "13:00 ~ 22:00 (휴게 19:30~20:30, 1시간)",
+      saturday_hours: "10:00 ~ 14:30 (휴게 12:00~12:30, 30분)",
+      probation_months: 3,
+      renewal_clause: "계약종료 30일 전 상호 협의로 갱신 가능",
+      base_salary: 2100000, meal_allowance: 200000,
+      pay_day: 15, pay_method: "근로자 명의 예금통장 입금",
+      insurance_employment: true, insurance_industrial: true,
+      insurance_pension: true, insurance_health: true,
+      employer_name: "위례아쿠수중운동센터", employer_ceo: "하유정",
+      worker_phone: "",
+    };
+    // v3.20.24: 일용·시급제 근로계약서
+    if (contractType === "employment_daily") return {
+      employment_type: "일용·시급제",
+      workplace: "경기도 하남시 위례대로 190, 위례효성 해링턴타워 203호 아쿠수중운동센터",
+      duty: "수중재활 수업 진행 및 해당 회원 지원 업무",
+      daily_hours: 4,
+      break_time: "수업 사이 10분",
+      hourly_wage: 15000,
+      daily_wage: 60000,
+      pay_day: 15,
+      pay_method: "근로자 명의 예금통장 입금",
+      insurance_industrial: true, insurance_employment: false,
+      insurance_pension: false, insurance_health: false,
       employer_name: "위례아쿠수중운동센터", employer_ceo: "하유정",
       worker_phone: "",
     };
@@ -891,23 +1010,23 @@ function ContractsPage() {
           .fixed.inset-0 .bg-gradient-to-r,
           .fixed.inset-0 .border-b { border: none !important; background: transparent !important; }
 
-          /* v3.20.23: A4 여백 축소 (8mm / 10mm) */
-          @page { size: A4; margin: 8mm 10mm; }
+          /* v3.20.24: A4 1페이지 강제 압축 */
+          @page { size: A4; margin: 8mm 10mm 8mm 10mm; }
 
-          html, body { font-size: 8.7pt !important; line-height: 1.38 !important; }
+          html, body { font-size: 8.5pt !important; line-height: 1.35 !important; }
 
           .contract-body {
             border: none !important;
             padding: 0 !important;
             margin: 0 !important;
-            font-size: 8.7pt !important;
-            line-height: 1.38 !important;
+            font-size: 8.5pt !important;
+            line-height: 1.35 !important;
             min-height: auto !important;
             height: auto !important;
             max-height: none !important;
             overflow: visible !important;
             resize: none;
-            letter-spacing: -0.035em;
+            letter-spacing: -0.03em;
             page-break-inside: auto;
             word-break: keep-all;
             font-family: 'Pretendard Variable', Pretendard, 'Noto Sans KR', 'Nanum Gothic', sans-serif !important;
@@ -922,17 +1041,25 @@ function ContractsPage() {
           h2 { font-size: 10pt !important; margin: 4px 0 2px 0 !important; }
           h3 { font-size: 9pt !important; margin: 3px 0 1px 0 !important; }
 
-          /* 서명·직인 영역 컴팩트 */
+          /* v3.20.24: 서명·직인 영역 – A4 1장 최하단 안에 무조건 들어가도록 압축 */
           .contract-sign-area {
             page-break-inside: avoid !important;
             break-inside: avoid !important;
-            margin-top: 6mm !important;
-            padding-top: 3mm !important;
-            font-size: 8.2pt !important;
-            gap: 6px !important;
+            margin-top: 4mm !important;
+            padding-top: 2mm !important;
+            font-size: 8pt !important;
+            line-height: 1.3 !important;
+            gap: 4px !important;
           }
-          .contract-sign-area > * { padding: 0 !important; }
-          .contract-sign-area img { max-width: 40mm !important; max-height: 14mm !important; }
+          .contract-sign-area > * { padding: 0 !important; margin: 0 !important; }
+          .contract-sign-area img { max-width: 32mm !important; max-height: 12mm !important; }
+
+          /* v3.20.24: 모달 내부 입력 폼의 서명·직인 박스를 인쇄 시 완전 숨김 */
+          .no-print, .no-print *,
+          [data-noprint], [data-noprint] * {
+            display: none !important;
+            visibility: hidden !important;
+          }
 
           /* 모든 grid/flex 여백 축소 */
           .fixed.inset-0 .space-y-2 > * + * { margin-top: 2mm !important; }

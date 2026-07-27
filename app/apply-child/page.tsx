@@ -132,12 +132,12 @@ export default function ApplyChildPage() {
       <div className="max-w-2xl mx-auto px-4 -mt-4">
         <div className="bg-white rounded-2xl shadow-lg p-4 mb-4">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-purple-700">STEP {step} / 5</span>
-            <span className="text-xs text-gray-500">{Math.round(step / 5 * 100)}% 완료</span>
+            <span className="text-xs font-medium text-purple-700">STEP {step} / {TOTAL}</span>
+            <span className="text-xs text-gray-500">{Math.round(step / TOTAL * 100)}% 완료</span>
           </div>
           <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
             <div className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-300"
-              style={{ width: `${step / 5 * 100}%` }}></div>
+              style={{ width: `${step / TOTAL * 100}%` }}></div>
           </div>
         </div>
 

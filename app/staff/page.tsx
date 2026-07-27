@@ -176,8 +176,8 @@ export default function StaffPage() {
       salary_amount: s.salary_amount || 0, address: s.address || "",
       color: s.color || "#3b82f6", hire_date: s.hire_date || "",
       // ✅ v3.19.0: 강사별 회당 단가 · 인센티브율 로드
-      session_rate: s.session_rate || 30000,
-      incentive_rate: s.incentive_rate || 0,
+      session_rate: s.session_rate ?? 30000,
+      incentive_rate: s.incentive_rate ?? 0,
     });
     setShowStaffModal(true);
   }
@@ -420,7 +420,7 @@ export default function StaffPage() {
                 // 1) session_rate 직접 설정값이 있으면 그 값
                 // 2) salary_type='session'이면 salary_amount
                 // 3) 생서 둘 다 없으면 0 (설정 안함으로 표시)
-                const unit = Number(s.session_rate) > 0 ? Number(s.session_rate)
+                const unit = (s.session_rate !== null && s.session_rate !== undefined) ? Number(s.session_rate)
                   : (s.salary_type === "session" ? Number(s.salary_amount || 0) : 0);
                 const auto = done * unit;
                 const color = s.color || "#3b82f6";
@@ -456,7 +456,7 @@ export default function StaffPage() {
                   <td className="px-2 py-2 text-right text-aqu-900">
                     ₩{activeStaff.reduce((sum, s: any) => {
                       const done = slots.filter((sl: any) => sl.staff_id === s.id && ["done","completed","present"].includes((sl.status||"").toLowerCase()) && ["lesson","trial","makeup"].includes(sl.event_type)).length;
-                      const unit = Number(s.session_rate) > 0 ? Number(s.session_rate)
+                      const unit = (s.session_rate !== null && s.session_rate !== undefined) ? Number(s.session_rate)
                         : (s.salary_type === "session" ? Number(s.salary_amount || 0) : 0);
                       return sum + done * unit;
                     }, 0).toLocaleString()}

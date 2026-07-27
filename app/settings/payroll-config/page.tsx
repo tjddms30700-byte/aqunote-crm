@@ -44,8 +44,8 @@ function PayrollConfigInner() {
     const initRates: Record<string, any> = {};
     staffData.forEach((st: any) => {
       initRates[st.id] = {
-        session_rate: Number(st.session_rate) || 30000,
-        incentive_rate: Number(st.incentive_rate) || 0,
+        session_rate: Number.isFinite(Number(st.session_rate)) ? Number(st.session_rate) : 30000,
+        incentive_rate: Number.isFinite(Number(st.incentive_rate)) ? Number(st.incentive_rate) : 0,
       };
     });
     setRates(initRates);
@@ -98,7 +98,7 @@ function PayrollConfigInner() {
     setRates(prev => ({ ...prev, [staffId]: { session_rate: dbRate, incentive_rate: dbInc } }));
     setStaff(prev => prev.map((st: any) => st.id === staffId ? { ...st, session_rate: dbRate, incentive_rate: dbInc } : st));
     if (dbRate === sessionRate && dbInc === incentiveRate) {
-      alert(`✅ 수당 설정 저장 완료\n\n• 회당 단가: ₩${dbRate.toLocaleString()}\n• 인센티브: ${dbInc}%`);
+      alert(`✅ 강사 수당 설정이 저장되었습니다\n\n• 회당 단가: ₩${dbRate.toLocaleString()}\n• 인센티브: ${dbInc}%`);
     } else {
       alert(`⚠️ 저장되었으나 값 불일치\n\n• 요청: ₩${sessionRate.toLocaleString()} / ${incentiveRate}%\n• 실제 DB 값: ₩${dbRate.toLocaleString()} / ${dbInc}%\n\n💡 트리거가 값을 변경하고 있을 수 있습니다.`);
     }
@@ -118,8 +118,8 @@ function PayrollConfigInner() {
   const totalDone = staff.reduce((sum, s) => sum + calcStats(s.id).done, 0);
   const totalPayout = staff.reduce((sum, s) => {
     const done = calcStats(s.id).done;
-    const rate = Number(rates[s.id]?.session_rate) || 0;
-    const incentive = Number(rates[s.id]?.incentive_rate) || 0;
+    const rate = rates[s.id]?.session_rate ?? 0;
+    const incentive = rates[s.id]?.incentive_rate ?? 0;
     const base = done * rate;
     return sum + base + Math.round(base * incentive / 100);
   }, 0);
@@ -191,9 +191,11 @@ function PayrollConfigInner() {
                 <tr><td colSpan={7} className="text-center py-6 text-gray-400">재직 강사가 없습니다</td></tr>
               ) : staff.map((s: any) => {
                 const stats = calcStats(s.id);
-                const r = rates[s.id] || { session_rate: 30000, incentive_rate: 0 };
-                const base = stats.done * Number(r.session_rate || 0);
-                const bonus = Math.round(base * Number(r.incentive_rate || 0) / 100);
+                const r = rates[s.id] ?? { session_rate: 30000, incentive_rate: 0 };
+                const sr = Number.isFinite(Number(r.session_rate)) ? Number(r.session_rate) : 0;
+                const ir = Number.isFinite(Number(r.incentive_rate)) ? Number(r.incentive_rate) : 0;
+                const base = stats.done * sr;
+                const bonus = Math.round(base * ir / 100);
                 const total = base + bonus;
                 const color = s.color || "#3b82f6";
                 return (
