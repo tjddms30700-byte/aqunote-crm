@@ -62,8 +62,12 @@ const GROUPS = [
     bg: "bg-teal-50",
     directorOnly: false,
     items: [
-      { href: "/dashboard", icon: BarChart3, title: "통합 대시보드", desc: "전체 현황 KPI + D+400 처리" },
-      { href: "/reports",   icon: FileText,  title: "보고서 생성",   desc: "IEP·일지·행동 보고서" },
+      { href: "/dashboard", icon: BarChart3, title: "통합 대시보드",    desc: "전체 현황 KPI + D+400 처리" },
+      { href: "/reports",   icon: FileText,  title: "보고서 생성",      desc: "IEP·일지·행동 보고서" },
+      // v3.20.23: 계약서/문서 관리를 대시보드·보고서 섹션으로 이동
+      { href: "/reports?tab=forms", icon: FileText, title: "📝 계약서·서식 작성", desc: "근로계약·회원계약·NDA·사직서 자동생성" },
+      { href: "/contracts", icon: FileText,  title: "📂 계약서 관리",   desc: "서명 완료 계약·자동연장·PDF 저장" },
+      { href: "/documents", icon: FileText,  title: "📄 문서 관리",       desc: "센터 관련 서류 (사업자등록증 등)" },
     ],
   },
   {
@@ -82,8 +86,6 @@ const GROUPS = [
       { href: "/finance",                  icon: DollarSign,     title: "💼 센터 재무 · 자동정산",   desc: "수입·지출·정기결제" },
       { href: "/staff",                    icon: UserCog,        title: "👥 직원 관리",              desc: "직원 등록 · 재직/퇴사 관리" },
       { href: "/settings/payroll-config",  icon: Briefcase,      title: "👨‍💼 직원 급여 · 수당",      desc: "회당 단가 · 인센티브 · 지급 이력" },
-      { href: "/documents",                icon: FileText,       title: "📄 문서 관리",              desc: "센터 관련 서류 (사업자등록증 등)" },
-      { href: "/contracts",                icon: FileText,       title: "📝 계약서 관리",              desc: "근로계약·회원계약·개인정보 동의서 자체 작성" },
       { href: "/settings?tab=policy",      icon: Settings,       title: "⚙️ 지점 정책",              desc: "회원권 · 시간표 · 자동백업" },
       { href: "/settings/accounts",        icon: KeyRound,       title: "🔑 로그인 승인 · 계정",      desc: "가입 승인 · 비밀번호 관리" },
     ],

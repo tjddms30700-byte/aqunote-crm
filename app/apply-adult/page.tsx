@@ -12,7 +12,9 @@ const TIME_SLOTS = [
 const BRANCHES = ["위례본점"];
 
 export default function ApplyAdultPage() {
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  // v3.20.23: 4단계 → 8단계 확장 (URL /apply-adult 유지)
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6 | 7 | 8>(1);
+  const TOTAL = 8;
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
@@ -81,11 +83,14 @@ export default function ApplyAdultPage() {
       if (!form.phone) return "연락처를 입력해주세요";
       if (!/^01[0-9]-?\d{3,4}-?\d{4}$/.test(form.phone.replace(/\s/g, ""))) return "올바른 휴대폰 번호 형식이 아닙니다";
     }
-    if (step === 3) {
+    if (step === 6) {
+      if (!form.agree_wait_notice) return "운영 안내(대기·운영시간)를 확인하고 동의해주세요";
+    }
+    if (step === 7) {
       if (form.wish_days.length === 0) return "희망 요일을 최소 1개 선택해주세요";
       if (form.wish_time_slots.length === 0) return "희망 시간을 최소 1개 선택해주세요";
     }
-    if (step === 4) {
+    if (step === 8) {
       if (!form.agree_privacy) return "개인정보 수집·이용에 동의해주세요";
       if (!form.agree_medical) return "의료정보 수집·이용에 동의해주세요";
     }
@@ -137,7 +142,7 @@ export default function ApplyAdultPage() {
       <div className="max-w-2xl mx-auto px-4 -mt-4">
         <div className="bg-white rounded-2xl shadow-lg p-4 mb-4">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-blue-700">STEP {step} / 4</span>
+            <span className="text-xs font-medium text-blue-700">STEP {step} / {TOTAL}</span>
             <span className="text-xs text-gray-500">{Math.round(step / 4 * 100)}%</span>
           </div>
           <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
@@ -265,7 +270,104 @@ export default function ApplyAdultPage() {
             </div>
           )}
 
+          {/* v3.20.23: STEP 3 (구 3도 희망시간이었으나) → STEP 7로 이동 */}
+          {/* STEP 3 신규: 생활 습관 / 직업 · 운동 이력 */}
           {step === 3 && (
+            <div className="space-y-5">
+              <h2 className="text-lg font-bold text-blue-900">🏃 생활 습관 / 직업 · 운동 이력</h2>
+              <Field label="직업" value={form.occupation || ""}
+                onChange={(v: string) => update("occupation", v)} placeholder="예: 사무직, 교사, 자영업 등" />
+              <RadioGroup label="평소 운동 빈도" options={["안함","주 1회","주 2~3회","주 4회 이상"]}
+                value={form.exercise_freq || ""} onChange={(v: string) => update("exercise_freq", v)} />
+              <TextArea label="운동 이력" value={form.exercise_history || ""}
+                onChange={(v: string) => update("exercise_history", v)} placeholder="예: 수영, 필라테스, PT, 헬스 등" rows={2} />
+              <RadioGroup label="수면 시간" options={["5시간 미만","5~7시간","7~8시간","8시간 이상"]}
+                value={form.sleep || ""} onChange={(v: string) => update("sleep", v)} />
+              <RadioGroup label="스트레스 수준" options={["낮음","보통","높음","매우 높음"]}
+                value={form.stress || ""} onChange={(v: string) => update("stress", v)} />
+              <RadioGroup label="흡연 · 음주" options={["모두 안함","음주만","흡연만","모두 함"]}
+                value={form.smoke_alcohol || ""} onChange={(v: string) => update("smoke_alcohol", v)} />
+            </div>
+          )}
+
+          {/* v3.20.23: STEP 4 신규 – 건강 위험 유무 */}
+          {step === 4 && (
+            <div className="space-y-5">
+              <h2 className="text-lg font-bold text-blue-900">🩺 건강 위험 평가</h2>
+              <p className="text-xs text-gray-500">안전한 수중재활 진행을 위해 사전 확인이 필요한 문항입니다.</p>
+              <Field label="협압 (숫자 또는 '정상')" value={form.blood_pressure || ""}
+                onChange={(v: string) => update("blood_pressure", v)} placeholder="예: 130/85, 정상" />
+              <RadioGroup label="심장 질환 이력" options={["없음","있음(치료 완료)","있음(치료 중)"]}
+                value={form.heart_condition || ""} onChange={(v: string) => update("heart_condition", v)} />
+              <RadioGroup label="당뇨 이력" options={["없음","경계","있음(약물 복용)","있음(인슐린)"]}
+                value={form.diabetes || ""} onChange={(v: string) => update("diabetes", v)} />
+              <RadioGroup label="임신 여부 (해당 시)" options={["해당없음","임신 준비말","임신중","산후"]}
+                value={form.pregnancy || ""} onChange={(v: string) => update("pregnancy", v)} />
+              <RadioGroup label="알레르기 / 피부질환" options={["없음","경미","있음(관리 중)"]}
+                value={form.allergy || ""} onChange={(v: string) => update("allergy", v)} />
+              <TextArea label="기타 주의사항" value={form.other_health || ""}
+                onChange={(v: string) => update("other_health", v)} rows={2} />
+            </div>
+          )}
+
+          {/* v3.20.23: STEP 5 신규 – 자기 니즈 */}
+          {step === 5 && (
+            <div className="space-y-5">
+              <h2 className="text-lg font-bold text-blue-900">💬 자기 니즈 · 목표</h2>
+              <TextArea label="수중재활을 통해 가장 해결하고 싶은 점" value={form.top_goal || ""}
+                onChange={(v: string) => update("top_goal", v)} rows={2} />
+              <TextArea label="피하고 싶은 동작 / 시유리허지 않는 자세" value={form.avoid_situations || ""}
+                onChange={(v: string) => update("avoid_situations", v)} rows={2} />
+              <RadioGroup label="수중재활 경험" options={["처음","1회","2~3회","껾준히 경험"]}
+                value={form.aqua_experience || ""} onChange={(v: string) => update("aqua_experience", v)} />
+              <RadioGroup label="물 적응도" options={["매우 좋음","보통","낯설","두려움"]}
+                value={form.water_reaction || ""} onChange={(v: string) => update("water_reaction", v)} />
+              <RadioGroup label="수영 가능 수준" options={["모름","물에 뜨기 가능","자유형 가능","여러 영법 가능"]}
+                value={form.swim_level || ""} onChange={(v: string) => update("swim_level", v)} />
+            </div>
+          )}
+
+          {/* v3.20.23: STEP 6 신규 – 센터 이용 안내 및 대기 동의 */}
+          {step === 6 && (
+            <div className="space-y-4">
+              <h2 className="text-lg font-bold text-blue-900">🏢 센터 이용 안내</h2>
+              <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-4 text-sm text-amber-900 leading-relaxed space-y-1">
+                <div className="font-bold text-amber-800">⏰ 운영 시간 안내</div>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li><strong>평일 13:00 ~ 21:40</strong> · 하루 <strong>7타임 고정석</strong> 소수정예 1:1</li>
+                  <li className="text-red-700"><strong>10:00~12:00 오전 타임은 운영하지 않습니다</strong></li>
+                  <li className="text-red-700"><strong>토요일·일요일은 휴무입니다</strong> (주 5일 운영)</li>
+                </ul>
+              </div>
+              <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4 text-sm text-red-900 leading-relaxed space-y-1">
+                <div className="font-bold text-red-800">⚠️ 대기 안내 (반드시 확인)</div>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li>현재 정규 수업 타임은 <strong>평균 6개월 이상 대기</strong>가 발생합니다</li>
+                  <li>오전 타임이나 주말 타임은 현재 운영하지 않으나, <strong>추후 오픈 시 대기 순서대로 안내</strong>해드립니다</li>
+                  <li><strong>그럼에도 불구하고 기다리실 분만 신청해주세요</strong></li>
+                  <li>급하신 경우 다른 센터 이용을 권장드립니다</li>
+                </ul>
+              </div>
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-900 space-y-1">
+                <div className="font-bold">💰 수강료 안내</div>
+                <div>STANDARD 4회기 <strong>520,000원</strong> · 주 1회 고정수업</div>
+                <div className="text-xs opacity-80">체험 예약금 35,000원 · 수업일 2일전까지 취소 시 전액 환불</div>
+                <div className="text-xs opacity-80">입금계좌: 우리은행 105204643920 (예금주 아쿠수중운동센터 하유정)</div>
+              </div>
+              <label className="flex items-start gap-3 p-4 rounded-xl border-2 border-blue-200 bg-white cursor-pointer hover:bg-blue-50">
+                <input type="checkbox" checked={!!form.agree_wait_notice}
+                  onChange={e => update("agree_wait_notice", e.target.checked)}
+                  className="w-5 h-5 mt-0.5" />
+                <div className="text-sm text-gray-800">
+                  <div className="font-bold">위 운영 안내 및 대기 이용 조건을 확인하였으며, 대기 지원에 동의합니다.</div>
+                  <div className="text-xs text-gray-500 mt-1">(평일 13:00~21:40 우선 안내, 오전/주말 오픈 시 추가 안내)</div>
+                </div>
+              </label>
+            </div>
+          )}
+
+          {/* STEP 7 (구 3): 희망 요일·시간 */}
+          {step === 7 && (
             <div className="space-y-5">
               <h2 className="text-lg font-bold text-blue-900">📅 희망 요일 · 시간</h2>
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
@@ -334,7 +436,8 @@ export default function ApplyAdultPage() {
             </div>
           )}
 
-          {step === 4 && (
+          {/* STEP 8 (구 4): 개인정보 동의 */}
+          {step === 8 && (
             <div className="space-y-5">
               <h2 className="text-lg font-bold text-blue-900">🔒 개인정보 · 의료정보 동의</h2>
 
@@ -393,7 +496,7 @@ export default function ApplyAdultPage() {
                 <ChevronLeft className="w-4 h-4" /> 이전
               </button>
             )}
-            {step < 4 ? (
+            {step < 8 ? (
               <button onClick={next}
                 className="flex-1 py-3 bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-medium rounded-xl hover:from-blue-600 hover:to-cyan-600 flex items-center justify-center gap-1 shadow-md">
                 다음 <ChevronRight className="w-4 h-4" />

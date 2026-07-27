@@ -788,16 +788,20 @@ function ContractsPage() {
     const sealHtml = ed.counter_signature === "seal" ? `<img src="/center_seal.png" style="width:64px;height:64px;object-fit:contain"/>` : "";
     return `<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"/>
 <title>${title}</title>
-<link href="https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@400;700;800&display=swap" rel="stylesheet"/>
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/variable/pretendardvariable.css" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&family=Nanum+Gothic:wght@400;700;800&display=swap" rel="stylesheet"/>
 <style>
-  @page { size: A4; margin: 12mm 14mm; }
-  body { font-family: "Nanum Myeongjo", Batang, serif; font-size: 10.5pt; line-height: 1.75; color: #111; }
-  h1 { text-align: center; font-size: 15pt; border-bottom: 2px solid #0284c7; padding-bottom: 6px; }
-  .meta { display: flex; justify-content: space-between; font-size: 9.5pt; color: #475569; margin-bottom: 12px; }
-  .body { white-space: pre-wrap; }
-  .sign { display: flex; justify-content: space-around; margin-top: 22px; padding-top: 12px; border-top: 1px solid #cbd5e1; }
-  .sign-box { text-align: center; font-size: 10pt; }
-  .footer { text-align: right; font-size: 9pt; color: #64748b; margin-top: 14px; }
+  @page { size: A4; margin: 8mm 10mm; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Pretendard Variable', Pretendard, 'Noto Sans KR', 'Nanum Gothic', sans-serif; font-size: 8.8pt; line-height: 1.4; color: #111; margin: 0; padding: 0; word-break: keep-all; }
+  h1 { text-align: center; font-size: 12pt; border-bottom: 1.5px solid #0284c7; padding-bottom: 3px; margin: 0 0 4mm 0; font-weight: 700; }
+  .meta { display: flex; justify-content: space-between; font-size: 8pt; color: #475569; margin-bottom: 3mm; }
+  .body { white-space: pre-wrap; letter-spacing: -0.03em; }
+  .body p, .body div, .body li { margin: 0; padding: 0; }
+  .sign { display: flex; justify-content: space-around; margin-top: 4mm; padding-top: 2mm; border-top: 1px solid #cbd5e1; page-break-inside: avoid; break-inside: avoid; }
+  .sign-box { text-align: center; font-size: 8.2pt; line-height: 1.5; }
+  .sign-box img { max-width: 40mm; max-height: 14mm; object-fit: contain; }
+  .footer { text-align: right; font-size: 7.5pt; color: #64748b; margin-top: 3mm; }
   @media print { .no-print { display:none } }
 </style></head><body>
 <h1>${title}</h1>
@@ -852,81 +856,108 @@ function ContractsPage() {
   return (
     <main className="max-w-7xl mx-auto px-3 md:px-6 py-6 md:py-10">
       <style jsx global>{`
-        /* ✅ v3.20.20: 나눔명조/나눔고딕 웹폰트 로드 (플리쿼우하게 생김) */
-        @import url('https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@400;700;800&family=Nanum+Gothic:wght@400;700;800&display=swap');
+        /* v3.20.23: Pretendard · Noto Sans KR · Nanum Gothic 고딕 웹폰트 (화면/인쇄 통일) */
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/variable/pretendardvariable.css');
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&family=Nanum+Gothic:wght@400;700;800&display=swap');
 
-        /* 계약서 본문 실계약서 종이처럼 스타일링 (화면·프린트 공용) */
+        /* 계약서 본문 – 화면용 (편집 단계) */
         .contract-body {
           white-space: pre-wrap;
-          font-family: "Nanum Myeongjo", "NanumMyeongjo", "나눔명조", "Batang", 바탕, serif;
-          line-height: 2.0;
-          font-size: 13.5px;
-          letter-spacing: -0.01em;
+          font-family: 'Pretendard Variable', Pretendard, 'Noto Sans KR', 'Nanum Gothic', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+          line-height: 1.55;
+          font-size: 12.5px;
+          letter-spacing: -0.015em;
           color: #111;
           background: #fff;
-          min-height: 520px;
           word-break: keep-all;
           text-align: justify;
         }
         .contract-body h1, .contract-body h2, .contract-body h3 {
-          font-family: "Nanum Myeongjo", serif;
-          font-weight: 800;
+          font-family: 'Pretendard Variable', Pretendard, 'Noto Sans KR', sans-serif;
+          font-weight: 700;
         }
-        /* 서명 영역 - 페이지 간 잘림 방지 */
         .contract-sign-area { page-break-inside: avoid; break-inside: avoid; }
 
         @media print {
           .no-print { display: none !important; }
           .print-only { display: block !important; }
-          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; background: #fff !important; }
+          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; background: #fff !important; font-family: 'Pretendard Variable', Pretendard, 'Noto Sans KR', 'Nanum Gothic', sans-serif !important; }
           main { max-width: 100% !important; padding: 0 !important; margin: 0 !important; }
 
-          /* 모달 배경 제거 + A4 여백 */
+          /* 모달 배경 제거 */
           .fixed.inset-0 { position: static !important; background: #fff !important; padding: 0 !important; }
           .fixed.inset-0 > div { max-width: 100% !important; width: 100% !important; max-height: none !important; box-shadow: none !important; border-radius: 0 !important; overflow: visible !important; }
           .fixed.inset-0 > div > div { max-height: none !important; overflow: visible !important; }
           .fixed.inset-0 .bg-gradient-to-r,
           .fixed.inset-0 .border-b { border: none !important; background: transparent !important; }
 
-          /* ✅ v3.20.18: A4 한 페이지에 맞춰 글씨 축소 */
-          @page { size: A4; margin: 10mm 12mm 12mm 12mm; }
+          /* v3.20.23: A4 여백 축소 (8mm / 10mm) */
+          @page { size: A4; margin: 8mm 10mm; }
 
-          html, body { font-size: 9pt !important; }
+          html, body { font-size: 8.7pt !important; line-height: 1.38 !important; }
 
           .contract-body {
             border: none !important;
             padding: 0 !important;
-            font-size: 9pt !important;
-            line-height: 1.45 !important;
+            margin: 0 !important;
+            font-size: 8.7pt !important;
+            line-height: 1.38 !important;
             min-height: auto !important;
             height: auto !important;
             max-height: none !important;
             overflow: visible !important;
             resize: none;
-            letter-spacing: -0.03em;
+            letter-spacing: -0.035em;
             page-break-inside: auto;
+            word-break: keep-all;
+            font-family: 'Pretendard Variable', Pretendard, 'Noto Sans KR', 'Nanum Gothic', sans-serif !important;
           }
-          .contract-body div { break-inside: auto; }
+          .contract-body p,
+          .contract-body div,
+          .contract-body li { margin: 0 !important; padding: 0 !important; break-inside: auto; }
+          .contract-body br { line-height: 1.2 !important; }
 
-          /* 상단 모달 헤더(제목)은 감추고 계약서 헤더만 표시 */
-          h2, h3 { font-size: 11pt !important; }
+          /* 모달 헤더 제목 */
+          h1 { font-size: 12pt !important; margin: 0 0 4px 0 !important; }
+          h2 { font-size: 10pt !important; margin: 4px 0 2px 0 !important; }
+          h3 { font-size: 9pt !important; margin: 3px 0 1px 0 !important; }
 
-          /* 서명·직인 영여 축소 */
+          /* 서명·직인 영역 컴팩트 */
           .contract-sign-area {
             page-break-inside: avoid !important;
             break-inside: avoid !important;
-            margin-top: 12px !important;
-            font-size: 8.5pt !important;
+            margin-top: 6mm !important;
+            padding-top: 3mm !important;
+            font-size: 8.2pt !important;
+            gap: 6px !important;
           }
-          .contract-sign-area img { max-width: 60mm !important; max-height: 20mm !important; }
+          .contract-sign-area > * { padding: 0 !important; }
+          .contract-sign-area img { max-width: 40mm !important; max-height: 14mm !important; }
 
-          /* 입력 필드·체크박스 영역 숨김 */
+          /* 모든 grid/flex 여백 축소 */
+          .fixed.inset-0 .space-y-2 > * + * { margin-top: 2mm !important; }
+          .fixed.inset-0 .space-y-3 > * + * { margin-top: 3mm !important; }
+          .fixed.inset-0 .space-y-4 > * + * { margin-top: 3mm !important; }
+          .fixed.inset-0 .gap-2 { gap: 2mm !important; }
+          .fixed.inset-0 .gap-3 { gap: 3mm !important; }
+          .fixed.inset-0 .p-3, .fixed.inset-0 .p-4, .fixed.inset-0 .p-5 { padding: 2mm !important; }
+          .fixed.inset-0 .py-3, .fixed.inset-0 .py-4 { padding-top: 2mm !important; padding-bottom: 2mm !important; }
+          .fixed.inset-0 .my-2, .fixed.inset-0 .my-3, .fixed.inset-0 .my-4 { margin-top: 2mm !important; margin-bottom: 2mm !important; }
+          .fixed.inset-0 .mt-4, .fixed.inset-0 .mt-6, .fixed.inset-0 .mt-8 { margin-top: 3mm !important; }
+
           input, textarea, select, button, label { visibility: visible; }
           .no-print, .no-print * { display: none !important; }
 
-          .contract-print { border: none !important; }
+          .contract-print { border: none !important; padding: 0 !important; }
         }
         .print-only { display: none; }
+
+        /* 화면에서 계약서로 보기 모드 (A4 프리뷰) */
+        .contract-preview-a4 {
+          font-family: 'Pretendard Variable', Pretendard, 'Noto Sans KR', 'Nanum Gothic', sans-serif !important;
+          font-size: 12.5px !important;
+          line-height: 1.55 !important;
+        }
       `}</style>
 
       <div className="no-print">

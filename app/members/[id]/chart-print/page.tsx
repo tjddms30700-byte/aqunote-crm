@@ -77,22 +77,25 @@ export default function ChartPrintPage() {
   return (
     <>
       <style jsx global>{`
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/variable/pretendardvariable.css');
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&display=swap');
         @media print {
-          @page { size: A4; margin: 12mm 12mm 12mm 12mm; }
+          @page { size: A4; margin: 8mm 10mm; }
           .no-print { display: none !important; }
           body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          .chart-a4 { box-shadow: none !important; border: none !important; padding: 0 !important; }
-          .chart-section { page-break-inside: avoid; }
+          .chart-a4 { box-shadow: none !important; border: none !important; padding: 0 !important; width: 100% !important; }
+          .chart-section { page-break-inside: avoid; margin-bottom: 3mm !important; }
         }
         .chart-a4 {
-          font-family: "Nanum Myeongjo", "NanumMyeongjo", "Batang", serif;
-          font-size: 10.5pt; line-height: 1.5; color: #111;
-          width: 186mm; margin: 0 auto; background: white;
+          font-family: 'Pretendard Variable', Pretendard, 'Noto Sans KR', 'Nanum Gothic', sans-serif;
+          font-size: 9.2pt; line-height: 1.38; color: #111;
+          width: 190mm; margin: 0 auto; background: white; word-break: keep-all;
+          letter-spacing: -0.025em;
         }
-        .chart-a4 h1 { font-size: 15pt; font-weight: 800; text-align: center; border-bottom: 2px solid #0284c7; padding-bottom: 6px; margin-bottom: 10px; }
-        .chart-a4 h2 { font-size: 11pt; font-weight: 800; color: #0369a1; border-left: 3px solid #0284c7; padding-left: 6px; margin-top: 10px; margin-bottom: 4px; }
-        .chart-a4 table { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin-bottom: 6px; }
-        .chart-a4 th, .chart-a4 td { border: 1px solid #cbd5e1; padding: 3px 6px; }
+        .chart-a4 h1 { font-size: 13pt; font-weight: 800; text-align: center; border-bottom: 1.5px solid #0284c7; padding-bottom: 3px; margin: 0 0 4mm 0; }
+        .chart-a4 h2 { font-size: 9.5pt; font-weight: 700; color: #0369a1; border-left: 3px solid #0284c7; padding-left: 5px; margin: 3mm 0 1.5mm 0; }
+        .chart-a4 table { width: 100%; border-collapse: collapse; font-size: 8.6pt; margin-bottom: 2mm; }
+        .chart-a4 th, .chart-a4 td { border: 1px solid #cbd5e1; padding: 2px 5px; }
         .chart-a4 th { background: #f1f5f9; font-weight: 700; width: 22%; }
       `}</style>
 

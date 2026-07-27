@@ -404,19 +404,8 @@ export default function ConsultationsPage() {
         </div>
       </div>
 
-      {/* ✅ v3.18.0: 신규유입 통합 베너 */}
-      <div className="max-w-7xl mx-auto mb-4">
-        <Link href="/inbox" className="block bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-xl px-4 py-3 hover:shadow-md transition">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white text-xl">📥</div>
-            <div className="flex-1">
-              <div className="text-sm font-bold text-purple-800">신규 유입 바로가기</div>
-              <div className="text-xs text-purple-600">구글시트 자동 연동으로 들어온 상담 신청을 바로 매칭에 반영하세요</div>
-            </div>
-            <span className="text-purple-500">→</span>
-          </div>
-        </Link>
-      </div>
+      {/* v3.20.23: 신청폼 URL 퀵 복사 툴바 + 설정 톱니바퀴 */}
+      <QuickCopyToolbar />
 
       {/* 탭 전환 */}
       <div className="max-w-7xl mx-auto mb-5 flex gap-1 border-b border-aqu-100">
@@ -499,6 +488,8 @@ export default function ConsultationsPage() {
 /* ─────────────── 하위 컴포넌트: 칸반 ─────────────── */
 
 function KanbanView({ members, stats, onMove, matrix }: any) {
+  // v3.20.23: 신청서 보기 모달
+  const [intakeTarget, setIntakeTarget] = useState<any | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   // ✅ v3.20.0: 칸반에도 응대 로그 모달 state
   const [contactTarget, setContactTarget] = useState<any>(null);
@@ -613,18 +604,55 @@ function KanbanView({ members, stats, onMove, matrix }: any) {
                             <div className="text-[10px] text-gray-500 mt-1 truncate italic" title={m.memo}>💬 {m.memo}</div>
                           )}
                         </Link>
-                        {/* ✅ v3.18.0: 카드 퀵 액션 (통화 · 예약) */}
-                        <div className="flex items-center gap-1 mt-1.5 pt-1.5 border-t border-gray-100">
-                          {/* ✅ v3.20.0: 통화 버튼 → 응대 로그 모달 */}
-                          <button onClick={e => { e.stopPropagation(); setContactTarget(m); }}
-                            className="flex-1 flex items-center justify-center gap-1 text-[10px] px-1.5 py-1 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-semibold"
-                            title="응대 기록 (전화/문자/카카오톡/메모)">
-                            <Phone className="w-2.5 h-2.5" /> 응대
-                          </button>
-                          <Link href={`/schedule?member=${m.id}`} onClick={e => e.stopPropagation()} className="flex-1 flex items-center justify-center gap-1 text-[10px] px-1.5 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold">
-                            <Calendar className="w-2.5 h-2.5" /> 예약
-                          </Link>
-                        </div>
+                        {/* v3.20.23: [NEW] 컬럼은 신청서 보기 + 1-Click 승격 버튼 */}
+                        {col.key === "new" ? (
+                          <>
+                            <div className="flex items-center gap-1 mt-1.5">
+                              <span className="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded bg-red-500 text-white animate-pulse">
+                                ⚠️ 미확인
+                              </span>
+                              {m?.extra?.is_new_intake && (
+                                <span className="text-[9px] font-semibold text-pink-600">📝 신청서 도착</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1 mt-1.5 pt-1.5 border-t border-gray-100">
+                              <button onClick={e => { e.stopPropagation(); setIntakeTarget(m); }}
+                                className="flex-1 text-[10px] px-1 py-1 rounded bg-purple-100 text-purple-700 hover:bg-purple-200 font-bold">
+                                📝 신청서
+                              </button>
+                              <button onClick={e => { e.stopPropagation(); onMove(m.id, "waiting"); }}
+                                className="flex-1 text-[10px] px-1 py-1 rounded bg-yellow-100 text-yellow-700 hover:bg-yellow-200 font-bold"
+                                title="대기중으로 이동">
+                                ⏳ 대기
+                              </button>
+                              <button onClick={e => { e.stopPropagation(); onMove(m.id, "trial_scheduled"); }}
+                                className="flex-1 text-[10px] px-1 py-1 rounded bg-blue-100 text-blue-700 hover:bg-blue-200 font-bold"
+                                title="체험예정으로 이동">
+                                📅 체험
+                              </button>
+                            </div>
+                            <div className="flex items-center gap-1 mt-1">
+                              <button onClick={e => { e.stopPropagation(); setContactTarget(m); }}
+                                className="flex-1 flex items-center justify-center gap-1 text-[10px] px-1.5 py-1 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-semibold">
+                                <Phone className="w-2.5 h-2.5" /> 응대
+                              </button>
+                              <Link href={`/schedule?member=${m.id}`} onClick={e => e.stopPropagation()} className="flex-1 flex items-center justify-center gap-1 text-[10px] px-1.5 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold">
+                                <Calendar className="w-2.5 h-2.5" /> 예약
+                              </Link>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="flex items-center gap-1 mt-1.5 pt-1.5 border-t border-gray-100">
+                            <button onClick={e => { e.stopPropagation(); setContactTarget(m); }}
+                              className="flex-1 flex items-center justify-center gap-1 text-[10px] px-1.5 py-1 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-semibold"
+                              title="응대 기록 (전화/문자/카카오톡/메모)">
+                              <Phone className="w-2.5 h-2.5" /> 응대
+                            </button>
+                            <Link href={`/schedule?member=${m.id}`} onClick={e => e.stopPropagation()} className="flex-1 flex items-center justify-center gap-1 text-[10px] px-1.5 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold">
+                              <Calendar className="w-2.5 h-2.5" /> 예약
+                            </Link>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -639,8 +667,61 @@ function KanbanView({ members, stats, onMove, matrix }: any) {
       </div>
 
       <div className="mt-3 text-[11px] text-gray-500 text-center">
-        💡 카드를 드래그해서 상태를 변경할 수 있습니다 · 컬럼 헤더 클릭으로 접기/펼치기 · 📞/📅 버튼으로 빠른 액션
+        💡 카드를 드래그해서 상태를 변경하거나 <b>[NEW 신규]</b> 컬럼의 ⏳ 대기 · 📅 체험 버튼으로 1-Click 이동할 수 있습니다
       </div>
+
+      {/* v3.20.23: 신청서 보기 모달 */}
+      {intakeTarget && <IntakeDetailModal member={intakeTarget} onClose={() => setIntakeTarget(null)} onMove={onMove} />}
+    </div>
+  );
+}
+
+// v3.20.23: 신청서 상세 보기 모달
+function IntakeDetailModal({ member, onClose, onMove }: any) {
+  const f = member?.extra?.consult_form || {};
+  const isChild = member?.member_type === "child";
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="p-4 border-b flex items-center justify-between bg-gradient-to-r from-pink-50 to-rose-50">
+          <div>
+            <div className="text-xs text-pink-700 font-bold">📝 신규 유입 신청서</div>
+            <div className="text-lg font-bold text-gray-900">{member.name} <span className="text-xs text-gray-500">({isChild ? "아동" : "성인"})</span></div>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-800">✕</button>
+        </div>
+        <div className="p-4 space-y-2 text-sm">
+          <Row label="연락처" value={member.phone} />
+          {isChild && <Row label="보호자" value={`${member.guardian_name || f.guardian_name || "-"} (${f.guardian_relation || "?"})`} />}
+          {f.birth && <Row label="생년월일" value={f.birth} />}
+          {f.gender && <Row label="성별" value={f.gender} />}
+          {f.height_weight && <Row label="키/체중" value={f.height_weight} />}
+          {f.address && <Row label="주소" value={f.address} />}
+          {f.institution && <Row label="이용기관" value={f.institution} />}
+          {f.diagnosis && <Row label="진단명" value={f.diagnosis} />}
+          {f.main_symptom && <Row label="주 증상" value={f.main_symptom} />}
+          {f.pain_area && <Row label="통증부위" value={f.pain_area} />}
+          {(member.wish_days?.length > 0) && <Row label="희망 요일" value={(member.wish_days || []).join(", ")} />}
+          {(member.wish_time_slots?.length > 0) && <Row label="희망 시간" value={(member.wish_time_slots || []).join(", ")} />}
+          {f.wish_start_date && <Row label="희망 시작일" value={f.wish_start_date} />}
+          {member.memo && <div className="mt-2 p-2 bg-gray-50 rounded text-[11px] text-gray-600 whitespace-pre-wrap">{member.memo}</div>}
+        </div>
+        <div className="p-4 border-t flex flex-wrap gap-2">
+          <button onClick={() => { onMove(member.id, "waiting"); onClose(); }}
+            className="flex-1 px-3 py-2 bg-yellow-100 text-yellow-700 rounded-lg text-sm font-bold hover:bg-yellow-200">⏳ 대기 등록</button>
+          <button onClick={() => { onMove(member.id, "trial_scheduled"); onClose(); }}
+            className="flex-1 px-3 py-2 bg-blue-100 text-blue-700 rounded-lg text-sm font-bold hover:bg-blue-200">📅 체험 예약</button>
+          <Link href={`/members/${member.id}`} className="flex-1 px-3 py-2 bg-purple-100 text-purple-700 rounded-lg text-sm font-bold hover:bg-purple-200 text-center">매버 상세</Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+function Row({ label, value }: any) {
+  return (
+    <div className="flex gap-2 text-xs">
+      <div className="w-20 flex-shrink-0 font-semibold text-gray-500">{label}</div>
+      <div className="flex-1 text-gray-800">{value || "-"}</div>
     </div>
   );
 }
@@ -1523,6 +1604,80 @@ const FAQ_CATEGORIES = [
   { v: "general",     label: "ℹ️ 일반", color: "bg-slate-100 text-slate-700" },
   { v: "template",    label: "📩 카톡 템플릿", color: "bg-amber-100 text-amber-700" },
 ];
+
+// v3.20.23: 신청폼 URL 퀵 복사 툴바 (상단 배너 대체)
+function QuickCopyToolbar() {
+  const [copied, setCopied] = useState<"child" | "adult" | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+
+  function copy(kind: "child" | "adult") {
+    const url = window.location.origin + (kind === "child" ? "/apply-child" : "/apply-adult");
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(kind);
+      setTimeout(() => setCopied(null), 1500);
+    });
+  }
+
+  return (
+    <div className="max-w-7xl mx-auto mb-4">
+      <div className="bg-gradient-to-r from-pink-50 to-rose-50 border border-pink-200 rounded-xl px-4 py-3 flex items-center gap-2 flex-wrap">
+        <div className="text-sm font-bold text-pink-800 mr-2">🔗 신청폼 URL 퀵 복사</div>
+        <button onClick={() => copy("child")}
+          className={`text-xs font-bold px-3 py-2 rounded-lg transition ${copied==="child" ? "bg-green-500 text-white" : "bg-white border-2 border-pink-300 text-pink-700 hover:bg-pink-50"}`}>
+          {copied === "child" ? "✓ 복사됨" : "👶 아동 URL 복사"}
+        </button>
+        <button onClick={() => copy("adult")}
+          className={`text-xs font-bold px-3 py-2 rounded-lg transition ${copied==="adult" ? "bg-green-500 text-white" : "bg-white border-2 border-pink-300 text-pink-700 hover:bg-pink-50"}`}>
+          {copied === "adult" ? "✓ 복사됨" : "👤 성인 URL 복사"}
+        </button>
+        <a href="/apply-child" target="_blank" rel="noopener noreferrer"
+          className="text-xs font-bold px-3 py-2 rounded-lg bg-white border-2 border-purple-300 text-purple-700 hover:bg-purple-50">
+          👁️ 아동 미리보기
+        </a>
+        <a href="/apply-adult" target="_blank" rel="noopener noreferrer"
+          className="text-xs font-bold px-3 py-2 rounded-lg bg-white border-2 border-purple-300 text-purple-700 hover:bg-purple-50">
+          👁️ 성인 미리보기
+        </a>
+        <div className="flex-1" />
+        <button onClick={() => setShowSettings(true)}
+          className="w-9 h-9 rounded-lg bg-white border-2 border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700 flex items-center justify-center"
+          title="신규 유입 관리 · 무결성 정리">
+          ⚙️
+        </button>
+      </div>
+
+      {showSettings && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowSettings(false)}>
+          <div className="bg-white rounded-2xl max-w-md w-full" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b flex items-center justify-between">
+              <div className="text-lg font-bold">⚙️ 신규 유입 관리 · URL 설정</div>
+              <button onClick={() => setShowSettings(false)} className="text-gray-500 hover:text-gray-800">✕</button>
+            </div>
+            <div className="p-4 space-y-3">
+              <Link href="/inbox" className="block px-4 py-3 bg-purple-50 border border-purple-200 rounded-lg hover:bg-purple-100">
+                <div className="text-sm font-bold text-purple-800">📥 신규 유입 목록 보기</div>
+                <div className="text-xs text-purple-600 mt-0.5">기존 신규 유입 페이지 (오입력/무결성 정리용)</div>
+              </Link>
+              <button onClick={() => copy("child")}
+                className="w-full text-left px-4 py-3 bg-pink-50 border border-pink-200 rounded-lg hover:bg-pink-100">
+                <div className="text-sm font-bold text-pink-800">👶 아동 신청폼 URL 복사</div>
+                <div className="text-xs text-pink-600 mt-0.5 break-all">{typeof window !== "undefined" && window.location.origin}/apply-child</div>
+              </button>
+              <button onClick={() => copy("adult")}
+                className="w-full text-left px-4 py-3 bg-pink-50 border border-pink-200 rounded-lg hover:bg-pink-100">
+                <div className="text-sm font-bold text-pink-800">👤 성인 신청폼 URL 복사</div>
+                <div className="text-xs text-pink-600 mt-0.5 break-all">{typeof window !== "undefined" && window.location.origin}/apply-adult</div>
+              </button>
+              <div className="text-[11px] text-gray-500 bg-gray-50 rounded-lg p-3 leading-relaxed">
+                💡 신규 유입 자동 연동이 활성화되어 있어, 신청폼 제출 시 칸반 보드의 <b>[NEW 신규]</b> 컬럼에 미처리 초쉽달 카드로 자동 생성됩니다.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function FaqView() {
   const [faqs, setFaqs] = useState<any[]>([]);

@@ -98,6 +98,61 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    // v3.20.23: 신규 유입 자동 통합 – 칸반 [NEW] 컬럼에 즐시 카드 생성
+    try {
+      const orgRow = await supabase.from("organizations").select("id").limit(1).maybeSingle();
+      const orgId = orgRow.data?.id;
+
+      // 이미 동일 전화번호로 등록된 members가 있는지 확인 (중복 방지)
+      const dup = await supabase.from("members")
+        .select("id").eq("phone", phone).is("deleted_at", null).maybeSingle();
+
+      if (!dup.data?.id) {
+        const memberPayload: any = {
+          org_id: orgId,
+          name,
+          phone,
+          member_type: body.member_type,
+          status: "new",
+          source: body.source || "웹신청",
+          memo,
+          wish_days: body.wish_days || null,
+          wish_time_slots: body.wish_time_slots || null,
+          guardian_name: isChild ? body.guardian_name || null : null,
+          extra: {
+            consult_form: body,
+            leads_inbox_id: data?.id,
+            is_new_intake: true,
+            intake_at: new Date().toISOString(),
+          },
+        };
+
+        // 누락 컬럼 자동 폴백 (최대 6회)
+        let payloadTry: any = { ...memberPayload };
+        for (let i = 0; i < 6; i++) {
+          const { data: newMem, error: memErr } = await supabase.from("members").insert(payloadTry).select().single();
+          if (!memErr) {
+            // leads_inbox에 promoted_member_id 연결
+            if (newMem?.id && data?.id) {
+              await supabase.from("leads_inbox").update({ promoted_member_id: newMem.id }).eq("id", data.id);
+            }
+            break;
+          }
+          const m = /'([^']+)' column|column "([^"]+)"/.exec(memErr.message || "");
+          const missing = m?.[1] || m?.[2];
+          if (missing && missing in payloadTry) {
+            const { [missing]: _drop, ...rest } = payloadTry;
+            payloadTry = { ...rest };
+            continue;
+          }
+          console.warn("member auto-create fallback stopped:", memErr.message);
+          break;
+        }
+      }
+    } catch (autoErr: any) {
+      console.warn("Auto member creation soft-fail:", autoErr?.message);
+    }
+
     return NextResponse.json({ success: true, id: data?.id });
   } catch (e: any) {
     console.error("Apply POST error:", e);

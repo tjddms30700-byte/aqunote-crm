@@ -12,7 +12,7 @@ const RELATIONS = ["부", "모", "조부", "조모", "형제", "기타"];
 const BRANCHES = ["위례본점"];
 
 export default function ApplyChildPage() {
-  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6 | 7 | 8>(1); const TOTAL = 8;
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
@@ -220,8 +220,67 @@ export default function ApplyChildPage() {
             </div>
           )}
 
-          {/* STEP 4: 희망 시간 */}
-          {step === 4 && (
+          {/* v3.20.23: STEP 5 신규 – 감각·정서 및 생활 정보 */}
+          {step === 5 && (
+            <div className="space-y-5">
+              <h2 className="text-lg font-bold text-purple-900 flex items-center gap-2">🌈 감각·정서 및 생활 정보</h2>
+              <p className="text-xs text-gray-500">물 적응·집중력·정서 패턴을 맞춤 수업에 반영하기 위한 문항입니다.</p>
+              <Field label="형제자매 / 가족 구성" value={form.sibling || ""}
+                onChange={(v: string) => update("sibling", v)} placeholder="예: 오빠(9세), 엄마·아빠" />
+              <Field label="좋아하는 것 / 관심사" value={form.likes || ""}
+                onChange={(v: string) => update("likes", v)} placeholder="예: 공놀이, 숫자, 자동차" />
+              <Field label="싫어하는 것 / 민감 사항" value={form.dislikes || ""}
+                onChange={(v: string) => update("dislikes", v)} placeholder="예: 큰 소리, 얼굴에 물 닿는 것" />
+              <RadioGroup label="평소 물에 대한 반응" options={["매우 좋아함","보통","낯섬어함","매우 두려움"]}
+                value={form.water_reaction || ""} onChange={(v: string) => update("water_reaction", v)} />
+              <RadioGroup label="집중 시간" options={["5분 이하","5~10분","10~20분","20분 이상"]}
+                value={form.attention_span || ""} onChange={(v: string) => update("attention_span", v)} />
+              <TextArea label="피하고 싶은 상황 / 자극" value={form.avoid_situations || ""}
+                onChange={(v: string) => update("avoid_situations", v)} placeholder="예: 큰 소리, 낯선 사람 많은 공간" />
+            </div>
+          )}
+
+          {/* v3.20.23: STEP 6 신규 – 센터 이용 안내 및 대기 동의 */}
+          {step === 6 && (
+            <div className="space-y-4">
+              <h2 className="text-lg font-bold text-purple-900 flex items-center gap-2">🏢 센터 이용 안내</h2>
+              <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-4 text-sm text-amber-900 leading-relaxed space-y-1">
+                <div className="font-bold text-amber-800">⏰ 운영 시간 안내</div>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li><strong>평일 13:00 ~ 21:40</strong> · 하루 <strong>7타임 고정석</strong> 소수정예 1:1</li>
+                  <li className="text-red-700"><strong>10:00~12:00 오전 타임은 운영하지 않습니다</strong></li>
+                  <li className="text-red-700"><strong>토요일·일요일은 휴무입니다</strong> (주 5일 운영)</li>
+                </ul>
+              </div>
+              <div className="bg-red-50 border-2 border-red-300 rounded-xl p-4 text-sm text-red-900 leading-relaxed space-y-1">
+                <div className="font-bold text-red-800">⚠️ 대기 안내 (반드시 확인)</div>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li>현재 정규 수업 타임은 <strong>평균 6개월 이상 대기</strong>가 발생합니다</li>
+                  <li>오전 타임이나 주말 타임은 현재 운영하지 않으나, <strong>추후 오픈 시 대기 순서대로 안내</strong>해드립니다</li>
+                  <li><strong>그럼에도 불구하고 기다리실 분만 신청해주세요</strong></li>
+                  <li>급하신 경우 다른 센터 이용을 권장드립니다</li>
+                </ul>
+              </div>
+              <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 text-sm text-purple-900 space-y-1">
+                <div className="font-bold">💰 수강료 안내</div>
+                <div>STANDARD 4회기 <strong>520,000원</strong> · 주 1회 고정수업</div>
+                <div className="text-xs opacity-80">체험 예약금 35,000원 · 수업일 2일전까지 취소 시 전액 환불</div>
+                <div className="text-xs opacity-80">입금계좌: 우리은행 105204643920 (예금주 아쿠수중운동센터 하유정)</div>
+              </div>
+              <label className="flex items-start gap-3 p-4 rounded-xl border-2 border-purple-200 bg-white cursor-pointer hover:bg-purple-50">
+                <input type="checkbox" checked={!!form.agree_wait_notice}
+                  onChange={e => update("agree_wait_notice", e.target.checked)}
+                  className="w-5 h-5 mt-0.5" />
+                <div className="text-sm text-gray-800">
+                  <div className="font-bold">위 운영 안내 및 대기 이용 조건을 확인하였으며, 대기 지원에 동의합니다.</div>
+                  <div className="text-xs text-gray-500 mt-1">(평일 13:00~21:40 우선 안내, 오전/주말 오픈 시 추가 안내)</div>
+                </div>
+              </label>
+            </div>
+          )}
+
+          {/* STEP 7 (구 4): 희망 시간 */}
+          {step === 7 && (
             <div className="space-y-5">
               <h2 className="text-lg font-bold text-purple-900 flex items-center gap-2">
                 📅 희망 요일 · 시간
@@ -294,8 +353,8 @@ export default function ApplyChildPage() {
             </div>
           )}
 
-          {/* STEP 5: 개인정보 동의 */}
-          {step === 5 && (
+          {/* STEP 8 (구 5): 개인정보 동의 */}
+          {step === 8 && (
             <div className="space-y-5">
               <h2 className="text-lg font-bold text-purple-900 flex items-center gap-2">
                 🔒 개인정보 · 의료정보 수집·이용 동의
@@ -374,7 +433,7 @@ export default function ApplyChildPage() {
                 <ChevronLeft className="w-4 h-4" /> 이전
               </button>
             )}
-            {step < 5 ? (
+            {step < 8 ? (
               <button onClick={next}
                 className="flex-1 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-medium rounded-xl hover:from-purple-600 hover:to-pink-600 flex items-center justify-center gap-1 shadow-md">
                 다음 <ChevronRight className="w-4 h-4" />
