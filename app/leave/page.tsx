@@ -24,9 +24,10 @@ const TYPES = [
   { v: "equipment",    label: "장비/비품",   cat: "purchase", color: "bg-indigo-100 text-indigo-700" },
   { v: "supplies",     label: "수업용품",    cat: "purchase", color: "bg-teal-100 text-teal-700" },
   { v: "marketing",    label: "마케팅/홍보", cat: "purchase", color: "bg-pink-100 text-pink-700" },
-  // 지출 결재
-  { v: "reimburse",    label: "경비 정산",    cat: "expense",  color: "bg-amber-100 text-amber-700" },
-  { v: "business",     label: "출장/외출",    cat: "expense",  color: "bg-orange-100 text-orange-700" },
+  // v3.20.33: 지출 결재 세부 종류 정비 (경비정산 / 물품구매 / 외부서비스)
+  { v: "reimburse",    label: "경비 정산",     cat: "expense",  color: "bg-amber-100 text-amber-700" },
+  { v: "purchase_exp", label: "물품 구매",     cat: "expense",  color: "bg-cyan-100 text-cyan-700" },
+  { v: "outsourcing",  label: "외부 서비스",   cat: "expense",  color: "bg-fuchsia-100 text-fuchsia-700" },
   // 기타
   { v: "other",        label: "기타",       cat: "other",    color: "bg-gray-100 text-gray-700" },
 ];
@@ -52,6 +53,8 @@ export default function LeavePage() {
     reason: "",
     // ✅ v3.20.15: 물품구매/지출 결재 필드
     purchase_amount: 0, purchase_item: "", vendor: "", receipt_url: "",
+    // v3.20.33: 재무관리 자동연동을 위한 지출 카테고리 (expenses.category와 1:1 매칭)
+    expense_category: "소모품비",
   });
 
   useEffect(() => {
@@ -93,6 +96,8 @@ export default function LeavePage() {
       purchase_item: form.purchase_item || null,
       vendor: form.vendor || null,
       receipt_url: form.receipt_url || null,
+      // v3.20.33: 재무관리 자동연동 시 사용할 지출 카테고리 (expenses.category와 1:1 매핑)
+      expense_category: form.expense_category || null,
     };
 
     async function upsertWithFallback(op: "insert" | "update") {
@@ -127,14 +132,16 @@ export default function LeavePage() {
     if (!isDirector) return alert("원장만 수정할 수 있습니다");
     setEditReq(r);
     setForm({
-      staff_id: r.staff_id,
-      category: r.category || "leave",
-      leave_type: r.leave_type,
-      start_date: r.start_date, end_date: r.end_date, reason: r.reason || "",
-      purchase_amount: r.purchase_amount || 0,
-      purchase_item: r.purchase_item || "",
-      vendor: r.vendor || "",
-      receipt_url: r.receipt_url || "",
+      staff_id: r?.staff_id,
+      category: r?.category || "leave",
+      leave_type: r?.leave_type,
+      start_date: r?.start_date, end_date: r?.end_date, reason: r?.reason || "",
+      purchase_amount: r?.purchase_amount || 0,
+      purchase_item: r?.purchase_item || "",
+      vendor: r?.vendor || "",
+      receipt_url: r?.receipt_url || "",
+      // v3.20.33: 지출 카테고리 복원
+      expense_category: r?.expense_category || "소모품비",
     });
     setShowModal(true);
   }
@@ -157,12 +164,70 @@ export default function LeavePage() {
     await loadAll();
   }
 
+  // v3.20.33: 승인 시 재무관리 자동 연동 – 지출/구매 결재를 expenses 테이블에 자동 INSERT
   async function approve(id: string) {
-    await supabase.from("leave_requests").update({
-      status: "approved",
-      approved_at: new Date().toISOString(),
-    }).eq("id", id);
-    await loadAll();
+    try {
+      const req = requests?.find?.((r: any) => r?.id === id);
+      const approvedAt = new Date().toISOString();
+
+      // 1) leave_requests 상태 업데이트
+      const { error: upErr } = await supabase.from("leave_requests").update({
+        status: "approved",
+        approved_at: approvedAt,
+      }).eq("id", id);
+      if (upErr) throw upErr;
+
+      // 2) 지출 결재(expense) 또는 물품구매(purchase) 승인 시 재무관리 expenses 자동 INSERT
+      const needsFinance = (req?.category === "expense" || req?.category === "purchase") && Number(req?.purchase_amount || 0) > 0;
+      if (needsFinance) {
+        const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
+        const staffName = staff?.find?.((s: any) => s?.id === req?.staff_id)?.name || "직원";
+        const finalCategory = req?.expense_category || (req?.category === "purchase" ? "소모품비" : "기타");
+        const desc = `[전자결재 승인] ${staffName} - ${req?.purchase_item || req?.reason || ""}${req?.vendor ? ` (${req.vendor})` : ""}`;
+
+        const expPayload: any = {
+          org_id: orgId,
+          category: finalCategory,
+          amount: Number(req.purchase_amount),
+          spent_at: req.start_date || approvedAt.slice(0, 10),
+          description: desc,
+          status: "approved",
+          leave_request_id: id,
+          source: "leave_approval",
+        };
+
+        // 누락 컬럼 자동 폴백 (최대 6회)
+        let tryPayload = { ...expPayload };
+        let insertErr: any = null;
+        for (let i = 0; i < 6; i++) {
+          const r = await supabase.from("expenses").insert(tryPayload).select().single();
+          insertErr = r.error;
+          if (!insertErr) break;
+          const msg = String(insertErr.message || "");
+          if (/row-level security|policy|permission denied/i.test(msg)) {
+            throw new Error(`권한 오류(RLS): expenses 테이블 INSERT 정책을 추가해 주세요.\n\n상세: ${msg}`);
+          }
+          const m = /'([^']+)' column|column "([^"]+)"/.exec(msg);
+          const missing = m?.[1] || m?.[2];
+          if (missing && missing in tryPayload) {
+            const { [missing]: _drop, ...rest } = tryPayload;
+            tryPayload = { ...rest };
+            continue;
+          }
+          throw new Error(msg);
+        }
+        if (insertErr) throw insertErr;
+
+        alert(`✅ 승인 완료 및 재무 관리(운영비) 지출 항목으로 자동 등록되었습니다.\n\n• 카테고리: ${finalCategory}\n• 금액: ${Number(req.purchase_amount).toLocaleString()}원\n• 지출일: ${expPayload.spent_at}`);
+      } else {
+        alert("✅ 승인 완료");
+      }
+
+      await loadAll();
+    } catch (err: any) {
+      alert("승인 처리 실패: " + (err?.message || err));
+      console.error("approve error:", err);
+    }
   }
   async function reject(id: string) {
     const reason = prompt("반려 사유:");
@@ -316,10 +381,30 @@ export default function LeavePage() {
                 </div>
               </div>
 
-              {/* ✅ v3.20.15: 물품구매 / 지출 결재 전용 필드 */}
+              {/* v3.20.33: 물품구매 / 지출 결재 전용 필드 + 재무관리 카테고리 손택 */}
               {(form.category === "purchase" || form.category === "expense") && (
                 <div className="border-2 border-orange-100 bg-orange-50/30 rounded-lg p-3 space-y-2">
                   <div className="text-xs font-bold text-orange-800">🛒 {form.category === "purchase" ? "구매 정보" : "지출 정보"}</div>
+                  {/* v3.20.33: 재무관리 expenses.category와 1:1 매칭되는 카테고리 셀렉터 */}
+                  <div>
+                    <label className="text-[11px] font-semibold text-orange-800 mb-1 block">💰 재무 지출 카테고리 * <span className="text-[10px] font-normal text-gray-500">(승인 시 재무관리로 자동 전달)</span></label>
+                    <select value={form.expense_category || "소모품비"}
+                      onChange={e => setForm({ ...form, expense_category: e.target.value })}
+                      className="w-full px-2 py-1.5 border-2 border-orange-300 rounded text-sm bg-white font-semibold">
+                      <option value="식대·회식">🍽️ 식대·회식</option>
+                      <option value="여비교통비">🚗 여비교통비</option>
+                      <option value="소모품비">📦 소모품비</option>
+                      <option value="사무용품">📎 사무용품</option>
+                      <option value="수영장 약품">🧪 수영장 약품</option>
+                      <option value="임대료">🏢 임대료</option>
+                      <option value="수도광열비">💡 수도광열비</option>
+                      <option value="통신비">📱 통신비</option>
+                      <option value="마케팅/홍보">📣 마케팅/홍보</option>
+                      <option value="장비/비품">🛠️ 장비/비품</option>
+                      <option value="외부 서비스">🔧 외부 서비스</option>
+                      <option value="기타">📝 기타</option>
+                    </select>
+                  </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-[11px] font-semibold text-gray-600 mb-1 block">품목내역 *</label>
