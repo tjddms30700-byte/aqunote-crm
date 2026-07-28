@@ -57,6 +57,10 @@ function ReportsPage() {
   const [topTab, setTopTab] = useState<"report" | "forms">("report");
   const [formsCat, setFormsCat] = useState<"staff" | "member">("staff");
   const [formSearch, setFormSearch] = useState("");
+  // v3.20.30: /contracts 리다이렉트 제거 - /reports 내 인라인 양식 작성
+  const [selectedFormType, setSelectedFormType] = useState<string>("");
+  const [selectedSubject, setSelectedSubject] = useState<any>(null); // { kind, id, name, phone, role, member_type }
+  const [inlineFormOpen, setInlineFormOpen] = useState(false);
 
   useEffect(() => {
     const t = searchParams?.get("tab");
@@ -203,41 +207,41 @@ function ReportsPage() {
               className="w-full pl-10 pr-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:border-aqu-500 focus:outline-none" />
           </div>
 
-          {/* 양식 목록 */}
+          {/* v3.20.30: 양식 목록 - Link 리다이렉트 대신 인라인 상태 선택 */}
           <div className="mb-4">
             <div className="text-xs font-bold text-gray-600 mb-2">1. 양식 종류 선택</div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
               {(formsCat === "staff" ? STAFF_FORMS : MEMBER_FORMS).map(f => (
-                <Link key={f.v}
-                  href={`/contracts?new=${f.v}&subject_kind=${formsCat}`}
-                  className="p-3 rounded-lg text-left border-2 border-gray-200 hover:border-aqu-400 hover:bg-aqu-50 transition">
+                <button key={f.v}
+                  onClick={() => setSelectedFormType(f.v)}
+                  className={`p-3 rounded-lg text-left border-2 transition ${selectedFormType===f.v ? "border-aqu-500 bg-aqu-50 ring-2 ring-aqu-200" : "border-gray-200 hover:border-aqu-400 hover:bg-aqu-50"}`}>
                   <div className="text-sm font-bold">{f.label}</div>
                   <div className="text-[10px] text-gray-500 mt-0.5">{f.desc}</div>
-                </Link>
+                </button>
               ))}
             </div>
           </div>
 
-          {/* 대상자 목록 */}
+          {/* v3.20.30: 대상자 목록 - button으로 전환 (리다이렉트 제거) */}
           <div>
             <div className="text-xs font-bold text-gray-600 mb-2">
               2. {formsCat === "staff" ? "직원 선택" : "회원 선택"} ({formsCat === "staff" ? filteredStaff.length : filteredMembers.length}명)
             </div>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-80 overflow-y-auto">
               {formsCat === "staff" ? filteredStaff.map(s => (
-                <Link key={s.id}
-                  href={`/contracts?new=employment&subject_kind=staff&subject_id=${s.id}&subject_name=${encodeURIComponent(s.name)}`}
-                  className="p-2.5 rounded-lg border border-gray-200 hover:border-aqu-400 hover:bg-aqu-50 transition">
-                  <div className="text-sm font-bold text-gray-800">{s.name}</div>
-                  <div className="text-[10px] text-gray-500">{s.role || "직원"} · {s.phone || "-"}</div>
-                </Link>
+                <button key={s?.id}
+                  onClick={() => setSelectedSubject({ kind: "staff", id: s?.id, name: s?.name || "", phone: s?.phone || "", role: s?.role || "" })}
+                  className={`p-2.5 rounded-lg border text-left transition ${selectedSubject?.id===s?.id ? "border-aqu-500 bg-aqu-50 ring-2 ring-aqu-200" : "border-gray-200 hover:border-aqu-400 hover:bg-aqu-50"}`}>
+                  <div className="text-sm font-bold text-gray-800">{s?.name}</div>
+                  <div className="text-[10px] text-gray-500">{s?.role || "직원"} · {s?.phone || "-"}</div>
+                </button>
               )) : filteredMembers.map(m => (
-                <Link key={m.id}
-                  href={`/contracts?new=member_service&subject_kind=member&subject_id=${m.id}&subject_name=${encodeURIComponent(m.name)}`}
-                  className="p-2.5 rounded-lg border border-gray-200 hover:border-aqu-400 hover:bg-aqu-50 transition">
-                  <div className="text-sm font-bold text-gray-800">{m.name}</div>
-                  <div className="text-[10px] text-gray-500">{m.member_type === "child" ? "아동" : "성인"} · {m.phone || "-"}</div>
-                </Link>
+                <button key={m?.id}
+                  onClick={() => setSelectedSubject({ kind: "member", id: m?.id, name: m?.name || "", phone: m?.phone || "", member_type: m?.member_type })}
+                  className={`p-2.5 rounded-lg border text-left transition ${selectedSubject?.id===m?.id ? "border-aqu-500 bg-aqu-50 ring-2 ring-aqu-200" : "border-gray-200 hover:border-aqu-400 hover:bg-aqu-50"}`}>
+                  <div className="text-sm font-bold text-gray-800">{m?.name}</div>
+                  <div className="text-[10px] text-gray-500">{m?.member_type === "child" ? "아동" : "성인"} · {m?.phone || "-"}</div>
+                </button>
               ))}
             </div>
             {((formsCat === "staff" ? filteredStaff.length : filteredMembers.length) === 0) && (
@@ -245,8 +249,50 @@ function ReportsPage() {
             )}
           </div>
 
+          {/* v3.20.30: 양식 + 대상자 모두 선택 시 인라인 통합 작성 연이어 */}
+          {selectedFormType && selectedSubject && (
+            <div className="mt-5 border-2 border-aqu-500 rounded-2xl bg-gradient-to-br from-aqu-50 to-blue-50 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-sm font-bold text-aqu-900">
+                  ✅ 선택: <span className="text-blue-700">{[...STAFF_FORMS, ...MEMBER_FORMS].find(x => x.v === selectedFormType)?.label}</span>
+                  {" × "}
+                  <span className="text-purple-700">{selectedSubject.name}</span>
+                  <span className="text-[11px] text-gray-500 ml-1">({selectedSubject.kind === "staff" ? selectedSubject.role || "직원" : selectedSubject.member_type === "child" ? "아동" : "성인"} · {selectedSubject.phone || "-"})</span>
+                </div>
+                <button onClick={() => { setSelectedFormType(""); setSelectedSubject(null); setInlineFormOpen(false); }}
+                  className="text-xs px-2 py-1 rounded bg-white border border-gray-300 hover:bg-gray-50">↻ 다시 선택</button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={() => setInlineFormOpen(true)}
+                  className="px-4 py-2.5 bg-gradient-to-r from-aqu-500 to-blue-600 text-white rounded-lg text-sm font-bold hover:opacity-90 shadow">
+                  📝 이 페이지에서 작성/서명
+                </button>
+                <Link href={`/contracts?new=${selectedFormType}&subject_kind=${selectedSubject.kind}&subject_id=${selectedSubject.id}&subject_name=${encodeURIComponent(selectedSubject.name)}`}
+                  className="px-4 py-2.5 bg-white border-2 border-aqu-300 text-aqu-700 rounded-lg text-sm font-bold hover:bg-aqu-50">
+                  ↗ 계약서 관리 페이지에서 작성 (상세 옵션 포함)
+                </Link>
+              </div>
+              <div className="mt-2 text-[11px] text-gray-600">💡 이 페이지에서 작성하면 입력 값과 대상자 정보가 그대로 유지되며, 미리보기 · 서명 · 인쇄/PDF 저장까지 일괄 진행됩니다.</div>
+            </div>
+          )}
+
+          {/* v3.20.30: 인라인 양식 작성 iframe (계약서 페이지 로직 재활용) */}
+          {inlineFormOpen && selectedFormType && selectedSubject && (
+            <div className="mt-5 bg-white border-2 border-aqu-300 rounded-2xl overflow-hidden" style={{ height: "calc(100vh - 200px)", minHeight: 700 }}>
+              <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b">
+                <div className="text-xs font-bold text-gray-700">📄 인라인 양식 작성 에디터</div>
+                <button onClick={() => setInlineFormOpen(false)}
+                  className="text-xs px-2 py-1 rounded bg-white border border-gray-300 hover:bg-gray-100">✕ 닫기</button>
+              </div>
+              <iframe
+                src={`/contracts?new=${selectedFormType}&subject_kind=${selectedSubject.kind}&subject_id=${selectedSubject.id}&subject_name=${encodeURIComponent(selectedSubject.name)}&embed=1`}
+                className="w-full h-full border-0"
+                title="양식 작성" />
+            </div>
+          )}
+
           <div className="mt-4 text-[11px] text-gray-500 bg-gray-50 rounded-lg p-3">
-            💡 양식과 대상자를 선택하면 계약서 관리 페이지가 자동으로 열려 해당 양식으로 새 계약서가 생성됩니다. 서명 완료 시 직원은 “직원 문서함”, 회원은 “회원 문서함”에 자동 저장됩니다.
+            💡 v3.20.30: 양식과 대상자를 선택하면 “이 페이지에서 작성/서명” 버튼으로 /reports 내에서 바로 작성 · 미리보기 · 서명 · 인쇄까지 일괄 진행합니다. 서명 완료 시 직원은 “직원 문서함”, 회원은 “회원 문서함”에 자동 저장됩니다.
           </div>
         </div>
       )}

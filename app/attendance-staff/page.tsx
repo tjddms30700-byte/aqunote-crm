@@ -89,60 +89,91 @@ export default function StaffAttendancePage() {
     return { total, issued: total, carry: 0 };
   }
 
-  // v3.20.24: 승인 휴가 기준 사용 연차 계산
+  // v3.20.30: 승인 휴가 통합 강화 - 연차/반차/포상휴가/특별휴가 전수 집계
+  const ANNUAL_TYPES = ["annual", "half_am", "half_pm", "halfday"];
+  const REWARD_TYPES = ["reward", "bonus", "special", "comp"];
   const staffLeaves = useMemo(() =>
-    leaves.filter(v => v.staff_id === selectedStaff && ["annual", "half_am", "half_pm", "halfday"].includes(v.leave_type || "")),
+    leaves?.filter?.(v => v?.staff_id === selectedStaff && ANNUAL_TYPES.includes(v?.leave_type || "")) || [],
   [leaves, selectedStaff]);
+  const staffRewardLeaves = useMemo(() =>
+    leaves?.filter?.(v => v?.staff_id === selectedStaff && REWARD_TYPES.includes(v?.leave_type || "")) || [],
+  [leaves, selectedStaff]);
+
+  function countDaysBetween(v: any): number {
+    if (v?.days) return Number(v.days) || 1;
+    if (v?.start_date && v?.end_date) {
+      const s = new Date(v.start_date); const e = new Date(v.end_date);
+      const days = Math.floor((e.getTime() - s.getTime()) / 86400000) + 1;
+      return Math.max(1, days);
+    }
+    return 1;
+  }
 
   const usedAnnual = useMemo(() => {
     let used = 0;
     for (const v of staffLeaves) {
-      const type = v.leave_type;
-      // 반차는 0.5일, 연차는 start_date~end_date 범위만큼 다 더함
+      const type = v?.leave_type;
+      const half = (v?.half_period && String(v.half_period).toLowerCase() !== "full") ? 0.5 : null;
       if (type === "half_am" || type === "half_pm" || type === "halfday") {
         used += 0.5;
       } else if (type === "annual") {
-        if (v.start_date && v.end_date) {
-          const s = new Date(v.start_date); const e = new Date(v.end_date);
-          const days = Math.floor((e.getTime() - s.getTime()) / 86400000) + 1;
-          used += Math.max(1, days);
-        } else if (v.days) {
-          used += Number(v.days) || 1;
-        } else {
-          used += 1;
-        }
+        used += half !== null ? half : countDaysBetween(v);
       }
     }
     return used;
   }, [staffLeaves]);
 
-  // v3.20.24: 해당 날짜가 연차/반차인지 판별
+  const usedReward = useMemo(() => {
+    let used = 0;
+    for (const v of staffRewardLeaves) used += countDaysBetween(v);
+    return used;
+  }, [staffRewardLeaves]);
+
+  // v3.20.30: 해당 날짜가 연차/반차/포상휴가인지 판별 (Nullish 안전 강화)
   function leaveTagForDate(dateStr: string): { label: string; delta: number; color: string } | null {
-    for (const v of staffLeaves) {
-      const s = v.start_date ? new Date(v.start_date).toISOString().slice(0, 10) : null;
-      const e = v.end_date ? new Date(v.end_date).toISOString().slice(0, 10) : s;
+    const allLeaves = [...staffLeaves, ...staffRewardLeaves];
+    for (const v of allLeaves) {
+      const s = v?.start_date ? new Date(v.start_date).toISOString().slice(0, 10) : null;
+      const e = v?.end_date ? new Date(v.end_date).toISOString().slice(0, 10) : s;
       if (!s) continue;
       if (dateStr >= s && dateStr <= (e || s)) {
-        if (v.leave_type === "half_am" || v.leave_type === "half_pm" || v.leave_type === "halfday") {
+        const t = v?.leave_type;
+        if (t === "half_am" || t === "half_pm" || t === "halfday") {
           return { label: "🌤️ 반차 사용", delta: -0.5, color: "bg-amber-100 text-amber-700 border-amber-300" };
         }
-        if (v.leave_type === "annual") {
-          return { label: "🌴 연차 사용", delta: -1, color: "bg-emerald-100 text-emerald-700 border-emerald-300" };
+        if (t === "annual") {
+          const half = (v?.half_period && String(v.half_period).toLowerCase() !== "full") ? true : false;
+          return half
+            ? { label: "🌤️ 반차 사용", delta: -0.5, color: "bg-amber-100 text-amber-700 border-amber-300" }
+            : { label: "🌴 연차 사용", delta: -1, color: "bg-emerald-100 text-emerald-700 border-emerald-300" };
+        }
+        if (REWARD_TYPES.includes(t || "")) {
+          return { label: "🎁 포상휴가", delta: 0, color: "bg-purple-100 text-purple-700 border-purple-300" };
         }
       }
     }
     return null;
   }
 
+  // v3.20.30: 승인 휴가를 실근무 통계에 실시간 자동 반영
   const stats = useMemo(() => {
-    const workDays = staffLogs.filter(l => l.check_in).length;
-    const totalHours = staffLogs.reduce((s, l) => s + Number(l.work_hours || 0), 0);
-    const totalOT = staffLogs.reduce((s, l) => s + Number(l.overtime_hours || 0), 0);
-    const currentStaff = staff.find((s: any) => s.id === selectedStaff);
+    const workDays = staffLogs?.filter?.(l => l?.check_in).length || 0;
+    const totalHours = staffLogs?.reduce?.((s, l) => s + Number(l?.work_hours || 0), 0) || 0;
+    const totalOT = staffLogs?.reduce?.((s, l) => s + Number(l?.overtime_hours || 0), 0) || 0;
+    const currentStaff = staff?.find?.((s: any) => s?.id === selectedStaff);
     const annual = calcAnnualLeave(currentStaff);
     const remaining = Math.max(0, annual.total - usedAnnual);
-    return { workDays, totalHours, totalOT, annualTotal: annual.total, annualUsed: usedAnnual, annualRemaining: remaining };
-  }, [staffLogs, staff, selectedStaff, usedAnnual]);
+    // 실근무일수 = 출근 기록에 승인된 연차/반차 환산일수 더함으로서 누락 없이 반영
+    const workDaysWithLeave = workDays + usedAnnual + usedReward;
+    // 실근무시간 = 실제 근무시간 + 연차 사용일 × 8 (기본 8시간)
+    const effectiveHours = totalHours + usedAnnual * 8 + usedReward * 8;
+    return {
+      workDays, totalHours, totalOT,
+      workDaysWithLeave, effectiveHours,
+      annualTotal: annual.total, annualUsed: usedAnnual, annualRemaining: remaining,
+      rewardUsed: usedReward,
+    };
+  }, [staffLogs, staff, selectedStaff, usedAnnual, usedReward]);
 
   return (
     <main className="max-w-6xl mx-auto px-3 md:px-6 py-6 md:py-10">
@@ -208,16 +239,19 @@ export default function StaffAttendancePage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-3 mb-3">
-          <KPI label="근무일수" val={stats.workDays + "일"} color="text-aqu-700" />
-          <KPI label="근무시간 합계" val={stats.totalHours.toFixed(1) + "h"} color="text-blue-600" />
-          <KPI label="연장근무" val={stats.totalOT.toFixed(1) + "h"} color="text-orange-600" />
+        {/* v3.20.30: 실근무일수/실근무시간은 승인 휴가 반영 */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+          <KPI label="출근일수" val={(stats?.workDays ?? 0) + "일"} color="text-aqu-700" />
+          <KPI label="실근무일수 (휴가포함)" val={(stats?.workDaysWithLeave ?? 0).toFixed(1) + "일"} color="text-indigo-700" />
+          <KPI label="근무시간 합계" val={(stats?.totalHours ?? 0).toFixed(1) + "h"} color="text-blue-600" />
+          <KPI label="연장근무" val={(stats?.totalOT ?? 0).toFixed(1) + "h"} color="text-orange-600" />
         </div>
-        {/* v3.20.24: 연차 자동 계산 (총/사용/잔여) */}
-        <div className="grid grid-cols-3 gap-3 mb-4">
-          <KPI label="🌴 총 연차" val={stats.annualTotal + "일"} color="text-emerald-700" />
-          <KPI label="사용 연차" val={stats.annualUsed.toFixed(1) + "일"} color="text-amber-700" />
-          <KPI label="잔여 연차" val={stats.annualRemaining.toFixed(1) + "일"} color={stats.annualRemaining <= 2 ? "text-red-600" : "text-teal-700"} />
+        {/* v3.20.30: 휴가 통합 KPI (연차 + 포상휴가) */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          <KPI label="🌴 총 연차" val={(stats?.annualTotal ?? 0) + "일"} color="text-emerald-700" />
+          <KPI label="사용 연차" val={(stats?.annualUsed ?? 0).toFixed(1) + "일"} color="text-amber-700" />
+          <KPI label="잔여 연차" val={(stats?.annualRemaining ?? 0).toFixed(1) + "일"} color={(stats?.annualRemaining ?? 0) <= 2 ? "text-red-600" : "text-teal-700"} />
+          <KPI label="🎁 포상휴가 사용" val={(stats?.rewardUsed ?? 0).toFixed(1) + "일"} color="text-purple-700" />
         </div>
         <div className="text-[10px] text-gray-500 mb-3">
           💡 입사일({(staff.find((s: any) => s.id === selectedStaff)?.hire_date) || "미설정"}) 기준 근로기준법 자동 계산 · 1년 미만은 개근 월당 1개, 1년 이상은 15개 + 2년마다 1개 추가 (최대 25개)

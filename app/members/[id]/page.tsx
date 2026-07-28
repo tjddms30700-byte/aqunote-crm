@@ -105,10 +105,9 @@ export default function MemberDetail() {
     setDocUploading(true);
     try {
       const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
-      const safeName = file.name.replace(/[^a-zA-Z0-9.\-_가-힣]/g, "_");
-      const filePath = `${id}/${Date.now()}_${safeName}`;
-      const { error: upErr } = await supabase.storage.from("documents").upload(filePath, file);
-      if (upErr) throw upErr;
+      // v3.20.30: 공용 유틸리티로 파일명 sanitize + 재시도 + RLS/버킷 오류 메시지 개선
+      const { uploadToStorage } = await import("@/lib/storageUpload");
+      const { filePath } = await uploadToStorage("documents", String(id), file);
       const { error: dbErr } = await supabase.from("documents").insert({
         org_id: orgId, member_id: id, category: docCat,
         filename: file.name, file_path: filePath, file_size: file.size,
@@ -869,7 +868,7 @@ export default function MemberDetail() {
                   placeholder="예: 물에 적응 · 자신감 향상 · 근력 강화" fullWidth />
                 <EditableField label="📌 특이사항" fieldKey="special_notes"
                   value={extInfo.special_notes} onChange={(v) => setExtInfo({...extInfo, special_notes: v})}
-                  placeholder="예: 물에 대한 공포, 안지방지업 필요" fullWidth />
+                  placeholder="예: 물에 대한 공포, 안전 방지 필요 필요" fullWidth />
               </div>
               <button onClick={saveExtInfo} disabled={savingExt}
                 className="mt-3 px-4 py-2 bg-aqu-600 hover:bg-aqu-700 text-white rounded-lg text-sm flex items-center gap-1 disabled:opacity-50">

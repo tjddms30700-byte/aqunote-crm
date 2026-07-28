@@ -425,7 +425,7 @@ export function mapConsultFormToChart(
       if (/매우 좋|적극|즐거|자주/.test(waterExp)) waterReaction = "매우 긍정";
       else if (/대체로|보통|좀/.test(waterExp)) waterReaction = "보통";
       else if (/긴장|무서워|불안/.test(waterExp)) waterReaction = "긴장";
-      else if (/싫어|거부|공포|허종/.test(waterExp)) waterReaction = "거부";
+      else if (/싫어|거부|공포|허둥/.test(waterExp)) waterReaction = "거부";
     }
   }
 

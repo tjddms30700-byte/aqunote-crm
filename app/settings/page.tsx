@@ -87,10 +87,16 @@ export default function SettingsPage() {
 
     setUploading(true);
     try {
-      const ext = file.name.split(".").pop() || "png";
+      // v3.20.30: 로고 업로드 안정화 - 확장자 sanitize + RLS/버킷 오류 명확화
+      const ext = (file.name.split(".").pop() || "png").replace(/[^a-zA-Z0-9]/g, "").slice(0, 8) || "png";
       const filePath = `logos/logo_${Date.now()}.${ext}`;
-      const { error: upErr } = await supabase.storage.from("documents").upload(filePath, file, { upsert: true });
-      if (upErr) throw upErr;
+      const { error: upErr } = await supabase.storage.from("documents").upload(filePath, file, { upsert: true, contentType: file.type });
+      if (upErr) {
+        const msg = String(upErr.message || upErr);
+        if (/bucket.*not.*found/i.test(msg)) throw new Error(`Storage 버킷 "documents"가 없습니다. Supabase Storage에서 생성해 주세요.`);
+        if (/row-level security|policy/i.test(msg)) throw new Error(`Storage RLS 정책 오류: documents 버킷 INSERT/UPDATE 정책을 추가해 주세요.`);
+        throw upErr;
+      }
       const { data } = supabase.storage.from("documents").getPublicUrl(filePath);
       const publicUrl = data.publicUrl;
       // ✅ v3.11: 현재 지점에 저장 (지점별 독립 로고)

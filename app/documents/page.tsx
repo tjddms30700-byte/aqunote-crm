@@ -107,16 +107,10 @@ export default function DocumentsPage() {
 
     try {
       const orgId = members[0]?.org_id || (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
-      const safeName = file.name.replace(/[^a-zA-Z0-9.\-_가-힣]/g, "_");
-      // ✅ v3.20.0: 소유자 유형별 파일 경로 분리
+      // v3.20.30: 공용 업로드 유틸리티 - sanitize + 재시도 + RLS/버킷 오류 명확화
       const ownerKey = upOwnerType === "staff" ? `staff/${upStaff || "unknown"}` : upOwnerType === "center" ? `center` : `member/${upMember}`;
-      const filePath = `${ownerKey}/${Date.now()}_${safeName}`;
-
-      // Upload to Storage
-      const { error: upErr } = await supabase.storage
-        .from("documents")
-        .upload(filePath, file, { upsert: false });
-      if (upErr) throw upErr;
+      const { uploadToStorage } = await import("@/lib/storageUpload");
+      const { filePath } = await uploadToStorage("documents", ownerKey, file);
 
       // Insert metadata
       const { error: dbErr } = await supabase.from("documents").insert({

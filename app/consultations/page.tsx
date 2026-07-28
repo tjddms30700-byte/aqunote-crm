@@ -1245,7 +1245,7 @@ function QuickAddModal({ onClose, onSave, saving }: any) {
                 </F>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <F label={isChild ? "아동 생년원일 *" : "생년원일 *"}>
+                <F label={isChild ? "아동 생년월일 *" : "생년월일 *"}>
                   <input type="date" value={form.birth} onChange={e => setForm({ ...form, birth: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
                 </F>
@@ -1533,7 +1533,7 @@ function QuickAddModal({ onClose, onSave, saving }: any) {
               <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg space-y-2">
                 <div className="text-xs font-bold text-emerald-800">개인정보 수집·이용 동의</div>
                 <div className="text-[11px] text-gray-700 leading-relaxed">
-                  수집 항목: 이름, 연락처, 생년원일, 성별, 주소{isChild && ", 보호자 정보, 이용기관"}<br/>
+                  수집 항목: 이름, 연락처, 생년월일, 성별, 주소{isChild && ", 보호자 정보, 이용기관"}<br/>
                   이용 목적: 회원 등록 및 이용자 식별<br/>
                   보유·이용 기간: 동의 철회 시까지
                 </div>

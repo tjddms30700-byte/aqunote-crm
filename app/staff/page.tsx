@@ -1010,13 +1010,14 @@ function StaffDocumentsModal({ staff, orgId, onClose }: any) {
 
     setUploading(true);
     try {
-      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const filePath = `staff-docs/${staff.id}/${selectedCategory}_${Date.now()}_${safeName}`;
-
-      const { error: upErr } = await supabase.storage.from("documents").upload(filePath, file, { upsert: false });
-      if (upErr) throw upErr;
-
-      const { data: pub } = supabase.storage.from("documents").getPublicUrl(filePath);
+      // v3.20.30: 공용 유틸리티 사용 - sanitize + 재시도 + 명확한 오류 메시지
+      const { uploadToStorage } = await import("@/lib/storageUpload");
+      const { filePath, publicUrl } = await uploadToStorage(
+        "documents",
+        `staff-docs/${staff.id}/${selectedCategory}`,
+        file,
+      );
+      const pub = { publicUrl: publicUrl || "" };
 
       const { error: dbErr } = await supabase.from("staff_documents").insert({
         staff_id: staff.id,

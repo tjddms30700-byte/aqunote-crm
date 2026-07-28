@@ -271,7 +271,7 @@ const TEMPLATES: Record<string, string> = {
 
 [보호자]
 · 성명: {{name}}
-· 생년원일: {{birth}}
+· 생년월일: {{birth}}
 · 연락처: {{phone}}
 · 서명:                       (서명/날인)
 
@@ -288,7 +288,7 @@ const TEMPLATES: Record<string, string> = {
 
 1. 개인정보 수집 항목
 ① 보호자 정보: 성명 / 주민등록번호 / 연락처
-② 아동 정보: 성명 / 생년원일
+② 아동 정보: 성명 / 생년월일
 ③ 민감정보(보호자 제공 시): 건강 상태 / 발달 특성 / 질환 이력 / 수중 활동에 영향을 줄 수 있는 기타 정보
 ④ 서비스 이용 정보: 프로그램 참여 기록 / 상담 기록 / 안전 및 교육 기록
 ⑤ 사진·영상 자료: 교육 및 활동 기록 목적의 찬영 자료
@@ -315,7 +315,7 @@ const TEMPLATES: Record<string, string> = {
 
 [보호자 / 본인]
 · 성명: {{name}}
-· 생년원일: {{birth}}
+· 생년월일: {{birth}}
 · 서명:                       (서명/날인)
 · 날짜: {{contract_date}}
 
@@ -395,7 +395,7 @@ const TEMPLATES: Record<string, string> = {
 · 회   사: 위례아쿠수중운동센터
 · 직   위: {{position}}
 · 성   명: {{name}}
-· 생년원일: {{birth}}
+· 생년월일: {{birth}}
 · 입사년월일: {{hire_date}}
 · 주민등록번호: {{rrn}}
 · 주   소: {{address}}
@@ -440,7 +440,7 @@ const TEMPLATES: Record<string, string> = {
 
 [보호자 / 본인]
 · 성   명: {{name}}
-· 생년원일: {{birth}}
+· 생년월일: {{birth}}
 · 서   명:                       (서명/날인)
 · 날   짜: {{contract_date}}
 
@@ -471,7 +471,7 @@ const TEMPLATES: Record<string, string> = {
 · 센터의 고의·중과실 외 법적 책임 없음
 
 5. 개인정보 안내
-· 수집 정보: 이름, 연락처, 생년원일, 보호자 정보, 민감정보(진단명 등)
+· 수집 정보: 이름, 연락처, 생년월일, 보호자 정보, 민감정보(진단명 등)
 · 이용 목적: 교육·운동 프로그램 운영 및 안전관리
 · 보유 기간: 계약 종료일로부터 최대 5년 또는 법령 준수
 
@@ -600,6 +600,53 @@ function ContractsPage() {
       guardian: "", relation: "부", phone: "", child_name: "", child_birth: "",
     };
     return {};
+  }
+
+  // v3.20.30: 대상자 정보 + form_data → 계약서 본문 실시간 100% 치환
+  function applyTemplateVars(body: string, editingObj: any): string {
+    if (!body) return "";
+    const fd = editingObj?.form_data || {};
+    const vars: Record<string, string> = {
+      name: editingObj?.subject_name || fd.name || "",
+      phone: fd.phone || fd.worker_phone || fd.contact || "",
+      birth: fd.birth || fd.birth_date || fd.child_birth || "",
+      address: fd.address || "",
+      start_date: editingObj?.start_date || fd.start_date || "",
+      end_date: editingObj?.end_date || fd.end_date || "",
+      contract_date: editingObj?.contract_date || "",
+      base_salary: fd.base_salary ? Number(fd.base_salary).toLocaleString() : "",
+      meal_allowance: fd.meal_allowance ? Number(fd.meal_allowance).toLocaleString() : "",
+      transport_allowance: fd.transport_allowance ? Number(fd.transport_allowance).toLocaleString() : "",
+      workplace: fd.workplace || "",
+      duty: fd.duty || "",
+      weekday_hours: fd.weekday_hours || "",
+      saturday_hours: fd.saturday_hours || "",
+      bonus_yn: fd.bonus_yn || "",
+      pay_day: fd.pay_day || "",
+      pay_method: fd.pay_method || "",
+      employer_name: fd.employer_name || "위례아쿠수중운동센터",
+      employer_ceo: fd.employer_ceo || "하유정",
+      guardian: fd.guardian || "",
+      relation: fd.relation || "",
+      child_name: fd.child_name || "",
+      child_birth: fd.child_birth || "",
+      confidential_scope: fd.confidential_scope || "",
+      duration_years: fd.duration_years || "",
+      penalty: fd.penalty || "",
+    };
+    // 모든 플레이스홀더 {{key}} 치환
+    let out = body;
+    for (const [k, v] of Object.entries(vars)) {
+      const re = new RegExp(`\\{\\{\\s*${k}\\s*\\}\\}`, "g");
+      out = out.replace(re, String(v ?? ""));
+    }
+    // 또한 form_data의 임의 키도 자동 치환
+    for (const [k, v] of Object.entries(fd)) {
+      if (vars[k] !== undefined) continue;
+      const re = new RegExp(`\\{\\{\\s*${k}\\s*\\}\\}`, "g");
+      out = out.replace(re, String(v ?? ""));
+    }
+    return out;
   }
 
   function openNewByType(contractType: string, subCat: "staff" | "member", subjectId: string, subjectName: string) {
@@ -900,44 +947,56 @@ function ContractsPage() {
 
   // v3.20.22: 계약서를 자체 완결형 HTML 문서로 렌더링 (Storage 저장용)
   function renderContractHtmlForStorage(ed: any): string {
-    const fd = ed.form_data || {};
-    const title = ed.title || typeLabel(ed.contract_type);
-    const bodyHtml = (ed.body || "").replace(/</g, "&lt;").replace(/\n/g, "<br/>");
-    const signImg = ed.signature ? `<img src="${ed.signature}" style="max-width:180px;max-height:60px;object-fit:contain"/>` : "";
-    const sealHtml = ed.counter_signature === "seal" ? `<img src="/center_seal.png" style="width:64px;height:64px;object-fit:contain"/>` : "";
+    const fd = ed?.form_data || {};
+    const title = ed?.title || typeLabel(ed?.contract_type);
+    // v3.20.30: 대상자 + form_data 자동 치환 적용
+    const filledBody = applyTemplateVars(ed?.body || "", ed);
+    const bodyHtml = filledBody.replace(/</g, "&lt;").replace(/\n/g, "<br/>");
+    const signImg = ed?.signature ? `<img class="sign-overlay" src="${ed.signature}" style="max-width:22mm;max-height:14mm;object-fit:contain"/>` : "";
+    const sealHtml = ed?.counter_signature === "seal" ? `<img src="/center_seal.png" style="width:16mm;height:16mm;object-fit:contain"/>` : "";
     return `<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"/>
 <title>${title}</title>
 <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/variable/pretendardvariable.css" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&family=Nanum+Gothic:wght@400;700;800&display=swap" rel="stylesheet"/>
 <style>
-  /* v3.20.25: A4 1페이지 무조건 수용 – 초압축 CSS */
-  @page { size: A4; margin: 8mm 10mm 8mm 10mm; }
+  /* v3.20.30: A4 1페이지 완전 압축 + 서명란 오버레이 (인) 자리 고정 */
+  @page { size: A4; margin: 6mm 8mm; }
   * { box-sizing: border-box; }
   body {
     font-family: 'Pretendard Variable', Pretendard, 'Noto Sans KR', 'Nanum Gothic', sans-serif;
-    font-size: 8.5pt; line-height: 1.35; color: #111;
+    font-size: 8.5pt; line-height: 1.3; color: #111;
     margin: 0; padding: 0; word-break: keep-all;
     letter-spacing: -0.03em;
   }
-  h1 { text-align: center; font-size: 14pt; border-bottom: 1.5px solid #0284c7; padding-bottom: 2px; margin: 0 0 3mm 0; font-weight: 700; line-height: 1.2; }
-  h2 { font-size: 10pt; margin: 3px 0 1px 0; padding: 0; line-height: 1.25; }
+  h1 { text-align: center; font-size: 13pt; border-bottom: 1.5px solid #0284c7; padding-bottom: 2px; margin: 0 0 2mm 0; font-weight: 700; line-height: 1.15; }
+  h2 { font-size: 9.5pt; margin: 2px 0 1px 0; padding: 0; line-height: 1.2; }
   h3 { font-size: 9pt; margin: 2px 0 1px 0; padding: 0; }
-  .meta { display: flex; justify-content: space-between; font-size: 7.5pt; color: #475569; margin-bottom: 2mm; }
-  .body { white-space: pre-wrap; letter-spacing: -0.03em; }
+  .meta { display: flex; justify-content: space-between; font-size: 7.5pt; color: #475569; margin-bottom: 1.5mm; }
+  .body { white-space: pre-wrap; letter-spacing: -0.03em; font-size: 8.5pt; line-height: 1.3; }
   .body p, .body div, .body li, .body ul, .body ol {
-    margin: 0; margin-bottom: 2px; padding: 0; line-height: 1.35;
+    margin: 0; margin-bottom: 1px; padding: 0; line-height: 1.3;
   }
   .body br { line-height: 1; }
   .sign {
     display: flex; justify-content: space-around;
-    margin-top: 3mm; padding: 4px 6px;
+    margin-top: 2.5mm; padding: 3px 4px;
     border-top: 1px solid #cbd5e1;
     page-break-inside: avoid !important; break-inside: avoid !important;
-    page-break-before: auto !important;
   }
-  .sign-box { text-align: center; font-size: 8pt; line-height: 1.3; padding: 4px 6px; }
-  .sign-box img { max-width: 30mm; max-height: 45px; object-fit: contain; }
-  .footer { text-align: right; font-size: 7pt; color: #64748b; margin-top: 2mm; }
+  .sign-box {
+    text-align: center; font-size: 8pt; line-height: 1.25; padding: 3px 5px;
+    position: relative;
+  }
+  .sign-name-line { position: relative; display: inline-block; min-height: 16mm; }
+  .sign-in-text { color: #94a3b8; font-size: 7.5pt; }
+  /* v3.20.30: 서명 이미지를 (인) 텍스트 자리에 자연스럽게 오버레이 */
+  .sign-overlay {
+    position: absolute; right: -2mm; top: 50%;
+    transform: translateY(-50%);
+    max-width: 22mm !important; max-height: 14mm !important;
+    object-fit: contain; mix-blend-mode: multiply;
+  }
+  .footer { text-align: right; font-size: 7pt; color: #64748b; margin-top: 1.5mm; }
   @media print { .no-print { display: none !important; } }
 </style></head><body>
 <h1>${title}</h1>
@@ -945,14 +1004,12 @@ function ContractsPage() {
 <div class="body">${bodyHtml}</div>
 <div class="sign">
   <div class="sign-box">
-    <div>${ed.subject_kind === "staff" ? "근로자" : "회원(보호자)"}: <b>${ed.subject_name || "-"}</b></div>
-    <div>연락처: ${fd.worker_phone || fd.phone || "-"}</div>
-    <div style="margin-top:10px">${signImg}</div>
+    <div>${ed?.subject_kind === "staff" ? "근로자" : "회원(보호자)"}: <span class="sign-name-line"><b>${ed?.subject_name || "-"}</b> <span class="sign-in-text">(인/서명)</span>${signImg}</span></div>
+    <div>연락처: ${fd?.worker_phone || fd?.phone || "-"}</div>
   </div>
   <div class="sign-box">
-    <div>사업자: <b>${fd.employer_name || "위례아쿠수중운동센터"}</b></div>
-    <div>대표자: ${fd.employer_ceo || "하유정"}</div>
-    <div style="margin-top:10px">${sealHtml}</div>
+    <div>사업자: <b>${fd?.employer_name || "위례아쿠수중운동센터"}</b></div>
+    <div>대표자: <span class="sign-name-line">${fd?.employer_ceo || "하유정"} <span class="sign-in-text">(인)</span>${sealHtml ? '<span style="position:absolute;right:-2mm;top:50%;transform:translateY(-50%)">' + sealHtml + '</span>' : ''}</span></div>
   </div>
 </div>
 <div class="footer">생성일: ${new Date().toISOString().slice(0,10)} · 위례아쿠수중운동센터 · 사업자등록번호 680-04-03475</div>
@@ -1027,10 +1084,10 @@ function ContractsPage() {
           .fixed.inset-0 .bg-gradient-to-r,
           .fixed.inset-0 .border-b { border: none !important; background: transparent !important; }
 
-          /* v3.20.25: A4 1페이지 무조건 수용 – 초압축 */
-          @page { size: A4; margin: 8mm 10mm 8mm 10mm; }
+          /* v3.20.30: A4 1페이지 완전 압축 – 6mm 8mm 마진 + line-height 1.3 */
+          @page { size: A4; margin: 6mm 8mm; }
 
-          html, body { font-size: 8.5pt !important; line-height: 1.35 !important; }
+          html, body { font-size: 8.5pt !important; line-height: 1.3 !important; letter-spacing: -0.03em !important; }
 
           .contract-body {
             border: none !important;
@@ -1698,34 +1755,40 @@ function ContractsPage() {
                     <div className="text-lg font-bold">{editing.title || "계약서"}</div>
                     <div className="text-[10px] text-gray-500 mt-1">위례아쿠수중운동센터 · 계약일 {editing.contract_date}</div>
                   </div>
-                  <div className="whitespace-pre-wrap">{editing.body}</div>
+                  {/* v3.20.30: 대상자 + form_data 실시간 100% 치환 */}
+                  <div className="whitespace-pre-wrap">{applyTemplateVars(editing?.body || "", editing)}</div>
 
-                  {/* ✅ v3.20.18: 서명·직인 영역 실시간 미리보기 */}
-                  <div className="contract-sign-area grid grid-cols-2 gap-4 mt-8 pt-4 border-t border-gray-200">
+                  {/* v3.20.30: 서명·직인 - (인) 자리에 서명 오버레이로 중복 제거 */}
+                  <div className="contract-sign-area grid grid-cols-2 gap-4 mt-6 pt-3 border-t border-gray-200">
                     <div>
                       <div className="text-[10px] font-bold text-gray-500 mb-1">
-                        {editing.subject_kind === "staff" ? "근로자" : "회원(보호자)"}
+                        {editing?.subject_kind === "staff" ? "근로자" : "회원(보호자)"}
                       </div>
-                      <div className="text-[11px] text-gray-800 space-y-0.5 mb-2">
-                        <div>연락처: {editing.form_data?.worker_phone || editing.form_data?.phone || "-"}</div>
-                        <div>이  름: <b>{editing.subject_name || "-"}</b></div>
+                      <div className="text-[11px] text-gray-800 mb-1">
+                        연락처: {editing?.form_data?.worker_phone || editing?.form_data?.phone || "-"}
                       </div>
-                      <div className="h-[70px] flex items-center justify-center border border-gray-100 rounded bg-gray-50/40">
-                        {editing.signature
-                          ? <img src={editing.signature} alt="sign" style={{ maxWidth: 200, maxHeight: 60, objectFit: "contain" }} />
-                          : <span className="text-[10px] text-gray-400">서명 필요</span>}
+                      <div className="relative inline-block" style={{ minHeight: 24 }}>
+                        <span className="text-[13px] font-semibold text-gray-800">{editing?.subject_name || "대상자"}</span>
+                        <span className="text-[11px] text-gray-400 ml-1">(인/서명)</span>
+                        {editing?.signature && (
+                          <img src={editing.signature} alt="sign"
+                            style={{ position: "absolute", right: -8, top: "50%", transform: "translateY(-50%)", maxWidth: 84, maxHeight: 48, objectFit: "contain", mixBlendMode: "multiply", pointerEvents: "none" }} />
+                        )}
                       </div>
                     </div>
                     <div>
                       <div className="text-[10px] font-bold text-gray-500 mb-1">사업주</div>
-                      <div className="text-[11px] text-gray-800 space-y-0.5 mb-2">
-                        <div>사업체명: <b>위례아쿠수중운동센터</b></div>
-                        <div>대표자: <b>하유정</b></div>
+                      <div className="text-[11px] text-gray-800 mb-1">
+                        사업체명: <b>위례아쿠수중운동센터</b>
                       </div>
-                      <div className="h-[70px] flex items-center justify-center border border-gray-100 rounded bg-gray-50/40">
-                        {editing.counter_signature === "seal"
-                          ? <CenterSeal size={60} />
-                          : <span className="text-[10px] text-gray-400">직인 필요</span>}
+                      <div className="relative inline-block" style={{ minHeight: 24 }}>
+                        <span className="text-[13px] font-semibold text-gray-800">하유정</span>
+                        <span className="text-[11px] text-gray-400 ml-1">(인)</span>
+                        {editing?.counter_signature === "seal" && (
+                          <span style={{ position: "absolute", right: -8, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
+                            <CenterSeal size={48} />
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
