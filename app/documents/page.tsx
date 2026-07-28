@@ -112,17 +112,37 @@ export default function DocumentsPage() {
       const { uploadToStorage } = await import("@/lib/storageUpload");
       const { filePath } = await uploadToStorage("documents", ownerKey, file);
 
-      // Insert metadata
-      const { error: dbErr } = await supabase.from("documents").insert({
+      // v3.20.31: UUID 파싱 에러 근본 해결 - 빈 문자열 → null 변환 + owner별 분기
+      const nullIfBlank = (v: any) => (v && String(v).trim() !== "" ? v : null);
+      const payload: any = {
         org_id: orgId,
-        member_id: upMember,
         category: upCat,
         filename: file.name,
         file_path: filePath,
         file_size: file.size,
         mime_type: file.type,
         description: upDesc || null,
-      });
+        owner_type: upOwnerType, // member / staff / center
+        // owner 별 기관 ID만 채우고 나머지는 null
+        member_id: upOwnerType === "member" ? nullIfBlank(upMember) : null,
+        staff_id: upOwnerType === "staff" ? nullIfBlank(upStaff) : null,
+      };
+      // staff_id 컬럼이 없는 버전에서는 자동 삭제 재시도 (최대 3회)
+      let tryPayload = { ...payload };
+      let dbErr: any = null;
+      for (let i = 0; i < 3; i++) {
+        const r = await supabase.from("documents").insert(tryPayload);
+        dbErr = r.error;
+        if (!dbErr) break;
+        const m = /'([^']+)' column|column "([^"]+)"/.exec(dbErr.message || "");
+        const missing = m?.[1] || m?.[2];
+        if (missing && missing in tryPayload) {
+          const { [missing]: _drop, ...rest } = tryPayload;
+          tryPayload = { ...rest };
+          continue;
+        }
+        break;
+      }
       if (dbErr) throw dbErr;
 
       alert("✅ 업로드 완료!");

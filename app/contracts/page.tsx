@@ -952,8 +952,13 @@ function ContractsPage() {
     // v3.20.30: 대상자 + form_data 자동 치환 적용
     const filledBody = applyTemplateVars(ed?.body || "", ed);
     const bodyHtml = filledBody.replace(/</g, "&lt;").replace(/\n/g, "<br/>");
-    const signImg = ed?.signature ? `<img class="sign-overlay" src="${ed.signature}" style="max-width:22mm;max-height:14mm;object-fit:contain"/>` : "";
-    const sealHtml = ed?.counter_signature === "seal" ? `<img src="/center_seal.png" style="width:16mm;height:16mm;object-fit:contain"/>` : "";
+    // v3.20.31: 서명 이미지 - inline-block, height:35px 수준으로 정돈 (인) 오른쪽 깔끔하게 정렬
+    const signImg = ed?.signature
+      ? `<img class="sign-inline" src="${ed.signature}" alt="sign"/>`
+      : "";
+    const sealHtml = ed?.counter_signature === "seal"
+      ? `<img class="seal-inline" src="/center_seal.png" alt="seal"/>`
+      : "";
     return `<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"/>
 <title>${title}</title>
 <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/variable/pretendardvariable.css" rel="stylesheet"/>
@@ -987,14 +992,22 @@ function ContractsPage() {
     text-align: center; font-size: 8pt; line-height: 1.25; padding: 3px 5px;
     position: relative;
   }
-  .sign-name-line { position: relative; display: inline-block; min-height: 16mm; }
+  /* v3.20.31: 서명 inline-block 레이아웃 - (인) 오른쪽 자리에 자연스럽게 정렬 */
+  .sign-name-line {
+    display: inline-flex; align-items: center; gap: 4px;
+    line-height: 1; white-space: nowrap;
+  }
   .sign-in-text { color: #94a3b8; font-size: 7.5pt; }
-  /* v3.20.30: 서명 이미지를 (인) 텍스트 자리에 자연스럽게 오버레이 */
-  .sign-overlay {
-    position: absolute; right: -2mm; top: 50%;
-    transform: translateY(-50%);
-    max-width: 22mm !important; max-height: 14mm !important;
+  .sign-inline {
+    display: inline-block; vertical-align: middle;
+    height: 35px; max-width: 24mm;
     object-fit: contain; mix-blend-mode: multiply;
+    margin-left: 2px;
+  }
+  .seal-inline {
+    display: inline-block; vertical-align: middle;
+    height: 14mm; width: 14mm;
+    object-fit: contain; margin-left: 2px;
   }
   .footer { text-align: right; font-size: 7pt; color: #64748b; margin-top: 1.5mm; }
   @media print { .no-print { display: none !important; } }
@@ -1004,12 +1017,12 @@ function ContractsPage() {
 <div class="body">${bodyHtml}</div>
 <div class="sign">
   <div class="sign-box">
-    <div>${ed?.subject_kind === "staff" ? "근로자" : "회원(보호자)"}: <span class="sign-name-line"><b>${ed?.subject_name || "-"}</b> <span class="sign-in-text">(인/서명)</span>${signImg}</span></div>
+    <div>${ed?.subject_kind === "staff" ? "근로자" : "회원(보호자)"}: <span class="sign-name-line"><b>${ed?.subject_name || "-"}</b><span class="sign-in-text">(인/서명)</span>${signImg}</span></div>
     <div>연락처: ${fd?.worker_phone || fd?.phone || "-"}</div>
   </div>
   <div class="sign-box">
     <div>사업자: <b>${fd?.employer_name || "위례아쿠수중운동센터"}</b></div>
-    <div>대표자: <span class="sign-name-line">${fd?.employer_ceo || "하유정"} <span class="sign-in-text">(인)</span>${sealHtml ? '<span style="position:absolute;right:-2mm;top:50%;transform:translateY(-50%)">' + sealHtml + '</span>' : ''}</span></div>
+    <div>대표자: <span class="sign-name-line"><b>${fd?.employer_ceo || "하유정"}</b><span class="sign-in-text">(인)</span>${sealHtml}</span></div>
   </div>
 </div>
 <div class="footer">생성일: ${new Date().toISOString().slice(0,10)} · 위례아쿠수중운동센터 · 사업자등록번호 680-04-03475</div>
@@ -1758,7 +1771,7 @@ function ContractsPage() {
                   {/* v3.20.30: 대상자 + form_data 실시간 100% 치환 */}
                   <div className="whitespace-pre-wrap">{applyTemplateVars(editing?.body || "", editing)}</div>
 
-                  {/* v3.20.30: 서명·직인 - (인) 자리에 서명 오버레이로 중복 제거 */}
+                  {/* v3.20.31: 서명·직인 - inline-flex 레이아웃으로 (인) 오른쪽에 깔끔정렬 */}
                   <div className="contract-sign-area grid grid-cols-2 gap-4 mt-6 pt-3 border-t border-gray-200">
                     <div>
                       <div className="text-[10px] font-bold text-gray-500 mb-1">
@@ -1767,12 +1780,12 @@ function ContractsPage() {
                       <div className="text-[11px] text-gray-800 mb-1">
                         연락처: {editing?.form_data?.worker_phone || editing?.form_data?.phone || "-"}
                       </div>
-                      <div className="relative inline-block" style={{ minHeight: 24 }}>
+                      <div style={{ display: "inline-flex", alignItems: "center", gap: 4, lineHeight: 1, whiteSpace: "nowrap" }}>
                         <span className="text-[13px] font-semibold text-gray-800">{editing?.subject_name || "대상자"}</span>
-                        <span className="text-[11px] text-gray-400 ml-1">(인/서명)</span>
+                        <span className="text-[11px] text-gray-400">(인/서명)</span>
                         {editing?.signature && (
                           <img src={editing.signature} alt="sign"
-                            style={{ position: "absolute", right: -8, top: "50%", transform: "translateY(-50%)", maxWidth: 84, maxHeight: 48, objectFit: "contain", mixBlendMode: "multiply", pointerEvents: "none" }} />
+                            style={{ display: "inline-block", verticalAlign: "middle", height: 35, maxWidth: 96, objectFit: "contain", mixBlendMode: "multiply", marginLeft: 2 }} />
                         )}
                       </div>
                     </div>
@@ -1781,11 +1794,11 @@ function ContractsPage() {
                       <div className="text-[11px] text-gray-800 mb-1">
                         사업체명: <b>위례아쿠수중운동센터</b>
                       </div>
-                      <div className="relative inline-block" style={{ minHeight: 24 }}>
+                      <div style={{ display: "inline-flex", alignItems: "center", gap: 4, lineHeight: 1, whiteSpace: "nowrap" }}>
                         <span className="text-[13px] font-semibold text-gray-800">하유정</span>
-                        <span className="text-[11px] text-gray-400 ml-1">(인)</span>
+                        <span className="text-[11px] text-gray-400">(인)</span>
                         {editing?.counter_signature === "seal" && (
-                          <span style={{ position: "absolute", right: -8, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
+                          <span style={{ display: "inline-block", verticalAlign: "middle", marginLeft: 2 }}>
                             <CenterSeal size={48} />
                           </span>
                         )}
@@ -1837,38 +1850,39 @@ function ContractsPage() {
               </div>
 
               {/* ✅ v3.20.17: 서명·직인 좀 더 컴팩트하게 좌우 배치 (글자 안 잘리게) */}
-              <div className="contract-sign-area grid grid-cols-2 gap-2 mt-4 print:mt-6">
-                {/* 좌: 근로자/회원 서명 */}
+              {/* v3.20.31: 서명 패드 + 직인 체크박스 입력 영역 - 전체 no-print 처리 (인쇄/PDF 완전 제외) */}
+              <div className="no-print grid grid-cols-2 gap-2 mt-4" data-noprint="true">
+                {/* 좌: 근로자/회원 서명 입력 */}
                 <div className="border border-gray-200 rounded-lg p-2 bg-white">
                   <div className="text-[10px] font-bold text-gray-500 mb-1">
-                    {editing.subject_kind === "staff" ? "근로자" : "회원(보호자)"}
+                    ✏️ {editing?.subject_kind === "staff" ? "근로자" : "회원(보호자)"} 서명 입력
                   </div>
                   <div className="space-y-0.5 text-[11px] text-gray-800 mb-1.5">
-                    <div>연락처: {editing.form_data?.worker_phone || editing.form_data?.phone || "-"}</div>
-                    <div>이  름: <b>{editing.subject_name || "-"}</b></div>
+                    <div>연락처: {editing?.form_data?.worker_phone || editing?.form_data?.phone || "-"}</div>
+                    <div>이  름: <b>{editing?.subject_name || "-"}</b></div>
                   </div>
                   <ContractSignaturePad
                     label="서명"
-                    value={editing.signature || ""}
+                    value={editing?.signature || ""}
                     onChange={(dataUrl) => setEditing({ ...editing, signature: dataUrl })}
                     width={240}
                     height={70}
                   />
                 </div>
-                {/* 우: 사업주 + 직인 */}
+                {/* 우: 직인 체크박스 입력 */}
                 <div className="border border-gray-200 rounded-lg p-2 bg-white">
-                  <div className="text-[10px] font-bold text-gray-500 mb-1">사업주</div>
+                  <div className="text-[10px] font-bold text-gray-500 mb-1">🪧 사업주 직인 설정</div>
                   <div className="space-y-0.5 text-[11px] text-gray-800 mb-1.5">
                     <div>사업체명: <b>위례아쿠수중운동센터</b></div>
                     <div>대표자: <b>하유정</b></div>
                   </div>
                   <div className="flex items-center justify-center h-[70px] border border-gray-100 rounded bg-gray-50/40">
-                    {editing.counter_signature === "seal"
+                    {editing?.counter_signature === "seal"
                       ? <CenterSeal size={64} />
                       : <span className="text-[10px] text-gray-400">직인 표시를 체크하세요</span>}
                   </div>
-                  <label className="no-print flex items-center gap-1 mt-1 text-[10px] text-gray-600">
-                    <input type="checkbox" checked={editing.counter_signature === "seal"}
+                  <label className="flex items-center gap-1 mt-1 text-[10px] text-gray-600">
+                    <input type="checkbox" checked={editing?.counter_signature === "seal"}
                       onChange={e => setEditing({ ...editing, counter_signature: e.target.checked ? "seal" : "" })} />
                     생성/프린트 시 직인 표시
                   </label>

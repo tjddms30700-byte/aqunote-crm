@@ -188,19 +188,70 @@ function FinancePage() {
   }
 
   async function addExpense() {
-    if (!newExpense.amount) return;
-    const { data: orgs } = await supabase.from("organizations").select("id").limit(1);
-    const orgId = orgs?.[0]?.id;
-    await supabase.from("expenses").insert({
-      org_id: orgId,
-      category: newExpense.category,
-      amount: Number(newExpense.amount),
-      spent_at: newExpense.spent_at,
-      description: newExpense.description,
-    });
-    setShowModal(false);
-    setNewExpense({ category: "임대료", amount: 0, spent_at: new Date().toISOString().slice(0, 10), description: "" });
-    loadAll();
+    // v3.20.31: 지출등록 버그 근본 해결 - 필수값 검증 + 오류 안내 + 즉시 반영
+    try {
+      const amt = Number(newExpense?.amount || 0);
+      if (!amt || amt <= 0) { alert("지출 금액을 입력해 주세요 (0원 불가)"); return; }
+      if (!newExpense?.category) { alert("지출 카테고리를 선택해 주세요"); return; }
+      if (!newExpense?.spent_at) { alert("지출일자를 선택해 주세요"); return; }
+
+      const { data: orgs, error: orgErr } = await supabase.from("organizations").select("id").limit(1);
+      if (orgErr) throw new Error("조직 정보 조회 실패: " + orgErr.message);
+      const orgId = orgs?.[0]?.id;
+      if (!orgId) { alert("조직(organizations) 정보가 없습니다. 설정 페이지에서 먼저 생성해 주세요."); return; }
+
+      const payload: any = {
+        org_id: orgId,
+        category: newExpense.category,
+        amount: amt,
+        spent_at: newExpense.spent_at,
+        description: newExpense.description || null,
+      };
+
+      // v3.20.31: 지출 삽입 - 누락 컬럼 자동 폴백 (최대 5회)
+      let tryPayload = { ...payload };
+      let insertErr: any = null;
+      let inserted: any = null;
+      for (let i = 0; i < 5; i++) {
+        const r = await supabase.from("expenses").insert(tryPayload).select().single();
+        insertErr = r.error;
+        inserted = r.data;
+        if (!insertErr) break;
+        const msg = String(insertErr.message || "");
+        // RLS 이슈 명확화
+        if (/row-level security|policy|permission denied/i.test(msg)) {
+          throw new Error(`권한 오류(RLS): expenses 테이블 INSERT 정책을 추가해 주세요.\n\n상세: ${msg}`);
+        }
+        const m = /'([^']+)' column|column "([^"]+)"/.exec(msg);
+        const missing = m?.[1] || m?.[2];
+        if (missing && missing in tryPayload) {
+          const { [missing]: _drop, ...rest } = tryPayload;
+          tryPayload = { ...rest };
+          continue;
+        }
+        // amount/spent_at이 아닌 관련 컬럼이 누락된 경우 대로(center_expenses 호환)
+        if (/relation.*expenses.*does not exist/i.test(msg)) {
+          const r2 = await supabase.from("center_expenses").insert(tryPayload).select().single();
+          insertErr = r2.error;
+          inserted = r2.data;
+          if (!insertErr) break;
+        }
+        throw new Error(msg);
+      }
+      if (insertErr) throw insertErr;
+
+      // v3.20.31: 즉시 UI 반영 - 상단 카드와 이력 목록 둥 자동 갱신
+      if (inserted) {
+        setExpenses((prev) => [inserted, ...prev]);
+      }
+      setShowModal(false);
+      setNewExpense({ category: "임대료", amount: 0, spent_at: new Date().toISOString().slice(0, 10), description: "" });
+      alert(`✅ 지출이 등록되었습니다 (${amt.toLocaleString()}원)`);
+      await loadAll();
+    } catch (err: any) {
+      alert("지출 등록 실패: " + (err?.message || err));
+      console.error("addExpense error:", err);
+    }
   }
 
   async function deleteExpense(id: string) {

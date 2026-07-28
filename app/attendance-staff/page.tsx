@@ -5,7 +5,7 @@ import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import HomeButton from "@/components/HomeButton";
-import { Clock, Play, Square, User, Calendar, TrendingUp } from "lucide-react";
+import { Clock, Play, Square, User, Calendar, TrendingUp, FileCheck, MessageSquare, UserCog } from "lucide-react";
 
 function todayStr() { return new Date().toISOString().slice(0,10); }
 function nowIso() { return new Date().toISOString(); }
@@ -18,6 +18,8 @@ export default function StaffAttendancePage() {
   const [leaves, setLeaves] = useState<any[]>([]);
   const [selectedStaff, setSelectedStaff] = useState<string>("");
   const [month, setMonth] = useState(new Date().toISOString().slice(0,7));
+  // v3.20.31: 4개 Sub-Tab 통합 (출퇴근 / 실근무통계 / 휴가·결재 / 사내게시판)
+  const [subTab, setSubTab] = useState<"attendance" | "stats" | "leave" | "board">("attendance");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { loadAll(); }, [month]);
@@ -177,13 +179,37 @@ export default function StaffAttendancePage() {
 
   return (
     <main className="max-w-6xl mx-auto px-3 md:px-6 py-6 md:py-10">
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <h1 className="text-xl md:text-3xl font-bold text-aqu-900 flex items-center gap-2">
-          <Clock className="w-6 h-6 md:w-7 md:h-7 text-blue-500" /> 직원 출퇴근
+          <UserCog className="w-6 h-6 md:w-7 md:h-7 text-blue-500" /> 직원 · 근무 관리
         </h1>
         <HomeButton />
       </div>
 
+      {/* v3.20.31: 4개 Sub-Tab 통합 - 한 화면에서 전환 */}
+      <div className="flex flex-wrap gap-1 mb-5 bg-white rounded-2xl shadow border border-aqu-100 p-1">
+        <button onClick={() => setSubTab("attendance")}
+          className={`flex-1 min-w-[140px] px-3 py-2.5 rounded-lg text-sm font-bold transition flex items-center justify-center gap-1.5 ${subTab==="attendance" ? "bg-gradient-to-r from-aqu-500 to-blue-600 text-white shadow" : "text-gray-600 hover:bg-gray-50"}`}>
+          <Clock className="w-4 h-4" /> ⏱️ 출퇴근 / 근태
+        </button>
+        <button onClick={() => setSubTab("stats")}
+          className={`flex-1 min-w-[140px] px-3 py-2.5 rounded-lg text-sm font-bold transition flex items-center justify-center gap-1.5 ${subTab==="stats" ? "bg-gradient-to-r from-aqu-500 to-blue-600 text-white shadow" : "text-gray-600 hover:bg-gray-50"}`}>
+          <TrendingUp className="w-4 h-4" /> 📊 실근무 통계
+        </button>
+        <Link href="/leave"
+          onClick={() => setSubTab("leave")}
+          className={`flex-1 min-w-[140px] px-3 py-2.5 rounded-lg text-sm font-bold transition flex items-center justify-center gap-1.5 text-gray-600 hover:bg-gray-50`}>
+          <FileCheck className="w-4 h-4" /> 🌴 휴가 / 전자결재
+        </Link>
+        <Link href="/board"
+          onClick={() => setSubTab("board")}
+          className={`flex-1 min-w-[140px] px-3 py-2.5 rounded-lg text-sm font-bold transition flex items-center justify-center gap-1.5 text-gray-600 hover:bg-gray-50`}>
+          <MessageSquare className="w-4 h-4" /> 📢 사내 게시판
+        </Link>
+      </div>
+
+      {/* v3.20.31: Tab 1 - ⏱️ 출퇴근 / 근태 현황 */}
+      {subTab === "attendance" && (<>
       {/* 오늘 출퇴근 (전체 직원) */}
       <div className="bg-white rounded-2xl shadow-md border border-aqu-100 p-4 md:p-5 mb-6">
         <h2 className="text-base font-bold text-aqu-900 mb-3">📅 오늘 ({todayStr()}) 출퇴근</h2>
@@ -223,7 +249,10 @@ export default function StaffAttendancePage() {
         </div>
       </div>
 
-      {/* 월별 통계 */}
+      </>)}
+
+      {/* v3.20.31: Tab 2 - 📊 실근무 통계 (개인별 근태 + 연차) */}
+      {(subTab === "attendance" || subTab === "stats") && (<>
       <div className="bg-white rounded-2xl shadow-md border border-aqu-100 p-4 md:p-5">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <h2 className="text-base font-bold text-aqu-900 flex items-center gap-2">
@@ -323,6 +352,26 @@ export default function StaffAttendancePage() {
       <div className="mt-4 text-center">
         <Link href="/leave" className="text-sm text-aqu-600 hover:underline">→ 휴가 신청하기</Link>
       </div>
+      </>)}
+
+      {/* v3.20.31: Tab 3, 4 - 휴가결재 / 사내게시판은 별도 페이지로 이동 */}
+      {(subTab === "leave" || subTab === "board") && (
+        <div className="bg-white rounded-2xl shadow-md border border-aqu-100 p-6 text-center">
+          <div className="text-4xl mb-3">{subTab === "leave" ? "🌴" : "📢"}</div>
+          <div className="text-base font-bold text-aqu-900 mb-2">
+            {subTab === "leave" ? "휴가 / 전자결재" : "사내 게시판"}
+          </div>
+          <div className="text-sm text-gray-600 mb-4">
+            {subTab === "leave"
+              ? "휴가 신청 · 승인 / 대기 목록을 관리합니다. 승인 완료 시 이 페이지의 출퇴근·실근무 통계에 자동 반영됩니다."
+              : "공지사항 · Q&A · 건의사항을 숬서합니다."}
+          </div>
+          <Link href={subTab === "leave" ? "/leave" : "/board"}
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-aqu-500 to-blue-600 text-white rounded-lg text-sm font-bold hover:opacity-90 shadow">
+            → {subTab === "leave" ? "휴가·결재 페이지로 이동" : "사내 게시판으로 이동"}
+          </Link>
+        </div>
+      )}
     </main>
   );
 }

@@ -45,10 +45,8 @@ const GROUPS = [
     bg: "bg-blue-50",
     directorOnly: false,
     items: [
-      { href: "/attendance-staff", icon: Clock,         title: "직원 출퇴근",  desc: "출퇴근·근태 통계" },
-      { href: "/attendance-stats", icon: TrendingUp,    title: "📊 실근무 통계",   desc: "월간 근무일·시간·생산성" },
-      { href: "/leave",            icon: FileCheck,     title: "휴가 · 결재",   desc: "휴가·물품구매·지출 결재" },
-      { href: "/board",            icon: MessageSquare, title: "사내 게시판",  desc: "공지·Q&A·건의" },
+      // v3.20.31: 4개 카드 → 1개 통합 카드로 개편 (상세 페이지 상단에서 Sub-Tab 전환)
+      { href: "/attendance-staff", icon: UserCog,       title: "👥 직원·근무 관리",  desc: "출퇴근 · 실근무 · 휴가·결재 · 사내 게시판 (통합)" },
     ],
   },
   {
