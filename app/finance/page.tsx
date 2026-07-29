@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
-import { Waves, Plus, X, Save, TrendingUp, TrendingDown, DollarSign } from "lucide-react";
+import { Waves, Plus, X, Save, TrendingUp, TrendingDown, DollarSign, Download } from "lucide-react";
+import JSZip from "jszip";
 import DirectorOnly from "@/components/DirectorOnly";
 
 // ✅ v3.20.19: 수입 카테고리 (지원금·대출·기타)
@@ -79,6 +80,7 @@ function FinancePage() {
     amount: 0,
     spent_at: new Date().toISOString().slice(0, 10),
     description: "",
+    payment_method: "CORPORATE_CARD", // v3.21.0: 법인 전환 대비 - 결제 수단
   });
 
   useEffect(() => { loadAll(); }, []);
@@ -206,6 +208,7 @@ function FinancePage() {
         amount: amt,
         spent_at: newExpense.spent_at,
         description: newExpense.description || null,
+        payment_method: newExpense.payment_method || "CORPORATE_CARD", // v3.21.0: 결제 수단
       };
 
       // v3.20.31: 지출 삽입 - 누락 컬럼 자동 폴백 (최대 5회)
@@ -245,12 +248,70 @@ function FinancePage() {
         setExpenses((prev) => [inserted, ...prev]);
       }
       setShowModal(false);
-      setNewExpense({ category: "임대료", amount: 0, spent_at: new Date().toISOString().slice(0, 10), description: "" });
+      setNewExpense({ category: "임대료", amount: 0, spent_at: new Date().toISOString().slice(0, 10), description: "", payment_method: "CORPORATE_CARD" });
       alert(`✅ 지출이 등록되었습니다 (${amt.toLocaleString()}원)`);
       await loadAll();
     } catch (err: any) {
       alert("지출 등록 실패: " + (err?.message || err));
       console.error("addExpense error:", err);
+    }
+  }
+
+  // v3.21.0: 세무사 제출용 월간 정산 패키지 ZIP 다운로드
+  async function downloadMonthlyPackage() {
+    try {
+      const zip = new JSZip();
+      const monthLabel = selectedMonth;
+      const BOM = "\uFEFF"; // Excel 한글 CSV 인코딩 보증
+
+      // 1) 수입 CSV
+      const incomeRows = [["날짜", "카테고리", "지급기관", "금액", "메모"]];
+      monthIncomes.forEach((i: any) => incomeRows.push([i.received_at || "", i.category || "", i.source || "", String(i.amount || 0), i.description || ""]));
+      monthPayments.forEach((p: any) => incomeRows.push([p.paid_at || "", "회원 결제", p.member_name || "", String(p.amount || 0), p.method || ""]));
+      zip.file(`01_수입_${monthLabel}.csv`, BOM + incomeRows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n"));
+
+      // 2) 지출 CSV (결제 수단 포함)
+      const pmMap: any = { CORPORATE_CARD: "법인카드", PERSONAL_CARD: "개인카드", TRANSFER: "계좌이체", CASH: "현금" };
+      const expRows = [["날짜", "카테고리", "결제수단", "금액", "메모"]];
+      monthExpenses.forEach((e: any) => expRows.push([e.spent_at || "", e.category || "", pmMap[e.payment_method] || "—", String(e.amount || 0), e.description || ""]));
+      zip.file(`02_지출_${monthLabel}.csv`, BOM + expRows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n"));
+
+      // 3) 급여 CSV
+      const payRows = [["직원명", "지급월", "기본급", "수당", "공제", "실지급"]];
+      monthPayroll.forEach((p: any) => payRows.push([p.staff_name || p.name || "", p.pay_month || "", String(p.base_salary || 0), String(p.bonus || 0), String(p.deduction || 0), String(p.net_pay || p.amount || 0)]));
+      zip.file(`03_급여_${monthLabel}.csv`, BOM + payRows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n"));
+
+      // 4) 요약 리포트 (텍스트)
+      const totalIncome = monthIncomes.reduce((s: number, i: any) => s + Number(i.amount || 0), 0) + monthPayments.reduce((s: number, p: any) => s + Number(p.amount || 0), 0);
+      const totalExpense = monthExpenses.reduce((s: number, e: any) => s + Number(e.amount || 0), 0);
+      const totalPayroll = monthPayroll.reduce((s: number, p: any) => s + Number(p.net_pay || p.amount || 0), 0);
+      const corpCardExp = monthExpenses.filter((e: any) => e.payment_method === "CORPORATE_CARD").reduce((s: number, e: any) => s + Number(e.amount || 0), 0);
+      const summary = [
+        `■ ${monthLabel} 세무사 제출용 월간 정산 요약서`,
+        `생성일: ${new Date().toISOString().slice(0, 10)}`,
+        `센터: 위례아쿠수중운동센터`,
+        `────────────────────────────────────────`,
+        `총 수입:   ₩${totalIncome.toLocaleString()}`,
+        `총 지출:   ₩${totalExpense.toLocaleString()}`,
+        `  └ 법인카드: ₩${corpCardExp.toLocaleString()}`,
+        `총 급여:   ₩${totalPayroll.toLocaleString()}`,
+        `순이익:     ₩${(totalIncome - totalExpense - totalPayroll).toLocaleString()}`,
+        `────────────────────────────────────────`,
+        `포함 파일: 01_수입.csv / 02_지출.csv / 03_급여.csv`,
+      ].join("\n");
+      zip.file(`00_요약_${monthLabel}.txt`, BOM + summary);
+
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `세무사제출_${monthLabel}_위례아쿠수중운동센터.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      alert(`✅ ${monthLabel} 정산 패키지가 다운로드되었습니다.`);
+    } catch (err: any) {
+      alert("정산 패키지 생성 실패: " + (err?.message || err));
+      console.error("downloadMonthlyPackage error:", err);
     }
   }
 
@@ -347,7 +408,12 @@ function FinancePage() {
       <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
         <input type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}
           className="px-3 py-2 rounded-lg border border-aqu-200 text-sm" />
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {/* v3.21.0: 세무사 제출용 월간 정산 패키지 ZIP 다운로드 */}
+          <button onClick={downloadMonthlyPackage}
+            className="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-sm flex items-center gap-1 hover:bg-slate-900 shadow-sm">
+            <Download className="w-4 h-4" /> 📥 세무사 제출용 월간 정산 패키지(ZIP)
+          </button>
           {/* ✅ v3.20.19: 수입(지원금·대출·기타) 등록 */}
           <button onClick={() => setShowIncomeModal(true)}
             className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm flex items-center gap-1 hover:bg-emerald-700">
@@ -553,25 +619,39 @@ function FinancePage() {
               <tr>
                 <th className="text-left px-4 py-3">일자</th>
                 <th className="text-left px-4 py-3">카테고리</th>
+                <th className="text-left px-4 py-3">결제수단</th>
                 <th className="text-left px-4 py-3 hidden md:table-cell">내역</th>
                 <th className="text-right px-4 py-3">금액</th>
                 <th className="w-8"></th>
               </tr>
             </thead>
             <tbody>
-              {monthExpenses.map((e) => (
-                <tr key={e.id} className="border-t border-aqu-100 hover:bg-aqu-50/30">
-                  <td className="px-4 py-3 text-xs">{e.spent_at}</td>
-                  <td className="px-4 py-3">
-                    <span className="px-2 py-0.5 bg-aqu-100 text-aqu-700 rounded text-xs">{e.category}</span>
-                  </td>
-                  <td className="px-4 py-3 hidden md:table-cell text-xs text-gray-600">{e.description || "-"}</td>
-                  <td className="px-4 py-3 text-right font-medium text-red-600">₩{e.amount.toLocaleString()}</td>
-                  <td className="px-2">
-                    <button onClick={() => deleteExpense(e.id)} className="text-red-400 hover:text-red-600 text-xs">삭제</button>
-                  </td>
-                </tr>
-              ))}
+              {monthExpenses.map((e) => {
+                // v3.21.0: 결제 수단 배지 매핑
+                const pmMap: any = {
+                  CORPORATE_CARD: { label: "🏦 법인카드", cls: "bg-blue-50 text-blue-700 border-blue-200" },
+                  PERSONAL_CARD:  { label: "👤 개인카드", cls: "bg-purple-50 text-purple-700 border-purple-200" },
+                  TRANSFER:       { label: "💸 계좌이체", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+                  CASH:           { label: "💵 현금", cls: "bg-amber-50 text-amber-700 border-amber-200" },
+                };
+                const pm = pmMap[e.payment_method] || { label: "—", cls: "bg-slate-50 text-slate-500 border-slate-200" };
+                return (
+                  <tr key={e.id} className="border-t border-aqu-100 hover:bg-aqu-50/30">
+                    <td className="px-4 py-3 text-xs">{e.spent_at}</td>
+                    <td className="px-4 py-3">
+                      <span className="px-2 py-0.5 bg-aqu-100 text-aqu-700 rounded text-xs">{e.category}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] border font-semibold ${pm.cls}`}>{pm.label}</span>
+                    </td>
+                    <td className="px-4 py-3 hidden md:table-cell text-xs text-gray-600">{e.description || "-"}</td>
+                    <td className="px-4 py-3 text-right font-medium text-red-600">₩{e.amount.toLocaleString()}</td>
+                    <td className="px-2">
+                      <button onClick={() => deleteExpense(e.id)} className="text-red-400 hover:text-red-600 text-xs">삭제</button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -694,6 +774,23 @@ function FinancePage() {
                 <input type="date" value={newExpense.spent_at}
                   onChange={(e) => setNewExpense({ ...newExpense, spent_at: e.target.value })}
                   className="w-full mt-1 px-3 py-2 rounded-lg border border-aqu-200 text-sm" />
+              </div>
+              {/* v3.21.0: 법인 전환 대비 - 결제 수단 선택 */}
+              <div>
+                <label className="text-xs text-gray-600 font-semibold">💳 결제 수단 *</label>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {[
+                    { v: "CORPORATE_CARD", label: "🏦 법인카드", cls: "bg-blue-500" },
+                    { v: "PERSONAL_CARD",  label: "👤 개인카드·현금영수증", cls: "bg-purple-500" },
+                    { v: "TRANSFER",       label: "💸 계좌이체", cls: "bg-emerald-500" },
+                    { v: "CASH",           label: "💵 현금", cls: "bg-amber-500" },
+                  ].map((pm) => (
+                    <button key={pm.v} type="button" onClick={() => setNewExpense({ ...newExpense, payment_method: pm.v })}
+                      className={`px-3 py-1.5 rounded-full text-xs font-semibold ${newExpense.payment_method === pm.v ? `${pm.cls} text-white` : "bg-gray-100 text-gray-700"}`}>
+                      {pm.label}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div>
                 <label className="text-xs text-gray-600">메모</label>

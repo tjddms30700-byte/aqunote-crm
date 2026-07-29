@@ -68,6 +68,8 @@ export default function StaffAttendancePage() {
     staff_id: "", expense_type: "reimburse", expense_category: "소모품비",
     purchase_item: "", purchase_amount: 0, vendor: "", receipt_url: "",
     start_date: todayStr(), reason: "",
+    // v3.21.0: 법인 전환 대비 – 결제 수단 필드
+    payment_method: "CORPORATE_CARD",
   });
 
   const [showPostModal, setShowPostModal] = useState(false);
@@ -315,6 +317,8 @@ export default function StaffAttendancePage() {
       purchase_item: expForm.purchase_item, purchase_amount: Number(expForm.purchase_amount),
       vendor: expForm.vendor || null, receipt_url: expForm.receipt_url || null,
       expense_category: expForm.expense_category, status: "pending",
+      // v3.21.0: 결제 수단 (승인 시 expenses.payment_method로 자동 승계)
+      payment_method: expForm.payment_method || "CORPORATE_CARD",
     };
     let tryPayload = { ...payload };
     for (let i = 0; i < 8; i++) {
@@ -325,7 +329,7 @@ export default function StaffAttendancePage() {
       alert("지출 결재 신청 실패: " + r.error.message); return;
     }
     setShowExpModal(false);
-    setExpForm({ staff_id: "", expense_type: "reimburse", expense_category: "소모품비", purchase_item: "", purchase_amount: 0, vendor: "", receipt_url: "", start_date: todayStr(), reason: "" });
+    setExpForm({ staff_id: "", expense_type: "reimburse", expense_category: "소모품비", purchase_item: "", purchase_amount: 0, vendor: "", receipt_url: "", start_date: todayStr(), reason: "", payment_method: "CORPORATE_CARD" });
     alert("✅ 지출 결재 신청이 접수되었습니다");
     await loadAll();
   }
@@ -344,6 +348,8 @@ export default function StaffAttendancePage() {
         status: "approved",
         leave_request_id: req.id,
         source: "leave_approval",
+        // v3.21.0: 결제 수단 승계 (재무관리 지출 이력에 [법인카드] 태그 자동 표기)
+        payment_method: req.payment_method || "CORPORATE_CARD",
       };
       let tryPayload = { ...expPayload };
       for (let i = 0; i < 6; i++) {
@@ -424,6 +430,16 @@ export default function StaffAttendancePage() {
     if (status === "approved") return "bg-emerald-50 text-emerald-700 border-emerald-200";
     if (status === "rejected" || status === "canceled") return "bg-rose-50 text-rose-700 border-rose-200";
     return "bg-amber-50 text-amber-700 border-amber-200";
+  }
+  // v3.21.0: 결제 수단 배지
+  function paymentMethodBadge(pm: string | null | undefined) {
+    switch (pm) {
+      case "CORPORATE_CARD": return { label: "🏦 법인카드", cls: "bg-blue-50 text-blue-700 border-blue-200" };
+      case "PERSONAL_CARD":  return { label: "👤 개인카드", cls: "bg-purple-50 text-purple-700 border-purple-200" };
+      case "TRANSFER":       return { label: "💸 계좌이체", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" };
+      case "CASH":           return { label: "💵 현금",     cls: "bg-amber-50 text-amber-700 border-amber-200" };
+      default: return null;
+    }
   }
   function statusLabel(status: string) {
     if (status === "approved") return "승인완료";
@@ -781,9 +797,11 @@ export default function StaffAttendancePage() {
                       <div className="flex items-start gap-3">
                         <span className={`inline-block px-2.5 py-1 rounded-full border text-[11px] font-semibold ${statusPill(r.status)}`}>{statusLabel(r.status)}</span>
                         <div>
-                          <div className="text-sm font-bold text-slate-800">
+                          <div className="text-sm font-bold text-slate-800 flex flex-wrap items-center gap-1">
                             {s?.name || "-"} · {r.purchase_item || "-"}
-                            <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{r.expense_category || "미분류"}</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{r.expense_category || "미분류"}</span>
+                            {/* v3.21.0: 결제 수단 배지 */}
+                            {(() => { const pm = paymentMethodBadge(r.payment_method); return pm ? <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-semibold ${pm.cls}`}>{pm.label}</span> : null; })()}
                           </div>
                           <div className="text-xs text-slate-500 mt-0.5">
                             {r.start_date} · <span className="font-semibold text-slate-800">₩{Number(r.purchase_amount || 0).toLocaleString()}</span>
@@ -827,6 +845,8 @@ export default function StaffAttendancePage() {
                         <span className="text-sm font-semibold text-slate-800">{s?.name || "-"}</span>
                         <span className="text-xs text-slate-500">· {r.purchase_item} · ₩{Number(r.purchase_amount || 0).toLocaleString()}</span>
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{r.expense_category || "미분류"}</span>
+                        {/* v3.21.0: 완료 목록에도 결제 수단 배지 */}
+                        {(() => { const pm = paymentMethodBadge(r.payment_method); return pm ? <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-semibold ${pm.cls}`}>{pm.label}</span> : null; })()}
                       </div>
                     </div>
                   );
@@ -980,6 +1000,22 @@ export default function StaffAttendancePage() {
                 className="w-full px-3 py-2 border-2 border-orange-200 rounded-lg text-sm bg-orange-50/30 font-semibold">
                 {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
+            </Field>
+            {/* v3.21.0: 법인 전환 대비 - 결제 수단 필드 */}
+            <Field label="💳 결제 수단 * (승인 시 재무관리에 태그 자동 부여)">
+              <div className="grid grid-cols-4 gap-1.5">
+                {[
+                  { v: "CORPORATE_CARD", label: "🏦 법인카드", color: "blue" },
+                  { v: "PERSONAL_CARD",  label: "👤 개인카드", color: "purple" },
+                  { v: "TRANSFER",       label: "💸 계좌이체", color: "emerald" },
+                  { v: "CASH",           label: "💵 현금",     color: "amber" },
+                ].map(m => (
+                  <button key={m.v} onClick={() => setExpForm({ ...expForm, payment_method: m.v })}
+                    className={`px-2 py-2 rounded-lg text-xs font-semibold border-2 transition-all ${expForm.payment_method === m.v ? `bg-${m.color}-500 text-white border-${m.color}-500 shadow-sm` : "bg-white text-slate-600 border-slate-200 hover:border-blue-300"}`}>
+                    {m.label}
+                  </button>
+                ))}
+              </div>
             </Field>
             <div className="grid grid-cols-2 gap-2">
               <Field label="품목명 *">
