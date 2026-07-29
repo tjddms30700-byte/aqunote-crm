@@ -51,8 +51,8 @@ const GROUPS = [
   },
   {
     key: "analytics",
-    title: "대시보드 · 보고서",
-    subtitle: "인사이트와 문서 자동 생성",
+    title: "📊 경영 리포트 · 문서 센터",
+    subtitle: "센터 현황 지표 및 보고서 · 계약서 자동 발급",
     icon: PieChart,
     from: "from-teal-500",
     to: "to-emerald-600",

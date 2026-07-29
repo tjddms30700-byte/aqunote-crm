@@ -8,17 +8,21 @@ import { supabase } from "@/lib/supabase";
 import HomeButton from "@/components/HomeButton";
 import { FileText, Download, User, Calendar, Printer, Loader2, ClipboardList, Search } from "lucide-react";
 
-// v3.20.21: 직원용/회원용 양식 라이브러리
+// v3.20.21: 직원용/회원용 양식 라이브러리 (v3.20.35: 4종 신규 보강 서식 추가)
 const STAFF_FORMS = [
-  { v: "employment", label: "📄 근로계약서", desc: "표준 근로계약서 자동 생성" },
-  { v: "nda",        label: "🔒 비밀유지서약서(NDA)", desc: "직원 기밀 보호 서약" },
-  { v: "resignation",label: "📝 사직서",       desc: "퇴사 자동 설문" },
-  { v: "incident",   label: "⚠️ 시말서",       desc: "징계/사유서 자동 설문" },
+  { v: "employment",     label: "📄 근로계약서", desc: "표준 근로계약서 자동 생성" },
+  { v: "nda",            label: "🔒 비밀유지서약서(NDA)", desc: "직원 기밀 보호 서약" },
+  { v: "staff_privacy",  label: "🔒 개인정보·치료기록 비밀유지", desc: "회원 민감정보 보호 서약" },
+  { v: "resignation",    label: "📝 사직서",       desc: "퇴사 자동 설문" },
+  { v: "incident",       label: "⚠️ 시말서",       desc: "징계/사유서 자동 설문" },
 ];
 const MEMBER_FORMS = [
   { v: "member_service", label: "📝 회원 이용계약서", desc: "STANDARD/ADVANCED/PREMIUM" },
   { v: "privacy",        label: "🔐 개인정보 동의서", desc: "수집·이용 동의" },
   { v: "safety",         label: "🏊 안전·입수 동의서", desc: "수중 안전 및 책임" },
+  { v: "aqua_safety",    label: "🏊‍♀️ 수중재활 안전·응급처치 동의서", desc: "기저질환·응급 이송 동의" },
+  { v: "portrait",       label: "📸 초상권·세션 영상 동의서", desc: "사진/영상 촬영·활용" },
+  { v: "research",       label: "🎓 연구대상자 참여 동의서", desc: "대학 연계 학술용" },
   { v: "consent_minor",  label: "👶 미성년자 보호자 동의서", desc: "미성년 회원 보호자 동의" },
 ];
 

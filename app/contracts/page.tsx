@@ -34,6 +34,11 @@ const CONTRACT_TYPES = [
   { v: "privacy",        l: "🛡️ 개인정보 동의서", cat: "member", color: "bg-emerald-100 text-emerald-800 border-emerald-300" },
   { v: "safety",         l: "⚠️ 안전·백임 동의서",  cat: "member", color: "bg-orange-100 text-orange-800 border-orange-300" },
   { v: "summary",        l: "📋 이용안내 요약서",     cat: "member", color: "bg-teal-100 text-teal-800 border-teal-300" },
+  // v3.20.35: 신규 보강 서식 4종 (수중재활 안전 / 초상권 / 연구용 / 직원 비밀유지)
+  { v: "aqua_safety",    l: "🏊‍♀️ 수중재활 안전·응급처치 동의서",   cat: "member", color: "bg-cyan-100 text-cyan-800 border-cyan-300" },
+  { v: "portrait",       l: "📸 초상권·영상 촬영 동의서",           cat: "member", color: "bg-pink-100 text-pink-800 border-pink-300" },
+  { v: "research",       l: "🎓 연구대상자 참여 동의서",             cat: "member", color: "bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300" },
+  { v: "staff_privacy",  l: "🔒 개인정보·치료기록 비밀유지 서약서", cat: "staff",  color: "bg-lime-100 text-lime-800 border-lime-300" },
   // 기타
   { v: "other",          l: "📌 기타 계약서",         cat: "other",  color: "bg-gray-100 text-gray-800 border-gray-300" },
 ];
@@ -479,6 +484,112 @@ const TEMPLATES: Record<string, string> = {
 
 위례아쿠수중운동센터 | 대표자: 하유정 | 사업자등록번호: 680-04-03475
 경기도 하남시 위례대로 190, 위례효성해링턴타워 203호`,
+
+  // v3.20.35: 수중재활 안전·응급처치 동의서 (회원용)
+  aqua_safety: `[수중재활 안전 및 응급처치 동의서]
+
+회원명: {{member_name}} | 생년월일: {{birth_date}} | 보호자명: {{guardian_name}} (관계: {{guardian_relation}})
+연락처: {{phone}} | 주소: {{address}}
+
+본인은 위례아쿠수중운동센터(이하 '센터')에서 진행하는 수중재활 및 운동 프로그램에 참여함에 있어, 아동/성인 회원의 안전하고 유익한 세션 진행을 위해 아래 사항을 충분히 안내받고 이에 동의합니다.
+
+1. 기저질환 및 건강 상태 사전 고지
+ · 회원의 뇌전증(발작 이력), 심장질환, 피부질환, 중이염, 수중 과민반응, 호흡기 질환 등 특이사항을 센터에 정확히 고지하였습니다.
+ · 사전 고지되지 않은 기저질환이나 컨디션 난조로 인해 발생한 문제에 대한 책임은 회원(보호자)에게 있음을 확인합니다.
+
+2. 수중 안전 수칙 및 지도 준수
+ · 수조 입수 전 전문 재활강사의 안내에 적극 따르며, 지정된 안전 구역 외의 무단 입수 및 돌발 행동을 금합니다.
+ · 세션 중 회원의 컨디션 저하(과각성, 체온 저하, 공포 반응 등)가 관찰될 경우, 강사의 판단에 따라 세션이 일시 중단될 수 있습니다.
+
+3. 응급처치 및 긴급 이송 동의
+ · 세션 중 긴급 상황이나 응급사고 발생 시, 센터는 즉시 119 구급대 연락 및 인근 협력 의료기관으로의 이송 등 필요한 응급조치를 취할 수 있음에 동의합니다.
+
+{{contract_date}}
+
+회원(또는 법정대리인) 성명: {{guardian_name}} (인/서명)
+위례아쿠수중운동센터 대표 하유정 (직인)`,
+
+  // v3.20.35: 초상권 및 세션 영상 촬영·활용 동의서 (회원용)
+  portrait: `[초상권 및 세션 영상 촬영·활용 동의서]
+
+회원명: {{member_name}} | 생년월일: {{birth_date}} | 보호자명: {{guardian_name}}
+
+본인은 위례아쿠수중운동센터에서 진행되는 수중재활 세션 중 촬영되는 사진 및 영상 자료의 수집·활용에 대해 다음과 같이 선택 동의합니다.
+
+1. 수집 및 활용 목적
+ [필수] 피드백 및 발전 분석: 세션 진행 상황 모니터링, 운동 기능 변화 분석 및 보호자 상담용
+ [선택] 홍보 및 교육: 센터 공식 블로그, SNS, 홈페이지, 임상 교육 자료 활용
+ [선택] 연구 및 학술: 대학 및 연구기관 연계 수중재활 효과 검증 학술 발표 자료
+
+2. 개인정보 보호 및 초상권 보장
+ · 홍보 및 학술 자료 활용 시 필요한 경우 얼굴 모자이크 처리 등 개인 식별을 최소화하는 조치를 요청할 수 있습니다.
+ · 동의한 항목에 대해서는 언제든지 철회를 요청할 수 있으며, 철회 시 즉시 해당 게시물 및 자료를 삭제/파기합니다.
+
+3. 보유 및 이용 기간: 회원 등록일로부터 퇴원 후 3년까지 (이후 안전하게 파기)
+
+위 내용을 숙지하였으며, 사진 및 영상 촬영·활용에 동의합니다.
+- [필수] 세션 피드백/상담용 촬영: ( 동의함 / 동의하지않음 )
+- [선택] 센터 홍보 및 교육 활용: ( 동의함 / 동의하지않음 )
+- [선택] 학술 연구 활용: ( 동의함 / 동의하지않음 )
+
+{{contract_date}}
+
+보호자(법정대리인) 성명: {{guardian_name}} (인/서명)
+위례아쿠수중운동센터 대표 하유정 (직인)`,
+
+  // v3.20.35: 대학 연계 연구대상자 설명서 및 참여 동의서 (연구용)
+  research: `[대학 연계 연구대상자 설명서 및 참여 동의서]
+
+연구과제명: 수중재활 프로그램이 아동·성인의 기능 개선에 미치는 효과 검증
+연구책임기관: {{research_org}} | 지도교수/연구책임자: {{research_pi}}
+
+대상자명: {{member_name}} | 생년월일: {{birth_date}} | 보호자: {{guardian_name}}
+
+1. 연구 목적 및 방법
+ · 본 연구는 수중재활 세션이 대상자의 근본적 운동기능, 정서 안정성, 재활 효과에 미치는 영향을 과학적으로 검증하기 위함입니다.
+ · 수집 데이터: 세션 로그, 기능평가 수치, 생체지표(심박·호흡수), 촬영 영상, 보호자 설문 응답.
+
+2. 참여자 권리
+ · 연구 참여는 자유이며, 언제든지 이유 없이 중단할 수 있으며 이로 인한 불이익은 없습니다.
+ · 개인을 식별할 수 있는 정보는 익명 처리되어 연구 종료 후 5년간 보관되며 이후 안전 파기됩니다.
+
+3. 예상되는 이익 및 위험
+ · 이익: 본인의 기능 변화 분석 리포트 수령, 수중재활 분야 학문 발전 기여.
+ · 위험: 일반 세션과 동일한 수준이며, 추가 신체적/심리적 부담 없음.
+
+4. 개인정보 보호
+ · 수집된 자료는 연구 목적 외에 사용되지 않으며, 학술지·학회 발표 시 개인을 식별할 수 없도록 익명 처리됩니다.
+
+본인(보호자)은 위 내용을 충분히 설명듣고 이해하였으며, 자유 의사에 따라 본 연구에 참여하는 것에 동의합니다.
+
+{{contract_date}}
+
+대상자(보호자) 성명: {{guardian_name}} (인/서명)
+연구책임자: {{research_pi}} (서명)
+위례아쿠수중운동센터 대표 하유정 (직인)`,
+
+  // v3.20.35: 개인정보·치료기록 비밀유지 서약서 (직원용)
+  staff_privacy: `[개인정보 및 회원 치료기록 비밀유지 서약서]
+
+성  명: {{name}} | 생년월일: {{birth}}
+직  책: {{staff_role}} | 입사일자: {{start_date}}
+
+본인은 위례아쿠수중운동센터에 재직함에 있어 업무 중 취득한 센터의 영업비밀 및 회원의 개인정보/치료기록을 보호하기 위해 다음 사항을 준수할 것을 엄격히 서약합니다.
+
+1. 회원 민감정보 보호 및 유출 금지
+ · 회원의 성명, 연락처, 진단명, 상담차트, 수중재활 세션 일지, 촬영 영상 등 모든 민감 정보는 업무 목적 외에 수집·열람·복사·외부 유출하지 않습니다.
+ · 퇴사 후에도 재직 중 알게 된 회원의 정보 및 센터의 운영 노하우/영업비밀을 제3자에게 누설하거나 부당하게 활용하지 않습니다.
+
+2. 데이터 관리 수칙 준수
+ · 센터에서 제공하는 AQUANOTE 프로그램의 계정 정보를 타인과 공유하지 않으며, 개인 기기에 회원의 민감정보를 무단 저장하지 않습니다.
+
+3. 위반 시 책임
+ · 본 서약서를 위반하여 회원의 개인정보가 유출되거나 센터에 손해가 발생할 경우, 개인정보보호법 등 관계 법령에 따른 민·형사상 법적 책임을 전적으로 부담할 것을 서약합니다.
+
+{{contract_date}}
+
+서약자(직원) 성명: {{name}} (인/서명)
+위례아쿠수중운동센터 대표 하유정 (직인)`,
 };
 
 function todayStr() {
@@ -606,13 +717,20 @@ function ContractsPage() {
   function applyTemplateVars(body: string, editingObj: any): string {
     if (!body) return "";
     const fd = editingObj?.form_data || {};
+    // v3.20.35: 신규 4종 서식용 변수 확장 (member_name, guardian_relation, center_name, staff_*, research_*)
+    const subjName = editingObj?.subject_name || fd.name || fd.member_name || fd.staff_name || "";
     const vars: Record<string, string> = {
-      name: editingObj?.subject_name || fd.name || "",
+      name: subjName,
+      member_name: subjName,
+      staff_name: subjName,
       phone: fd.phone || fd.worker_phone || fd.contact || "",
-      birth: fd.birth || fd.birth_date || fd.child_birth || "",
+      birth: fd.birth || fd.birth_date || fd.child_birth || fd.staff_birth || "",
+      birth_date: fd.birth_date || fd.birth || fd.child_birth || "",
+      staff_birth: fd.staff_birth || fd.birth || fd.birth_date || "",
       address: fd.address || "",
-      start_date: editingObj?.start_date || fd.start_date || "",
+      start_date: editingObj?.start_date || fd.start_date || fd.hire_date || "",
       end_date: editingObj?.end_date || fd.end_date || "",
+      hire_date: fd.hire_date || editingObj?.start_date || fd.start_date || "",
       contract_date: editingObj?.contract_date || "",
       base_salary: fd.base_salary ? Number(fd.base_salary).toLocaleString() : "",
       meal_allowance: fd.meal_allowance ? Number(fd.meal_allowance).toLocaleString() : "",
@@ -626,10 +744,16 @@ function ContractsPage() {
       pay_method: fd.pay_method || "",
       employer_name: fd.employer_name || "위례아쿠수중운동센터",
       employer_ceo: fd.employer_ceo || "하유정",
-      guardian: fd.guardian || "",
-      relation: fd.relation || "",
+      center_name: fd.center_name || "위례아쿠수중운동센터",
+      guardian: fd.guardian || fd.guardian_name || "",
+      guardian_name: fd.guardian_name || fd.guardian || subjName,
+      guardian_relation: fd.guardian_relation || fd.relation || "머니",
+      relation: fd.relation || fd.guardian_relation || "",
       child_name: fd.child_name || "",
       child_birth: fd.child_birth || "",
+      staff_role: fd.staff_role || fd.role || fd.duty || "재활강사",
+      research_org: fd.research_org || "미기재",
+      research_pi: fd.research_pi || "미기재",
       confidential_scope: fd.confidential_scope || "",
       duration_years: fd.duration_years || "",
       penalty: fd.penalty || "",
