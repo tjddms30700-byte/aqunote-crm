@@ -114,6 +114,7 @@ export default function StaffAttendancePage() {
   async function loadAll() {
     setLoading(true);
     const [sRes, lRes, vRes, eRes, pRes] = await Promise.all([
+      // v3.20.36: 재직자 전용 필터 - status='resigned'/'retired'/'inactive' 제외 + is_active=false/is_resigned=true 제외
       supabase.from("staff").select("*").order("name"),
       supabase.from("attendance_logs").select("*").gte("log_date", month + "-01")
         .lte("log_date", month + "-31").order("log_date", { ascending: false }),
@@ -122,12 +123,29 @@ export default function StaffAttendancePage() {
         .lte("spent_at", month + "-31").order("spent_at", { ascending: false }),
       supabase.from("posts").select("*").order("is_pinned", { ascending: false }).order("created_at", { ascending: false }),
     ]);
-    setStaff(sRes.data || []);
+    // v3.20.36: 퇴사자 제외 – 컬럼 명칭이 어떤 것(이든) 모두 안전하게 대응
+    const activeStaff = (sRes.data || []).filter((s: any) => {
+      const st = String(s?.status || "").toLowerCase();
+      if (["resigned", "retired", "inactive", "terminated", "quit", "leave"].includes(st)) return false;
+      if (s?.is_active === false) return false;
+      if (s?.is_resigned === true) return false;
+      if (s?.resigned_at) return false;
+      if (s?.deleted_at) return false;
+      if (s?.termination_date) return false;
+      return true;
+    });
+    setStaff(activeStaff);
     setLogs(lRes.data || []);
     setLeaves(vRes.data || []);
     setExpenses(eRes.data || []);
     setPosts(pRes.data || []);
-    if (!selectedStaff && sRes.data && sRes.data.length > 0) setSelectedStaff(sRes.data[0].id);
+    // 선택된 직원이 퇴사되었다면 첫 재직자로 리셋
+    if (activeStaff.length > 0) {
+      const stillActive = activeStaff.some((s: any) => s.id === selectedStaff);
+      if (!selectedStaff || !stillActive) setSelectedStaff(activeStaff[0].id);
+    } else {
+      setSelectedStaff("");
+    }
     setLoading(false);
   }
 
@@ -241,7 +259,9 @@ export default function StaffAttendancePage() {
     };
   }, [staffLogs, staff, selectedStaff, usedAnnual, usedReward]);
 
-  const attendedToday = logs.filter(l => l.log_date === todayStr() && l.check_in).length;
+  // v3.20.36: 재직자 기준 출근 집계 (퇴사자 제외)
+  const activeStaffIds = new Set(staff.map((s: any) => s?.id).filter(Boolean));
+  const attendedToday = logs.filter(l => l?.log_date === todayStr() && l?.check_in && activeStaffIds.has(l?.staff_id)).length;
   const totalStaff = staff.length;
 
   async function submitLeave() {

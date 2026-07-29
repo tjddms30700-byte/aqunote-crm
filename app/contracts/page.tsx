@@ -618,14 +618,25 @@ function ContractsPage() {
 
   useEffect(() => { loadAll(); }, []);
 
-  // v3.20.21: URL 파라미터 자동 로드 (/reports 양식 탭에서 진입)
+  // v3.20.36: URL 파라미터 확장 - lead 상세 데이터 자동 수신 + form_data 매핑
   useEffect(() => {
     const newType = searchParams?.get("new");
     const subjectKind = searchParams?.get("subject_kind") as "staff" | "member" | null;
-    const subjectId = searchParams?.get("subject_id");
-    const subjectName = searchParams?.get("subject_name");
+    const subjectId = searchParams?.get("subject_id") || "";
+    const subjectName = searchParams?.get("subject_name") || "";
+    const leadId = searchParams?.get("lead_id") || "";
+    // 체험/상담 리드 상세
+    const extraFromUrl = {
+      phone: searchParams?.get("phone") || "",
+      birth: searchParams?.get("birth") || "",
+      guardian_name: searchParams?.get("guardian_name") || "",
+      guardian_relation: searchParams?.get("guardian_relation") || "",
+      address: searchParams?.get("address") || "",
+      member_type: searchParams?.get("member_type") || "",
+      lead_id: leadId,
+    };
     if (newType && subjectKind) {
-      openNewByType(newType, subjectKind, subjectId || "", subjectName || "");
+      openNewByType(newType, subjectKind, subjectId, subjectName, extraFromUrl);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
@@ -773,7 +784,29 @@ function ContractsPage() {
     return out;
   }
 
-  function openNewByType(contractType: string, subCat: "staff" | "member", subjectId: string, subjectName: string) {
+  // v3.20.36: extraFromUrl 파라미터로 체험/상담 리드 상세 데이터 자동 매핑
+  function openNewByType(
+    contractType: string,
+    subCat: "staff" | "member",
+    subjectId: string,
+    subjectName: string,
+    extra?: {
+      phone?: string; birth?: string; guardian_name?: string; guardian_relation?: string;
+      address?: string; member_type?: string; lead_id?: string;
+    }
+  ) {
+    // 기본 form_data에 URL에서 전달받은 리드 데이터 병합
+    const baseForm: any = defaultFormDataFor(contractType, subCat);
+    if (extra) {
+      if (extra.phone) baseForm.phone = baseForm.phone || extra.phone;
+      if (extra.phone) baseForm.worker_phone = baseForm.worker_phone || extra.phone;
+      if (extra.birth) { baseForm.birth = extra.birth; baseForm.birth_date = extra.birth; }
+      if (extra.guardian_name) baseForm.guardian_name = extra.guardian_name;
+      if (extra.guardian_relation) baseForm.guardian_relation = extra.guardian_relation;
+      if (extra.address) baseForm.address = extra.address;
+      if (extra.member_type) baseForm.member_type = extra.member_type;
+      if (extra.lead_id) baseForm.lead_id = extra.lead_id;
+    }
     setEditing({
       contract_type: contractType,
       subject_kind: subCat,
@@ -784,11 +817,12 @@ function ContractsPage() {
       start_date: todayStr(),
       end_date: "",
       body: TEMPLATES[contractType] || "",
-      form_data: defaultFormDataFor(contractType, subCat),
+      form_data: baseForm,
       signature: "", counter_signature: "", status: "draft", note: "",
-      // v3.20.22: 자동연장 (해지 전까지 계속 연장)
       auto_renew: true,
       renew_period_months: subCat === "staff" ? 12 : 12,
+      // v3.20.36: 리드 원본 ID 보존 (추후 leads_inbox에 promoted_member_id 연결)
+      _lead_id: extra?.lead_id || null,
     });
   }
   useBranchWatch(() => loadAll());
@@ -816,10 +850,63 @@ function ContractsPage() {
     }
     setContracts(contractsData);
 
-    const mRes = await supabase.from("members").select("id, name, member_type, phone, guardian_name").is("deleted_at", null).order("name");
-    setMembers(mRes.data || []);
-    const sRes = await supabase.from("staff").select("id, name, role, phone, hire_date").order("name");
-    setStaffList(sRes.data || []);
+    // v3.20.36: 정식 회원 + 체험/상담 리드 통합 조회 (계약서 대상자 검색에서 체험/상담 회원도 노출)
+    const [mRes, lRes] = await Promise.all([
+      supabase.from("members").select("id, name, member_type, phone, guardian_name, birth, status, extra").is("deleted_at", null).order("name"),
+      supabase.from("leads_inbox").select("id, consult_form, status, promoted_member_id, created_at").is("promoted_member_id", null).order("created_at", { ascending: false }).limit(200),
+    ]);
+    const memberList = (mRes.data || []).map((m: any) => ({
+      id: m.id,
+      source_type: "member",
+      name: m.name,
+      member_type: m.member_type,
+      phone: m.phone,
+      birth: m.birth,
+      guardian_name: m.guardian_name || m?.extra?.consult_form?.guardian_name || "",
+      status: m.status,
+      _badge: m.status === "trial_scheduled" || m.status === "trial_done" ? "체험"
+        : m.status === "waiting" || m.status === "new" ? "상담대기"
+        : m.status === "regular" ? null : null,
+    }));
+    const leadList = (lRes.data || []).map((r: any) => {
+      const cf = r.consult_form || {};
+      const nm = cf.name || cf.child_name || cf.member_name;
+      if (!nm) return null;
+      return {
+        id: `lead:${r.id}`,
+        source_type: "lead",
+        lead_id: r.id,
+        name: nm,
+        member_type: cf.member_type || (cf.child_name ? "child" : "adult"),
+        phone: cf.phone || cf.guardian_phone || "",
+        birth: cf.birth || cf.birth_date || cf.child_birth || "",
+        guardian_name: cf.guardian_name || cf.parent_name || "",
+        guardian_relation: cf.guardian_relation || cf.parent_relation || "",
+        address: cf.address || "",
+        consult_form: cf,
+        status: r.status || "pending",
+        _badge: "상담대기",
+      };
+    }).filter(Boolean) as any[];
+    // 중복 제거 (이름+전화번호 뒷자리 8자리 기준)
+    const seen = new Set<string>();
+    const merged = [...memberList, ...leadList].filter((x: any) => {
+      const key = `${(x.name || "").trim()}|${(x.phone || "").replace(/[^0-9]/g, "").slice(-8)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    setMembers(merged);
+    // v3.20.36: 재직자 필터링 – status='resigned' 및 is_active=false 제외
+    const sRes = await supabase.from("staff").select("*").order("name");
+    const activeStaff = (sRes.data || []).filter((s: any) => {
+      const st = String(s?.status || "").toLowerCase();
+      if (st === "resigned" || st === "retired" || st === "inactive") return false;
+      if (s?.is_active === false) return false;
+      if (s?.is_resigned === true) return false;
+      return true;
+    });
+    setStaffList(activeStaff);
 
     setLoading(false);
   }
@@ -1504,34 +1591,52 @@ function ContractsPage() {
                 </label>
               </div>
 
-              {/* v3.20.21: 회원/직원 검색 셀렉터 */}
+              {/* v3.20.36: 회원/직원 검색 셀렉터 - 정규/체험/상담 모두 노출 · lead 클릭 시 form_data 자동 매핑 */}
               <div className="no-print grid grid-cols-1 md:grid-cols-2 gap-2">
                 <label className="text-xs">
                   <span className="text-gray-600 font-semibold">대상자 검색 (클릭 시 자동 입력)</span>
-                  <select value={editing.subject_id || ""}
+                  <select value={editing.subject_id || editing._lead_id || ""}
                     onChange={e => {
+                      const val = e.target.value;
                       const list = editing.subject_kind === "staff" ? staffList : members;
-                      const found = list.find((x: any) => x.id === e.target.value);
+                      const found = list.find((x: any) => x.id === val);
                       if (found) {
                         const fd = { ...(editing.form_data || {}) };
-                        if (editing.subject_kind === "staff") fd.worker_phone = found.phone || fd.worker_phone;
-                        else { fd.phone = found.phone || fd.phone; fd.guardian = found.guardian_name || fd.guardian; }
+                        if (editing.subject_kind === "staff") {
+                          fd.worker_phone = found.phone || fd.worker_phone;
+                          fd.staff_name = found.name || fd.staff_name;
+                          fd.staff_role = found.role || fd.staff_role;
+                          fd.hire_date = found.hire_date || fd.hire_date;
+                        } else {
+                          // v3.20.36: 정규 회원 또는 leads_inbox 리드 상관없이 form_data 모든 필드 병합
+                          fd.member_name = found.name || fd.member_name;
+                          fd.phone = found.phone || fd.phone;
+                          fd.birth = found.birth || fd.birth;
+                          fd.birth_date = found.birth || fd.birth_date;
+                          fd.guardian = found.guardian_name || fd.guardian;
+                          fd.guardian_name = found.guardian_name || fd.guardian_name;
+                          fd.guardian_relation = found.guardian_relation || fd.guardian_relation;
+                          fd.address = found.address || fd.address;
+                          fd.member_type = found.member_type || fd.member_type;
+                        }
                         setEditing({
                           ...editing,
-                          subject_id: found.id,
+                          subject_id: found.source_type === "lead" ? "" : found.id,
+                          _lead_id: found.source_type === "lead" ? found.lead_id : null,
                           subject_name: found.name,
                           title: editing.title || `${new Date().getFullYear()}년 ${typeLabel(editing.contract_type).replace(/^[^ ]+ /, "")} (${found.name})`,
                           form_data: fd,
                         });
                       } else {
-                        setEditing({ ...editing, subject_id: "" });
+                        setEditing({ ...editing, subject_id: "", _lead_id: null });
                       }
                     }}
                     className="w-full mt-1 px-2 py-2 border border-gray-200 rounded-lg text-sm">
-                    <option value="">— {editing.subject_kind === "staff" ? "직원" : "회원"} 선택 —</option>
-                    {(editing.subject_kind === "staff" ? staffList : members).map((x: any) => (
-                      <option key={x.id} value={x.id}>{x.name}{x.phone ? ` (${x.phone})` : ""}</option>
-                    ))}
+                    <option value="">— {editing.subject_kind === "staff" ? "직원" : "회원 (정규/체험/상담대기)"} 선택 —</option>
+                    {(editing.subject_kind === "staff" ? staffList : members).map((x: any) => {
+                      const badge = x._badge ? `[${x._badge}] ` : "";
+                      return <option key={x.id} value={x.id}>{badge}{x.name}{x.phone ? ` (${x.phone})` : ""}</option>;
+                    })}
                   </select>
                 </label>
                 <label className="text-xs">

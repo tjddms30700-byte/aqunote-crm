@@ -33,6 +33,28 @@ const REPORT_TYPES = [
   { v: "behavior", label: "🚨 행동중재 보고서",   desc: "문제행동 데이터·중재 효과" },
 ];
 
+// v3.20.36: 체험/상담 리드의 상세 데이터까지 URL로 전달해 계약서 변수 자동 치환
+function buildContractUrl(formType: string, subject: any, embed: boolean): string {
+  const params = new URLSearchParams();
+  params.set("new", formType);
+  params.set("subject_kind", subject?.kind || "member");
+  // lead인 경우 subject_id를 비우고 lead_id만 전달 (contracts 페이지는 lead_id로 consult_form 재조회)
+  if (subject?.source_type === "lead") {
+    params.set("lead_id", subject.lead_id || "");
+  } else if (subject?.id) {
+    params.set("subject_id", subject.id);
+  }
+  params.set("subject_name", subject?.name || "");
+  if (subject?.phone) params.set("phone", subject.phone);
+  if (subject?.birth) params.set("birth", subject.birth);
+  if (subject?.guardian_name) params.set("guardian_name", subject.guardian_name);
+  if (subject?.guardian_relation) params.set("guardian_relation", subject.guardian_relation);
+  if (subject?.address) params.set("address", subject.address);
+  if (subject?.member_type) params.set("member_type", subject.member_type);
+  if (embed) params.set("embed", "1");
+  return `/contracts?${params.toString()}`;
+}
+
 function todayStr() { return new Date().toISOString().slice(0,10); }
 function weekAgoStr() {
   const d = new Date(); d.setDate(d.getDate() - 7);
@@ -71,14 +93,87 @@ function ReportsPage() {
     if (t === "forms") setTopTab("forms");
   }, [searchParams]);
 
+  // v3.20.36: 정식 회원 + 체험/상담 진행중(leads_inbox) 통합 로드
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.from("members").select("id, name, member_type, status, phone")
-        .is("deleted_at", null).eq("status", "regular").order("name");
-      setMembers(data || []);
-      if (data && data.length > 0) setSelectedMember(data[0].id);
-      const { data: sd } = await supabase.from("staff").select("id, name, role, phone").order("name");
-      setStaffList(sd || []);
+      // 1) 정식 회원 (regular 뿐만 아니라 체험/대기 상태 회원도 모두 포함)
+      const [memRes, leadRes, staffRes] = await Promise.all([
+        supabase.from("members")
+          .select("id, name, member_type, status, phone, birth, extra")
+          .is("deleted_at", null)
+          .order("name"),
+        supabase.from("leads_inbox")
+          .select("id, consult_form, status, promoted_member_id, created_at")
+          .is("promoted_member_id", null) // 이미 회원으로 변환된 리드는 제외
+          .order("created_at", { ascending: false })
+          .limit(200),
+        supabase.from("staff").select("id, name, role, phone").order("name"),
+      ]);
+
+      // 2) 회원 정규화 - status 배지 색상/라벨 계산
+      const memberList = (memRes.data || []).map((m: any) => ({
+        id: m.id,
+        source_type: "member" as const,
+        name: m.name || "",
+        member_type: m.member_type,
+        phone: m.phone || "",
+        birth: m.birth || "",
+        status: m.status || "regular",
+        guardian_name: m?.extra?.consult_form?.guardian_name || "",
+        badge: m.status === "trial_scheduled" || m.status === "trial_done"
+          ? { label: "체험", cls: "bg-blue-50 text-blue-700 border-blue-200" }
+          : m.status === "waiting" || m.status === "new"
+          ? { label: "상담대기", cls: "bg-orange-50 text-orange-700 border-orange-200" }
+          : m.status === "regular"
+          ? { label: "정규", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" }
+          : { label: m.status || "-", cls: "bg-slate-50 text-slate-700 border-slate-200" },
+      }));
+
+      // 3) leads_inbox → 동일 구조로 통합 (id는 lead: 프리픽으로 구분)
+      const leadList = (leadRes.data || [])
+        .map((r: any) => {
+          const cf = r.consult_form || {};
+          const nm = cf.name || cf.child_name || cf.member_name;
+          if (!nm) return null;
+          return {
+            id: `lead:${r.id}`,
+            source_type: "lead" as const,
+            lead_id: r.id,
+            name: nm,
+            member_type: cf.member_type || (cf.child_name ? "child" : "adult"),
+            phone: cf.phone || cf.guardian_phone || "",
+            birth: cf.birth || cf.birth_date || cf.child_birth || "",
+            guardian_name: cf.guardian_name || cf.parent_name || "",
+            guardian_relation: cf.guardian_relation || cf.parent_relation || "",
+            address: cf.address || "",
+            consult_form: cf,
+            status: r.status || "pending",
+            badge: { label: "상담대기", cls: "bg-orange-50 text-orange-700 border-orange-200" },
+          };
+        })
+        .filter(Boolean) as any[];
+
+      // 4) 중복 제거 (이름+전화번호 기준)
+      const seen = new Set<string>();
+      const merged = [...memberList, ...leadList].filter((x: any) => {
+        const key = `${(x.name || "").trim()}|${(x.phone || "").replace(/[^0-9]/g, "").slice(-8)}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      // 정렬: 체험/정규 → 상담대기 → 기타
+      merged.sort((a: any, b: any) => {
+        const order = (x: any) => x.status === "trial_done" || x.status === "trial_scheduled" ? 0
+          : x.status === "regular" ? 1 : x.source_type === "lead" ? 2 : 3;
+        const oa = order(a), ob = order(b);
+        if (oa !== ob) return oa - ob;
+        return (a.name || "").localeCompare(b.name || "");
+      });
+
+      setMembers(merged);
+      if (merged.length > 0) setSelectedMember(merged[0].id);
+      setStaffList(staffRes.data || []);
     })();
   }, []);
 
@@ -88,10 +183,22 @@ function ReportsPage() {
     const q = formSearch.toLowerCase();
     return staffList.filter(s => (s.name || "").toLowerCase().includes(q) || (s.phone || "").includes(q));
   }, [staffList, formSearch]);
+  // v3.20.36: 이름 + 전화번호(뒷자리 포함) + 보호자명 + 생년월일 실시간 검색
   const filteredMembers = useMemo(() => {
     if (!formSearch) return members;
-    const q = formSearch.toLowerCase();
-    return members.filter(m => (m.name || "").toLowerCase().includes(q) || (m.phone || "").includes(q));
+    const q = formSearch.trim().toLowerCase();
+    const qDigits = q.replace(/[^0-9]/g, "");
+    return members.filter((m: any) => {
+      const name = (m.name || "").toLowerCase();
+      const phone = (m.phone || "").toLowerCase();
+      const phoneDigits = phone.replace(/[^0-9]/g, "");
+      const guardian = (m.guardian_name || "").toLowerCase();
+      const birth = (m.birth || "").toLowerCase();
+      if (name.includes(q) || guardian.includes(q) || birth.includes(q)) return true;
+      if (qDigits && (phoneDigits.includes(qDigits) || phoneDigits.endsWith(qDigits))) return true;
+      if (phone.includes(q)) return true;
+      return false;
+    });
   }, [members, formSearch]);
 
   async function generate() {
@@ -239,11 +346,32 @@ function ReportsPage() {
                   <div className="text-sm font-bold text-gray-800">{s?.name}</div>
                   <div className="text-[10px] text-gray-500">{s?.role || "직원"} · {s?.phone || "-"}</div>
                 </button>
-              )) : filteredMembers.map(m => (
+              )) : filteredMembers.map((m: any) => (
                 <button key={m?.id}
-                  onClick={() => setSelectedSubject({ kind: "member", id: m?.id, name: m?.name || "", phone: m?.phone || "", member_type: m?.member_type })}
+                  onClick={() => setSelectedSubject({
+                    kind: "member",
+                    id: m?.id,
+                    source_type: m?.source_type || "member",
+                    lead_id: m?.lead_id,
+                    name: m?.name || "",
+                    phone: m?.phone || "",
+                    member_type: m?.member_type,
+                    birth: m?.birth || "",
+                    guardian_name: m?.guardian_name || "",
+                    guardian_relation: m?.guardian_relation || "",
+                    address: m?.address || "",
+                    consult_form: m?.consult_form || null,
+                    status: m?.status,
+                  })}
                   className={`p-2.5 rounded-lg border text-left transition ${selectedSubject?.id===m?.id ? "border-aqu-500 bg-aqu-50 ring-2 ring-aqu-200" : "border-gray-200 hover:border-aqu-400 hover:bg-aqu-50"}`}>
-                  <div className="text-sm font-bold text-gray-800">{m?.name}</div>
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <span className="text-sm font-bold text-gray-800">{m?.name}</span>
+                    {m?.badge && (
+                      <span className={`inline-block px-1.5 py-0.5 rounded-full border text-[9px] font-semibold ${m.badge.cls}`}>
+                        {m.badge.label}
+                      </span>
+                    )}
+                  </div>
                   <div className="text-[10px] text-gray-500">{m?.member_type === "child" ? "아동" : "성인"} · {m?.phone || "-"}</div>
                 </button>
               ))}
@@ -257,10 +385,22 @@ function ReportsPage() {
           {selectedFormType && selectedSubject && (
             <div className="mt-5 border-2 border-aqu-500 rounded-2xl bg-gradient-to-br from-aqu-50 to-blue-50 p-4">
               <div className="flex items-center justify-between mb-3">
-                <div className="text-sm font-bold text-aqu-900">
+                <div className="text-sm font-bold text-aqu-900 flex flex-wrap items-center gap-1.5">
                   ✅ 선택: <span className="text-blue-700">{[...STAFF_FORMS, ...MEMBER_FORMS].find(x => x.v === selectedFormType)?.label}</span>
-                  {" × "}
+                  <span>×</span>
                   <span className="text-purple-700">{selectedSubject.name}</span>
+                  {/* v3.20.36: 선택된 대상자 배지 (체험/상담대기/정규) */}
+                  {selectedSubject.kind === "member" && selectedSubject.status && (() => {
+                    const st = selectedSubject.status;
+                    const badge = (st === "trial_scheduled" || st === "trial_done")
+                      ? { l: "체험", c: "bg-blue-50 text-blue-700 border-blue-200" }
+                      : (st === "waiting" || st === "new" || selectedSubject.source_type === "lead")
+                      ? { l: "상담대기", c: "bg-orange-50 text-orange-700 border-orange-200" }
+                      : st === "regular"
+                      ? { l: "정규", c: "bg-emerald-50 text-emerald-700 border-emerald-200" }
+                      : null;
+                    return badge ? <span className={`inline-block px-1.5 py-0.5 rounded-full border text-[10px] font-semibold ${badge.c}`}>{badge.l}</span> : null;
+                  })()}
                   <span className="text-[11px] text-gray-500 ml-1">({selectedSubject.kind === "staff" ? selectedSubject.role || "직원" : selectedSubject.member_type === "child" ? "아동" : "성인"} · {selectedSubject.phone || "-"})</span>
                 </div>
                 <button onClick={() => { setSelectedFormType(""); setSelectedSubject(null); setInlineFormOpen(false); }}
@@ -271,7 +411,7 @@ function ReportsPage() {
                   className="px-4 py-2.5 bg-gradient-to-r from-aqu-500 to-blue-600 text-white rounded-lg text-sm font-bold hover:opacity-90 shadow">
                   📝 이 페이지에서 작성/서명
                 </button>
-                <Link href={`/contracts?new=${selectedFormType}&subject_kind=${selectedSubject.kind}&subject_id=${selectedSubject.id}&subject_name=${encodeURIComponent(selectedSubject.name)}`}
+                <Link href={buildContractUrl(selectedFormType, selectedSubject, false)}
                   className="px-4 py-2.5 bg-white border-2 border-aqu-300 text-aqu-700 rounded-lg text-sm font-bold hover:bg-aqu-50">
                   ↗ 계약서 관리 페이지에서 작성 (상세 옵션 포함)
                 </Link>
@@ -289,7 +429,7 @@ function ReportsPage() {
                   className="text-xs px-2 py-1 rounded bg-white border border-gray-300 hover:bg-gray-100">✕ 닫기</button>
               </div>
               <iframe
-                src={`/contracts?new=${selectedFormType}&subject_kind=${selectedSubject.kind}&subject_id=${selectedSubject.id}&subject_name=${encodeURIComponent(selectedSubject.name)}&embed=1`}
+                src={buildContractUrl(selectedFormType, selectedSubject, true)}
                 className="w-full h-full border-0"
                 title="양식 작성" />
             </div>
