@@ -17,10 +17,18 @@ function fmtTime(iso?: string) { return iso ? new Date(iso).toLocaleTimeString("
 function diffHours(a: string, b: string) { return (new Date(b).getTime() - new Date(a).getTime()) / 3600000; }
 
 // v3.20.34: 지출 카테고리 옵션 (재무관리 expenses.category 와 1:1 매칭)
-const EXPENSE_CATEGORIES = [
-  "식대·회식", "여비교통비", "소모품비", "사무용품", "수영장 약품",
-  "임대료", "수도광열비", "통신비", "마케팅/홍보", "장비/비품", "외부 서비스", "기타",
+// v3.21.1: /finance CATEGORY_GROUPS와 완전 일치 – 중복 제거 + 그룹핑
+const EXPENSE_CATEGORY_GROUPS: { label: string; items: string[] }[] = [
+  { label: "🏠 임대·공과금",     items: ["임대료", "관리비", "공과금(수도·전기·가스)", "인터넷·통신비"] },
+  { label: "💧 수영장 운영",     items: ["수영장 약품", "수영장 청소·시설관리", "수영복·수영모·수건"] },
+  { label: "🛠️ 장비·소모품",    items: ["장비 구매·수리", "교구·참고서적", "사무용품·소모품", "인쇄비"] },
+  { label: "👥 인건비·복리후생", items: ["복리후생(식대·회식·경조사)", "교육·연수", "상비약품"] },
+  { label: "📣 홍보·마케팅",     items: ["온라인 광고(SNS·검색)", "오프라인 홍보·이벤트", "플랫폼 사용료"] },
+  { label: "🚗 교통·차량",       items: ["교통비·주차비", "차량유지비·유류비"] },
+  { label: "📑 세무·법무·수수료",items: ["세금(종합소득세·부가세)", "보험료", "세무·회계 수수료", "법무·자문·외부용역", "은행·카드 수수료"] },
+  { label: "📦 기타",             items: ["기부금", "기타"] },
 ];
+const EXPENSE_CATEGORIES = EXPENSE_CATEGORY_GROUPS.flatMap((g) => g.items);
 
 const EXPENSE_TYPES = [
   { v: "reimburse", label: "경비 정산" },
@@ -65,7 +73,7 @@ export default function StaffAttendancePage() {
 
   const [showExpModal, setShowExpModal] = useState(false);
   const [expForm, setExpForm] = useState<any>({
-    staff_id: "", expense_type: "reimburse", expense_category: "소모품비",
+    staff_id: "", expense_type: "reimburse", expense_category: "사무용품·소모품",
     purchase_item: "", purchase_amount: 0, vendor: "", receipt_url: "",
     start_date: todayStr(), reason: "",
     // v3.21.0: 법인 전환 대비 – 결제 수단 필드
@@ -329,7 +337,7 @@ export default function StaffAttendancePage() {
       alert("지출 결재 신청 실패: " + r.error.message); return;
     }
     setShowExpModal(false);
-    setExpForm({ staff_id: "", expense_type: "reimburse", expense_category: "소모품비", purchase_item: "", purchase_amount: 0, vendor: "", receipt_url: "", start_date: todayStr(), reason: "", payment_method: "CORPORATE_CARD" });
+    setExpForm({ staff_id: "", expense_type: "reimburse", expense_category: "사무용품·소모품", purchase_item: "", purchase_amount: 0, vendor: "", receipt_url: "", start_date: todayStr(), reason: "", payment_method: "CORPORATE_CARD" });
     alert("✅ 지출 결재 신청이 접수되었습니다");
     await loadAll();
   }
@@ -996,10 +1004,22 @@ export default function StaffAttendancePage() {
               </div>
             </Field>
             <Field label="💰 재무 지출 카테고리 * (승인 시 재무관리로 자동 전달)">
-              <select value={expForm.expense_category} onChange={e => setExpForm({ ...expForm, expense_category: e.target.value })}
-                className="w-full px-3 py-2 border-2 border-orange-200 rounded-lg text-sm bg-orange-50/30 font-semibold">
-                {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
+              {/* v3.21.1: /finance와 동일한 그룹핑 UI 적용 */}
+              <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 p-2 border-2 border-orange-200 rounded-lg bg-orange-50/30">
+                {EXPENSE_CATEGORY_GROUPS.map((g) => (
+                  <div key={g.label} className="bg-white/70 rounded-lg p-2 border border-orange-100">
+                    <div className="text-[10px] font-bold text-orange-700 mb-1">{g.label}</div>
+                    <div className="flex flex-wrap gap-1">
+                      {g.items.map((c) => (
+                        <button key={c} type="button" onClick={() => setExpForm({ ...expForm, expense_category: c })}
+                          className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition ${expForm.expense_category === c ? "bg-orange-500 text-white shadow-sm" : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50"}`}>
+                          {c}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </Field>
             {/* v3.21.0: 법인 전환 대비 - 결제 수단 필드 */}
             <Field label="💳 결제 수단 * (승인 시 재무관리에 태그 자동 부여)">

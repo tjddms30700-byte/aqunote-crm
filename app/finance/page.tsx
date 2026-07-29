@@ -21,32 +21,20 @@ const INCOME_CATEGORIES = [
   "기타 수입",
 ];
 
-// ✅ v3.20.11: 지출 카테고리 추가 (마케팅, 식비, 교육비, 차량유지비, 복리후생, 법무비용, 경조사 등)
-const CATEGORIES = [
-  // 공과금
-  "임대료", "관리비", "수도료", "전기료", "가스료", "난방비",
-  "인터넷·통신비",
-  // 수영장 특화
-  "수영장 약품", "수영장 청소",
-  "수영복·수영모", "상비약품", "참고서적·교구",
-  // 장비 / 홍보 / 마케팅
-  "장비 구매", "장비 수리", "마케팅",
-  "오프라인 홍보", "SNS·온라인 광고",
-  "이벤트·이벤트 경품",
-  // 직원 / 복리후생
-  "교육·연수", "교육비", "복리후생",
-  "식대·회식", "식비", "경조사비",
-  // 교통 / 차량
-  "교통비", "주차비", "차량유지비", "유류비",
-  // 세무 / 수수료 / 법무
-  "세금", "종합소득세", "보험",
-  "은행수수료·카드수수료",
-  "세무·회계 수수료", "세무비", "법무비용",
-  "외부용역", "자문비",
-  // 기타
-  "소모품", "사무용품", "인쇄비", "플랫폼 사용료",
-  "기부금", "기타"
+// v3.21.1: 지출 카테고리 정리 – 중복/유사 통합, 논리 그룹 재구성 (43개 → 24개)
+// 그룹핑 원칙: ① 임대·공과금 ② 수영장 운영 ③ 장비·소모품 ④ 인건비·복리후생
+//              ⑤ 홍보·마케팅 ⑥ 교통·차량 ⑦ 세무·법무·수수료 ⑧ 기타
+const CATEGORY_GROUPS: { label: string; items: string[] }[] = [
+  { label: "🏠 임대·공과금",     items: ["임대료", "관리비", "공과금(수도·전기·가스)", "인터넷·통신비"] },
+  { label: "💧 수영장 운영",     items: ["수영장 약품", "수영장 청소·시설관리", "수영복·수영모·수건"] },
+  { label: "🛠️ 장비·소모품",    items: ["장비 구매·수리", "교구·참고서적", "사무용품·소모품", "인쇄비"] },
+  { label: "👥 인건비·복리후생", items: ["복리후생(식대·회식·경조사)", "교육·연수", "상비약품"] },
+  { label: "📣 홍보·마케팅",     items: ["온라인 광고(SNS·검색)", "오프라인 홍보·이벤트", "플랫폼 사용료"] },
+  { label: "🚗 교통·차량",       items: ["교통비·주차비", "차량유지비·유류비"] },
+  { label: "📑 세무·법무·수수료",items: ["세금(종합소득세·부가세)", "보험료", "세무·회계 수수료", "법무·자문·외부용역", "은행·카드 수수료"] },
+  { label: "📦 기타",             items: ["기부금", "기타"] },
 ];
+const CATEGORIES = CATEGORY_GROUPS.flatMap((g) => g.items);
 
 export default function FinancePageWrapper() {
   return <DirectorOnly><FinancePage /></DirectorOnly>;
@@ -752,14 +740,22 @@ function FinancePage() {
               <button onClick={() => setShowModal(false)}><X className="w-5 h-5 text-gray-500" /></button>
             </div>
             <div className="space-y-3">
+              {/* v3.21.1: 카테고리 그룹핑 표시 (중복 제거 43→24개) */}
               <div>
-                <label className="text-xs text-gray-600">카테고리</label>
-                <div className="flex flex-wrap gap-1 mt-1">
-                  {CATEGORIES.map((c) => (
-                    <button key={c} onClick={() => setNewExpense({ ...newExpense, category: c })}
-                      className={`px-3 py-1.5 rounded-full text-xs ${newExpense.category === c ? "bg-aqu-500 text-white" : "bg-gray-100"}`}>
-                      {c}
-                    </button>
+                <label className="text-xs text-gray-600 font-semibold">카테고리 *</label>
+                <div className="mt-1 space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                  {CATEGORY_GROUPS.map((g) => (
+                    <div key={g.label} className="bg-aqu-50/40 rounded-lg p-2 border border-aqu-100">
+                      <div className="text-[10px] font-bold text-aqu-700 mb-1">{g.label}</div>
+                      <div className="flex flex-wrap gap-1">
+                        {g.items.map((c) => (
+                          <button key={c} type="button" onClick={() => setNewExpense({ ...newExpense, category: c })}
+                            className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition ${newExpense.category === c ? "bg-aqu-500 text-white shadow-sm" : "bg-white text-gray-700 border border-gray-200 hover:bg-gray-50"}`}>
+                            {c}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>

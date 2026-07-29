@@ -89,16 +89,49 @@ export default function AttendancePage() {
     setLoading(false);
   }
 
-  /* 오늘 대상 회원 목록 */
+  /* 오늘 대상 회원 목록 – v3.21.1: 시간표 예약 시각순 정렬 */
   const todayMembers = useMemo(() => {
-    if (mode === "all") return members;
-    // 시간표 기반: 오늘 수업이 있는 회원만
+    // time_slot 정규화 helper: "09:30", "9:30", "HH:MM-HH:MM" 등 모두 분 단위 숫자로
+    const toMinutes = (ts: any): number => {
+      if (ts === null || ts === undefined) return 9999;
+      const s = String(ts).trim();
+      // "HH:MM-HH:MM" → 암젠 HH:MM
+      const m = s.match(/(\d{1,2}):(\d{2})/);
+      if (!m) return 9999;
+      return Number(m[1]) * 60 + Number(m[2]);
+    };
+    // 회원별 최초 수업 시각(분) 매핑
+    const firstSlotMin = new Map<string, number>();
+    scheduleSlots.forEach((s: any) => {
+      if (!s.member_id) return;
+      const mm = toMinutes(s.time_slot ?? s.start_time ?? s.start_at);
+      const prev = firstSlotMin.get(s.member_id);
+      if (prev === undefined || mm < prev) firstSlotMin.set(s.member_id, mm);
+    });
+
+    if (mode === "all") {
+      // 전체 회원: 예약이 있으면 시각순, 없으면 뒤에 이름순으로
+      return [...members].sort((a: any, b: any) => {
+        const av = firstSlotMin.get(a.id) ?? 9999;
+        const bv = firstSlotMin.get(b.id) ?? 9999;
+        if (av !== bv) return av - bv;
+        return (a.name || "").localeCompare(b.name || "", "ko");
+      });
+    }
+    // 시간표 기반: 오늘 수업이 있는 회원만 + 시각순 정렬
     const memberIds = new Set(
       scheduleSlots
-        .filter(s => s.member_id && (s.event_type === "lesson" || s.event_type === "trial"))
-        .map(s => s.member_id)
+        .filter((s: any) => s.member_id && (s.event_type === "lesson" || s.event_type === "trial"))
+        .map((s: any) => s.member_id)
     );
-    return members.filter(m => memberIds.has(m.id));
+    return members
+      .filter(m => memberIds.has(m.id))
+      .sort((a: any, b: any) => {
+        const av = firstSlotMin.get(a.id) ?? 9999;
+        const bv = firstSlotMin.get(b.id) ?? 9999;
+        if (av !== bv) return av - bv;
+        return (a.name || "").localeCompare(b.name || "", "ko");
+      });
   }, [scheduleSlots, members, mode]);
 
   /* 회원별 그날의 시간표 슬롯 매핑 */
