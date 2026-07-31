@@ -97,6 +97,25 @@ function ReportsPage() {
   useEffect(() => {
     (async () => {
       // 1) 정식 회원 (regular 뿐만 아니라 체험/대기 상태 회원도 모두 포함)
+      // v3.21.3: staff 컬럼 존재 여부 자동 폴백 – is_active/is_resigned/resign_date 미존재 DB에서도 직원 목록이 정상 로드되도록
+      async function loadStaffSafe() {
+        // 전체 컴럼 시도 → 실패 시 서서히 축소
+        const attempts = [
+          "id, name, role, phone, status, is_active, is_resigned, resign_date",
+          "id, name, role, phone, status, is_resigned, resign_date",
+          "id, name, role, phone, status, resign_date",
+          "id, name, role, phone, status",
+          "id, name, role, phone",
+          "id, name, role",
+          "id, name",
+        ];
+        for (const cols of attempts) {
+          const r = await supabase.from("staff").select(cols).order("name");
+          if (!r.error) return r;
+        }
+        return { data: [], error: null } as any;
+      }
+
       const [memRes, leadRes, staffRes] = await Promise.all([
         supabase.from("members")
           .select("id, name, member_type, status, phone, birth, extra")
@@ -107,8 +126,7 @@ function ReportsPage() {
           .is("promoted_member_id", null) // 이미 회원으로 변환된 리드는 제외
           .order("created_at", { ascending: false })
           .limit(200),
-        // v3.21.2: 직원용 양식에서 퇴사자 직원 자동 배제
-        supabase.from("staff").select("id, name, role, phone, status, is_active, is_resigned, resign_date").order("name"),
+        loadStaffSafe(),
       ]);
 
       // 2) 회원 정규화 - status 배지 색상/라벨 계산
@@ -174,10 +192,13 @@ function ReportsPage() {
 
       setMembers(merged);
       if (merged.length > 0) setSelectedMember(merged[0].id);
-      // v3.21.2: 직원용 양식에서 퇴사자 자동 배제
-      const activeStaff = (staffRes.data || []).filter((s: any) => {
+      // v3.21.3: 직원용 양식 – 퇴사자만 배제시키고 나머지 모두 노출 (데이터 0명 이슈 근원 해소)
+      //   기존: status 필드가 빈 문자열·"active"·"재직" 등 다양해 생각보다 많이 걱러졌음
+      //   개선: 명시적 퇴사 지표가 있는 직원만 제외 (whitelist → blacklist 전환)
+      const activeStaff = ((staffRes as any).data || []).filter((s: any) => {
         const st = String(s.status || "").toLowerCase();
-        if (["resigned", "retired", "inactive", "terminated", "quit", "leave"].includes(st)) return false;
+        // 명시적 퇴사 상태만 제외 (빈 문자열·null·"active"·"재직" 등은 모두 재직자로 간주)
+        if (["resigned", "retired", "inactive", "terminated", "quit", "leave", "퇴사", "퇴직"].includes(st)) return false;
         if (s.is_active === false) return false;
         if (s.is_resigned === true) return false;
         if (s.resign_date) return false;

@@ -116,19 +116,59 @@ export default function QuickPaymentModal({ open, onClose, onSaved, initialDate,
       }
       if (msErr) throw msErr;
 
-      // 2) payments 자동 생성
-      const { error: payErr } = await supabase.from("payments").insert({
+      // v3.21.3: payments 자동 생성 – payment_methods 컬럼 자동 폴백
+      // 핵심: payment_methods는 JSONB 컬럼이나 스키마에 없을 수 있음
+      //   없으면 method(TEXT) 및 split_* 개별 컬럼으로 자동 분리 또는 직접 제거
+      const primaryMethod = (() => {
+        const pm = f.payment_methods || {};
+        const entries = [
+          ["card",     Number(pm.card || 0)],
+          ["cash",     Number(pm.cash || 0)],
+          ["transfer", Number(pm.transfer || 0)],
+          ["other",    Number(pm.other || 0)],
+        ].filter(([, v]) => (v as number) > 0)
+         .sort((a: any, b: any) => (b[1] as number) - (a[1] as number));
+        return entries[0]?.[0] || "card";
+      })();
+
+      let payPayload: any = {
         org_id: orgId,
         member_id: f.member_id,
         membership_id: ms?.id,
         plan_name: f.plan_name,
         amount: Number(f.amount),
+        gross_amount: Number(f.amount),
         paid_at: f.paid_at,
+        method: primaryMethod,
         payment_methods: f.payment_methods,
+        split_card:     Number(f.payment_methods?.card || 0),
+        split_cash:     Number(f.payment_methods?.cash || 0),
+        split_transfer: Number(f.payment_methods?.transfer || 0),
+        split_other:    Number(f.payment_methods?.other || 0),
+        split_unpaid:   Number(f.payment_methods?.unpaid || 0),
+        split_discount: Number(f.payment_methods?.discount || 0),
         description: f.memo || f.plan_name,
         status: "completed",
-      });
+      };
 
+      let payErr: any = null;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const r = await supabase.from("payments").insert(payPayload);
+        if (!r.error) { payErr = null; break; }
+        payErr = r.error;
+        const msg = String(r.error.message || "");
+        const m = msg.match(/'([^']+)' column|column "([^"]+)"|column ([\w_]+) of|find the '([^']+)'/);
+        const missing = m?.[1] || m?.[2] || m?.[3] || m?.[4];
+        if (missing && missing in payPayload) { delete payPayload[missing]; continue; }
+        if (/schema cache/i.test(msg)) {
+          // 스키마 캐시 오류 – 선택적 제거
+          for (const k of ["payment_methods", "split_card", "split_cash", "split_transfer", "split_other", "split_unpaid", "split_discount", "gross_amount", "method"]) {
+            if (k in payPayload) { delete payPayload[k]; break; }
+          }
+          continue;
+        }
+        break;
+      }
       if (payErr) throw payErr;
 
       alert(`✅ 결제 등록 완료\n\n· 회원권: ${f.plan_name} ${f.total_sessions}회 자동 생성\n· 유효기간: ${startDate} ~ ${endStr}\n· 금액: ₩${Number(f.amount).toLocaleString()}`);

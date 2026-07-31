@@ -420,22 +420,40 @@ export default function StaffPage() {
               {activeStaff.length === 0 ? (
                 <tr><td colSpan={7} className="text-center py-4 text-gray-400">재직 직원이 없습니다</td></tr>
               ) : activeStaff.map((s: any) => {
-                // v3.21.2: 강사별 수업 통계 – schedule_slots + attendance 결합
-                //   schedule_slots.status가 "scheduled" 상태로만 있어도 attendance에서 완료/노쇼/병결이 실제 발생하면 집계
+                // v3.21.3: 강사별 수업 통계 – schedule_slots + attendance 결합 (slot_id 부재 시 member_id+date 매핑)
                 const mySlots = slots.filter((sl: any) => sl.staff_id === s.id && (sl.event_type === "lesson" || sl.event_type === "trial" || sl.event_type === "makeup"));
                 const total = mySlots.length;
                 const mySlotIds = new Set(mySlots.map((sl: any) => sl.id).filter(Boolean));
-                // attendance에서 이 강사의 슬롯에 매핑된 것만 (slot_id 우선, 없으면 member_id 매핑 대안)
-                const myAtt = (monthAttendance || []).filter((a: any) => (a.slot_id && mySlotIds.has(a.slot_id)));
-                // 상태 카운트 – schedule_slots.status 와 attendance.status 를 병합 (중복 제거)
+                // (member_id + event_date) 조합 키 → slot 매핑 테이블 구성
+                const slotByMemberDate = new Map<string, any>();
+                mySlots.forEach((sl: any) => {
+                  if (sl.member_id && sl.event_date) slotByMemberDate.set(`${sl.member_id}__${sl.event_date}`, sl);
+                });
+                // 해당 강사와 매핑되는 attendance 필터링 (slot_id 우선, 없으면 member_id+date로 매칭)
+                const myAtt = (monthAttendance || []).filter((a: any) => {
+                  if (a.slot_id && mySlotIds.has(a.slot_id)) return true;
+                  if (a.member_id && a.attend_date && slotByMemberDate.has(`${a.member_id}__${a.attend_date}`)) return true;
+                  return false;
+                });
+                // attendance status와 slot 매칭 (slot_id 없으면 member+date로 slot 찾아 매핑)
+                const attToSlotId = (a: any): string | null => {
+                  if (a.slot_id) return a.slot_id;
+                  const sl = slotByMemberDate.get(`${a.member_id}__${a.attend_date}`);
+                  return sl?.id || null;
+                };
                 const countBy = (predicate: (status: string) => boolean) => {
-                  // schedule_slot 기준 상태
-                  const slotHits = new Set<string>(
-                    mySlots.filter((sl: any) => predicate((sl.status || "").toLowerCase())).map((sl: any) => sl.id).filter(Boolean)
-                  );
-                  // attendance 기준 상태 (schedule_slot이 scheduled여도 attendance가 present/absent/sick이면 그쪽 우선)
-                  myAtt.forEach((a: any) => { if (predicate((a.status || "").toLowerCase()) && a.slot_id) slotHits.add(a.slot_id); });
-                  return slotHits.size;
+                  const hits = new Set<string>();
+                  // schedule_slot 기준
+                  mySlots.forEach((sl: any) => { if (predicate((sl.status || "").toLowerCase()) && sl.id) hits.add(sl.id); });
+                  // attendance 기준 (slot_id 또는 member_id+date 매핑)
+                  myAtt.forEach((a: any) => {
+                    if (predicate((a.status || "").toLowerCase())) {
+                      const sid = attToSlotId(a);
+                      if (sid) hits.add(sid);
+                      else hits.add(`att_${a.member_id}_${a.attend_date}`); // slot 없어도 attendance 자체로 카운트
+                    }
+                  });
+                  return hits.size;
                 };
                 const done   = countBy((st) => ["done", "completed", "present"].includes(st));
                 const noshow = countBy((st) => ["noshow", "absent"].includes(st));
@@ -475,14 +493,23 @@ export default function StaffPage() {
                   <td colSpan={2} className="px-2 py-2 text-aqu-800">합계</td>
                   <td className="px-2 py-2 text-center text-emerald-700">
                     {(() => {
-                      // v3.21.2: 합계 – slot + attendance 결합 완료 카운트
+                      // v3.21.3: 합계 – slot + attendance 결합 완료 카운트 (member_id+date 폴백)
                       let total = 0;
                       activeStaff.forEach((s: any) => {
                         const mySlots = slots.filter((sl: any) => sl.staff_id === s.id && ["lesson","trial","makeup"].includes(sl.event_type));
                         const mySlotIds = new Set(mySlots.map((sl: any) => sl.id).filter(Boolean));
+                        const slotByMD = new Map<string, any>();
+                        mySlots.forEach((sl: any) => { if (sl.member_id && sl.event_date) slotByMD.set(`${sl.member_id}__${sl.event_date}`, sl); });
                         const hits = new Set<string>();
                         mySlots.forEach((sl: any) => { if (["done","completed","present"].includes((sl.status||"").toLowerCase())) hits.add(sl.id); });
-                        (monthAttendance || []).forEach((a: any) => { if (a.slot_id && mySlotIds.has(a.slot_id) && ["done","completed","present"].includes((a.status||"").toLowerCase())) hits.add(a.slot_id); });
+                        (monthAttendance || []).forEach((a: any) => {
+                          const status = (a.status || "").toLowerCase();
+                          if (!["done","completed","present"].includes(status)) return;
+                          if (a.slot_id && mySlotIds.has(a.slot_id)) { hits.add(a.slot_id); return; }
+                          const sl = slotByMD.get(`${a.member_id}__${a.attend_date}`);
+                          if (sl?.id) hits.add(sl.id);
+                          else if (sl) hits.add(`att_${a.member_id}_${a.attend_date}`);
+                        });
                         total += hits.size;
                       });
                       return total;
@@ -495,9 +522,18 @@ export default function StaffPage() {
                       activeStaff.forEach((s: any) => {
                         const mySlots = slots.filter((sl: any) => sl.staff_id === s.id && ["lesson","trial","makeup"].includes(sl.event_type));
                         const mySlotIds = new Set(mySlots.map((sl: any) => sl.id).filter(Boolean));
+                        const slotByMD = new Map<string, any>();
+                        mySlots.forEach((sl: any) => { if (sl.member_id && sl.event_date) slotByMD.set(`${sl.member_id}__${sl.event_date}`, sl); });
                         const hits = new Set<string>();
                         mySlots.forEach((sl: any) => { if (["done","completed","present"].includes((sl.status||"").toLowerCase())) hits.add(sl.id); });
-                        (monthAttendance || []).forEach((a: any) => { if (a.slot_id && mySlotIds.has(a.slot_id) && ["done","completed","present"].includes((a.status||"").toLowerCase())) hits.add(a.slot_id); });
+                        (monthAttendance || []).forEach((a: any) => {
+                          const status = (a.status || "").toLowerCase();
+                          if (!["done","completed","present"].includes(status)) return;
+                          if (a.slot_id && mySlotIds.has(a.slot_id)) { hits.add(a.slot_id); return; }
+                          const sl = slotByMD.get(`${a.member_id}__${a.attend_date}`);
+                          if (sl?.id) hits.add(sl.id);
+                          else if (sl) hits.add(`att_${a.member_id}_${a.attend_date}`);
+                        });
                         const unit = (s.session_rate !== null && s.session_rate !== undefined) ? Number(s.session_rate)
                           : (s.salary_type === "session" ? Number(s.salary_amount || 0) : 0);
                         sum += hits.size * unit;

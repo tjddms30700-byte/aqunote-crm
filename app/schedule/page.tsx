@@ -5,7 +5,6 @@ import { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import MemberSearch from "@/components/MemberSearch";
-import QuickPaymentModal from "@/components/QuickPaymentModal";
 import SignatureAttendanceModal from "@/components/SignatureAttendanceModal";
 import { supabase } from "@/lib/supabase";
 import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
@@ -132,8 +131,7 @@ export default function SchedulePage() {
   // ✅ v3.20.9: 시간표 셀에 회원권 자동 표시를 위해 memberships 로드
   const [memberships, setMemberships] = useState<any[]>([]);
   // ✅ v3.16.1: 인라인 결제 등록 모달
-  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
-  const [paymentModalDate, setPaymentModalDate] = useState<string>("");
+  // v3.21.3: paymentModal state 제거 – /payments 리다이렉트로 대체
   // ✅ v3.20.7: 지점 시간표 설정 - 설정 페이지와 동일한 기본값 (interval 70=1시간 10분, duration 40)
   const [scheduleConfig, setScheduleConfig] = useState<any>({
     open_time: "10:00", close_time: "22:00", slot_interval: 70, slot_duration: 40,
@@ -667,10 +665,13 @@ export default function SchedulePage() {
   }
 
   function openRevenueModalFromDate(date: string) {
-    // ✅ v3.16.1: 페이지 이동 없이 인라인 결제 모달을 바로 연다
+    // v3.21.3: 결제 등록 UI 완전 일원화 – /payments 매출분석 페이지의 동일 모달로 이동
+    // 기존 QuickPaymentModal의 간이 UI 및 payment_methods 컬럼 오류 이슈 근원 해소
     setActionSheet(null);
-    setPaymentModalDate(date);
-    setPaymentModalOpen(true);
+    try {
+      sessionStorage.setItem("aqunote_open_payment", JSON.stringify({ open: true, date, ts: Date.now() }));
+    } catch {}
+    window.location.href = `/payments?open=1&date=${encodeURIComponent(date)}`;
   }
 
   function openStaffScheduleFromDate(date: string) {
@@ -1316,13 +1317,7 @@ export default function SchedulePage() {
         />
       )}
 
-      {/* ✅ v3.16.1: 인라인 결제 등록 모달 (페이지 이동 없이) */}
-      <QuickPaymentModal
-        open={paymentModalOpen}
-        onClose={() => setPaymentModalOpen(false)}
-        onSaved={async () => { setPaymentModalOpen(false); await loadAll(); }}
-        initialDate={paymentModalDate}
-      />
+      {/* v3.21.3: 시간표 결제 등록 → /payments 페이지로 리다이렉트 처리되므로 QuickPaymentModal 사용 중단 */}
 
       {/* ═══ 예약 클릭 시 빠른 액션 시트 ═══ */}
       {quickAction && (

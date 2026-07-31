@@ -203,8 +203,13 @@ export default function StaffAttendancePage() {
     return Math.min(25, 15 + Math.floor((yearsWorked - 1) / 2));
   }
 
+  // v3.21.3: 날짜 계산 – 음수(차감) 보존 및 0.5일 단위 지원
   function countDaysBetween(v: any): number {
-    if (v?.days) return Number(v.days) || 1;
+    // days 필드가 명시적으로 있으면 무조건 사용 (음수 보존)
+    if (v?.days !== undefined && v?.days !== null && v?.days !== "") {
+      const n = Number(v.days);
+      if (!Number.isNaN(n)) return n; // 차감(-1)도 그대로 반영
+    }
     if (v?.start_date && v?.end_date) {
       const s = new Date(v.start_date); const e = new Date(v.end_date);
       return Math.max(1, Math.floor((e.getTime() - s.getTime()) / 86400000) + 1);
