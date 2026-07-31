@@ -72,7 +72,60 @@ export default function ChartPrintPage() {
   const isChild = member?.member_type === "child";
   const F = chart || {};
   const extra = F.extra || {};
-  const get = (k: string) => F[k] || extra[k] || member?.[k] || member?.extra?.[k] || "-";
+  // v3.21.4: 상담차트 프린트 필드 누락 이슈 근원 해소 – 폴백 경로 대폭 확장
+  //   이전에 F[k] → extra[k] → member[k] → member.extra[k] 만 참조 → form_data·consult_form 누락
+  //   개선에서는 chart.form_data, member.extra.consult_form, member.extra.개별컬럼, 별칭(alias) 모두 포함
+  const consultForm  = (member?.extra?.consult_form || {}) as any;
+  const formData     = (F.form_data || {}) as any;
+  const memberExtra  = (member?.extra || {}) as any;
+  const chartExtra   = extra;
+  // 각 필드의 가능한 약어/별칭 매핑 (스크린샷 지적 항목)
+  const ALIASES: Record<string, string[]> = {
+    pain_area:       ["pain_area", "pain_areas", "pain_part", "pain_location", "통증부위", "pain_position"],
+    pain_scale:      ["pain_scale", "pain_level", "pain_intensity", "통증강도"],
+    pain_start:      ["pain_start", "pain_since", "pain_start_date", "pain_duration", "통증시작", "onset", "start_when"],
+    surgery_history: ["surgery_history", "operation_history", "surgery", "수술력", "operations"],
+    medication:      ["medication", "medications", "drugs", "복용약"],
+    attention_level: ["attention_level", "caution_level", "주의도등급", "warning_level"],
+    underlying_disease: ["underlying_disease", "chronic_disease", "기저질환", "illness"],
+    treatment_history:  ["treatment_history", "prev_treatment", "치료이력"],
+    pain_worsening:  ["pain_worsening", "pain_worse", "aggravation", "악화요인"],
+    expected_change: ["expected_change", "top_goal", "aqua_expected_effect", "goal", "기대변화"],
+    diagnosis:       ["diagnosis", "진단명", "dx"],
+    main_symptom:    ["main_symptom", "chief_complaint", "주증상"],
+    guardian_relation:["guardian_relation", "보호자관계", "relation"],
+    age:             ["age", "birth", "birth_date", "나이"],
+    height:          ["height", "키"],
+    weight:          ["weight", "체중"],
+    walking_level:   ["walking_level", "gait_level", "보행수준"],
+    institution:     ["institution", "kindergarten", "school", "기관"],
+    sibling:         ["sibling", "siblings", "형제자매"],
+    visit_reason:    ["visit_reason", "consult_reason", "reason", "방문이유"],
+    water_reaction:  ["water_reaction", "water_response", "물반응"],
+    emotion:         ["emotion", "emotional_response", "정서"],
+    special_notes:   ["special_notes", "note", "notes", "특이사항"],
+  };
+  const get = (k: string) => {
+    const keys = ALIASES[k] || [k];
+    for (const alias of keys) {
+      for (const src of [F, formData, chartExtra, consultForm, memberExtra, member]) {
+        const v = (src as any)?.[alias];
+        if (v !== undefined && v !== null && v !== "" && !(Array.isArray(v) && v.length === 0)) {
+          return Array.isArray(v) ? v.join(", ") : String(v);
+        }
+      }
+    }
+    return "-";
+  };
+  // 통증 부위/강도 – pain_map으로도 자동 구성
+  const painMapObj = (F.pain_map || member?.extra?.pain_map || formData.pain_map || {}) as Record<string, number>;
+  const painFromMap = (() => {
+    const entries = Object.entries(painMapObj).filter(([, v]) => Number(v) > 0);
+    if (entries.length === 0) return { area: "-", scale: "-" };
+    const areas = entries.map(([k]) => (BODY_PARTS.find(b => b.key === k)?.label || k)).join(", ");
+    const maxScale = Math.max(...entries.map(([, v]) => Number(v) || 0));
+    return { area: areas, scale: `${maxScale}/10` };
+  })();
 
   return (
     <>
@@ -133,7 +186,12 @@ export default function ChartPrintPage() {
             <tbody>
               <tr><th>주 증상</th><td colSpan={3}>{get("main_symptom")}</td></tr>
               <tr><th>수술력</th><td>{get("surgery_history")}</td><th>복용약</th><td>{get("medication")}</td></tr>
-              <tr><th>통증 부위 / 강도</th><td>{get("pain_area")} / {get("pain_scale")}</td><th>주의도 등급</th><td>{get("attention_level")}</td></tr>
+              {/* v3.21.4: 통증 부위/강도 – 명시적 값이 없으면 pain_map에서 자동 구성 */}
+              <tr>
+                <th>통증 부위 / 강도</th>
+                <td>{(() => { const a = get("pain_area"); return a !== "-" ? a : painFromMap.area; })()} / {(() => { const s = get("pain_scale"); return s !== "-" ? s : painFromMap.scale; })()}</td>
+                <th>주의도 등급</th><td>{get("attention_level")}</td>
+              </tr>
               <tr><th>기저 질환</th><td colSpan={3}>{get("underlying_disease")}</td></tr>
             </tbody>
           </table>

@@ -345,6 +345,13 @@ export default function ConsultationsPage() {
       .map((w, i) => ({ ...w, priority: i + 1 }));
   }
 
+  // v3.21.4: 체험예정 회원 – 시간표 매트릭스 셀에 자동 표시 (이중 예약 방지)
+  function getTrialScheduled(day: number, time: string) {
+    return members
+      .filter(m => m.status === "trial_scheduled")
+      .filter(m => matchesWish(m.wish_days, m.wish_time_slots, day, time));
+  }
+
   /* ─── 통계 ─── */
   const stats = useMemo(() => {
     const now = new Date();
@@ -440,6 +447,7 @@ export default function ConsultationsPage() {
           stats={stats}
           getCell={getCell}
           getMatchedWaiters={getMatchedWaiters}
+          getTrialScheduled={getTrialScheduled}
           onCellClick={(day, time) => setSelectedCell({ day, time })}
         />
       )}
@@ -746,7 +754,7 @@ function Row({ label, value }: any) {
 
 /* ─────────────── 하위 컴포넌트: 매칭 ─────────────── */
 
-function MatchView({ matrix, members, staff, waiters, stats, getCell, getMatchedWaiters, onCellClick }: any) {
+function MatchView({ matrix, members, staff, waiters, stats, getCell, getMatchedWaiters, getTrialScheduled, onCellClick }: any) {
   const staffMap = useMemo(() => {
     const m: any = {};
     staff.forEach((s: any) => { m[s.id] = s; });
@@ -814,6 +822,8 @@ function MatchView({ matrix, members, staff, waiters, stats, getCell, getMatched
                     const cell = getCell(day, time);
                     const status: any = cell?.status || "closed";
                     const matched = status === "open" ? getMatchedWaiters(day, time) : [];
+                    // v3.21.4: 체험예정 회원 자동 표시 (open 셀에서만)
+                    const trialScheduled = (status === "open" && getTrialScheduled) ? getTrialScheduled(day, time) : [];
                     const member = cell?.member_id ? memberMap[cell.member_id] : null;
                     const staffColor = (member?.staff_id && staffMap[member.staff_id]?.color) || null;
                     return (
@@ -842,12 +852,22 @@ function MatchView({ matrix, members, staff, waiters, stats, getCell, getMatched
                         )}
                         {status === "open" && (
                           <div className="text-[10px]">
-                            {matched.length === 0 ? (
+                            {/* v3.21.4: 체험예정 회원 상단 배치 (이중 예약 방지) */}
+                            {trialScheduled.length > 0 && (
+                              <div className="mb-1 bg-blue-100 border border-blue-300 rounded px-1 py-0.5">
+                                <div className="text-blue-800 font-bold text-[9px] flex items-center gap-0.5">📅 체험예정</div>
+                                {trialScheduled.slice(0, 2).map((t: any) => (
+                                  <div key={t.id} className="text-blue-700 text-[9px] truncate font-semibold">• {t.name}</div>
+                                ))}
+                                {trialScheduled.length > 2 && <div className="text-blue-500 text-[8px]">+{trialScheduled.length - 2}명</div>}
+                              </div>
+                            )}
+                            {matched.length === 0 && trialScheduled.length === 0 ? (
                               <>
                                 <div className="text-blue-700 font-bold">🟢 OPEN</div>
                                 <div className="text-gray-400 italic text-[9px]">대기자 없음</div>
                               </>
-                            ) : (
+                            ) : matched.length > 0 ? (
                               <>
                                 <div className="text-blue-700 font-bold mb-0.5">🟢 OPEN (대기 {matched.length}명)</div>
                                 <div className="space-y-0.5">
@@ -860,6 +880,8 @@ function MatchView({ matrix, members, staff, waiters, stats, getCell, getMatched
                                   {matched.length > 2 && <div className="text-gray-500 text-[9px]">+{matched.length - 2}명</div>}
                                 </div>
                               </>
+                            ) : (
+                              <div className="text-blue-700 font-bold text-[9px]">🟢 OPEN</div>
                             )}
                           </div>
                         )}

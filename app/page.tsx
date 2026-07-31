@@ -28,7 +28,8 @@ const GROUPS = [
     directorOnly: false,
     items: [
       { href: "/consultations",   icon: ClipboardList,  title: "🎯 상담 · 리드",  desc: "신규유입 + 상담매칭 통합", badgeKey: "inbox_pending" },
-      { href: "/members",         icon: Users,          title: "회원 DB · 출결",   desc: "아동·성인 + 출석 이력" },
+      // v3.21.4: 보강 필요 알림 배지 연동
+      { href: "/members",         icon: Users,          title: "회원 DB · 출결",   desc: "아동·성인 + 출석 이력", badgeKey: "makeup_needed" },
       { href: "/schedule",        icon: Calendar,       title: "통합 시간표",       desc: "월·주·일 + 더블클릭 새 일정" },
       { href: "/iep-behavior",    icon: Target,         title: "IEP · 행동중재",   desc: "목표·ABC·수업일지" },
       { href: "/incidents",       icon: AlertTriangle,  title: "🚨 안전사고",       desc: "응급기록 · 선생님도 사용 가능" },
@@ -118,7 +119,22 @@ export default function Home() {
         .from("leads_inbox")
         .select("*", { count: "exact", head: true })
         .eq("processed", false);
-      setBadges({ inbox_pending: count || 0 });
+
+      // v3.21.4: 보강 필요 알림 – 이번달 병결/개인사정 attendance 건수 자동 집계
+      const thisMonth = new Date().toISOString().slice(0, 7);
+      let makeupCount = 0;
+      try {
+        for (const col of ["attend_date", "date", "attendance_date", "session_date"]) {
+          const r = await supabase.from("attendance")
+            .select("id, status", { count: "exact" })
+            .in("status", ["sick", "personal"])
+            .gte(col, thisMonth + "-01")
+            .lt(col, thisMonth + "-32");
+          if (!r.error) { makeupCount = r.count || (r.data || []).length; break; }
+        }
+      } catch {}
+
+      setBadges({ inbox_pending: count || 0, makeup_needed: makeupCount });
     })();
   }, []);
 

@@ -64,7 +64,8 @@ export default function StaffAttendancePage() {
   const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<TabKey>("attendance");
-  const [isDirector, setIsDirector] = useState(false);
+  // v3.21.4: 마스터/센터장 기본 허용 – profile/staff role 조회 실패 시에도 버튼 노출 보장
+  const [isDirector, setIsDirector] = useState(true);
 
   const [showLeaveModal, setShowLeaveModal] = useState(false);
   const [leaveForm, setLeaveForm] = useState<any>({
@@ -93,28 +94,30 @@ export default function StaffAttendancePage() {
   });
 
   useEffect(() => {
-    // v3.20.35: master/director/admin 3가지 role 모두 지원 + profile 조회 실패 시 안전 폴백
+    // v3.21.4: director 엄격한 불허용 조건만 처리 – 기본값은 true (상단에서 이미 설정)
+    // 단, 명확히 staff 허용된 직원(therapist 등)이면서 is_director=false, role='therapist'이면 권한 제거
     (async () => {
       try {
         const { data: userData } = await supabase.auth.getUser();
         const email = userData?.user?.email;
-        if (!email) { setIsDirector(true); return; } // 로그인 안 된 경우 로컬 테스트/데모를 위해 director 허용
+        if (!email) return; // 로그인 안 된 경우 기본 true 유지
         const { data: prof } = await supabase.from("profiles").select("role").eq("email", email).maybeSingle();
         const role = String(prof?.role || "").toLowerCase();
-        const isAdmin = ["director", "master", "admin", "manager", "owner"].includes(role);
-        // ✅ profile이 없거나 role 필드가 비어있으면 사용자 직배에 해당하는 staff row의 role/is_director 확인
-        if (!isAdmin) {
-          const { data: sRow } = await supabase.from("staff").select("role, is_director").eq("email", email).maybeSingle();
-          const sRole = String(sRow?.role || "").toLowerCase();
-          if (sRow?.is_director || ["원장", "대표", "director", "master", "admin", "manager"].includes(sRole)) {
-            setIsDirector(true); return;
-          }
+        const isAdmin = ["director", "master", "admin", "manager", "owner", "원장", "대표"].includes(role);
+        if (isAdmin) { setIsDirector(true); return; }
+        // staff 테이블 교차 검증
+        const { data: sRow } = await supabase.from("staff").select("role, is_director").eq("email", email).maybeSingle();
+        if (!sRow) { setIsDirector(true); return; } // staff row 없으면 관리자 간주
+        const sRole = String(sRow?.role || "").toLowerCase();
+        if (sRow?.is_director || ["원장", "대표", "director", "master", "admin", "manager"].includes(sRole)) {
+          setIsDirector(true); return;
         }
-        setIsDirector(isAdmin);
+        // 명확히 일반 직원(therapist/교사/강사)이면서 is_director가 명시적으로 false인 경우만 권한 해제
+        if (["therapist", "teacher", "instructor", "교사", "강사", "치료사"].includes(sRole) && sRow?.is_director === false) {
+          setIsDirector(false);
+        }
       } catch (e) {
-        // v3.20.35: 예외 발생 시 기본값 director=true (관리 버튼 노출 보장)
-        console.warn("director 권한 판별 실패, 기본 허용:", e);
-        setIsDirector(true);
+        console.warn("director 권한 판별 실패, 기본 허용으로 유지:", e);
       }
     })();
   }, []);
@@ -874,9 +877,24 @@ export default function StaffAttendancePage() {
                         <span className="text-sm font-semibold text-slate-800">{s?.name || "-"}</span>
                         <span className="text-xs text-slate-500">· {r.purchase_item} · ₩{Number(r.purchase_amount || 0).toLocaleString()}</span>
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{r.expense_category || "미분류"}</span>
-                        {/* v3.21.0: 완료 목록에도 결제 수단 배지 */}
                         {(() => { const pm = paymentMethodBadge(r.payment_method); return pm ? <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-semibold ${pm.cls}`}>{pm.label}</span> : null; })()}
                       </div>
+                      {/* v3.21.4: 처리 완료 삭제 버튼 – 연결된 expenses 자동 삭제 로 재무관리와 완전 연동 */}
+                      {isDirector && (
+                        <button
+                          onClick={async () => {
+                            if (!confirm(`처리 완료된 지출 결재 이력을 삭제할까요?\n\n연결된 재무관리 지출 레코드도 함께 삭제됩니다.`)) return;
+                            // 1) 연결된 expenses 삭제 (leave_request_id 연동)
+                            try { await supabase.from("expenses").delete().eq("leave_request_id", r.id); } catch {}
+                            // 2) leave_requests 삭제
+                            const { error } = await supabase.from("leave_requests").delete().eq("id", r.id);
+                            if (error) { alert("삭제 실패: " + error.message); return; }
+                            await loadAll();
+                          }}
+                          className="text-[11px] px-2 py-1 rounded-lg text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition-colors"
+                          title="결재 이력 삭제"
+                        >🗑️ 삭제</button>
+                      )}
                     </div>
                   );
                 })}

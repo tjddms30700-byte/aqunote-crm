@@ -110,20 +110,30 @@ export default function StaffPage() {
       const r2 = await supabase.from("attendance_logs").select("*");
       return r2.data || [];
     }
+    // v3.21.4: attendance 조회 – attend_date/date/attendance_date/session_date 자동 자동 폴백
+    async function loadMonthAttendance() {
+      for (const col of ["attend_date", "date", "attendance_date", "session_date", "check_date"]) {
+        const r = await supabase.from("attendance")
+          .select("*")
+          .gte(col, slotsMonth + "-01")
+          .lt(col, slotsMonth + "-32");
+        if (!r.error) {
+          // _date 필드 통일
+          return { data: (r.data || []).map((a: any) => ({ ...a, _date: a[col] || a.attend_date || a.date || a.attendance_date || a.session_date || a.check_date })), error: null };
+        }
+      }
+      return { data: [], error: null };
+    }
+
     const [s, ph, al, sl, att] = await Promise.all([
       supabase.from("staff").select("*").order("created_at", { ascending: false }),
       supabase.from("payroll_history").select("*").order("pay_year", { ascending: false }).order("pay_month", { ascending: false }),
       loadAttendanceLogs(),
-      // ✅ v3.18.0: 이번달 시간표 슬롯 (강사별 수업·수당 계산용)
-      // v3.21.2: 강사 자동 수당 계산 – schedule_slots + attendance 크로스 집계
       supabase.from("schedule_slots").select("id, staff_id, status, event_date, event_type, member_id")
         .gte("event_date", slotsMonth + "-01")
         .lt("event_date", slotsMonth + "-32")
         .is("deleted_at", null),
-      // 이번달 attendance – 사인 출결까지 반영 (강사가 실제 완료한 수업 판단)
-      supabase.from("attendance").select("member_id, status, attend_date, slot_id, saved_at")
-        .gte("attend_date", slotsMonth + "-01")
-        .lt("attend_date", slotsMonth + "-32"),
+      loadMonthAttendance(),
     ]);
     setStaff(s.data || []);
     setPayrollHistory(ph.data || []);
@@ -135,7 +145,7 @@ export default function StaffPage() {
       memo: r.memo || r.note,
     })));
     setSlots(sl.data || []);
-    // v3.21.2: attendance 상태 저장 (강사 자동 수당 계산에 사용)
+    // v3.21.4: attendance 상태 저장 (강사 자동 수당 계산에 사용) – _date 통일
     setMonthAttendance((att.data || []) as any[]);
     setLoading(false);
   }
@@ -432,13 +442,15 @@ export default function StaffPage() {
                 // 해당 강사와 매핑되는 attendance 필터링 (slot_id 우선, 없으면 member_id+date로 매칭)
                 const myAtt = (monthAttendance || []).filter((a: any) => {
                   if (a.slot_id && mySlotIds.has(a.slot_id)) return true;
-                  if (a.member_id && a.attend_date && slotByMemberDate.has(`${a.member_id}__${a.attend_date}`)) return true;
+                  const aDate = a._date || a.attend_date || a.date;
+                  if (a.member_id && aDate && slotByMemberDate.has(`${a.member_id}__${aDate}`)) return true;
                   return false;
                 });
                 // attendance status와 slot 매칭 (slot_id 없으면 member+date로 slot 찾아 매핑)
                 const attToSlotId = (a: any): string | null => {
                   if (a.slot_id) return a.slot_id;
-                  const sl = slotByMemberDate.get(`${a.member_id}__${a.attend_date}`);
+                  const aDate = a._date || a.attend_date || a.date;
+                  const sl = slotByMemberDate.get(`${a.member_id}__${aDate}`);
                   return sl?.id || null;
                 };
                 const countBy = (predicate: (status: string) => boolean) => {
@@ -450,7 +462,7 @@ export default function StaffPage() {
                     if (predicate((a.status || "").toLowerCase())) {
                       const sid = attToSlotId(a);
                       if (sid) hits.add(sid);
-                      else hits.add(`att_${a.member_id}_${a.attend_date}`); // slot 없어도 attendance 자체로 카운트
+                      else hits.add(`att_${a.member_id}_${a._date || a.attend_date || a.date}`); // slot 없어도 attendance 자체로 카운트
                     }
                   });
                   return hits.size;
@@ -506,9 +518,10 @@ export default function StaffPage() {
                           const status = (a.status || "").toLowerCase();
                           if (!["done","completed","present"].includes(status)) return;
                           if (a.slot_id && mySlotIds.has(a.slot_id)) { hits.add(a.slot_id); return; }
-                          const sl = slotByMD.get(`${a.member_id}__${a.attend_date}`);
+                          const aDate = a._date || a.attend_date || a.date;
+                          const sl = slotByMD.get(`${a.member_id}__${aDate}`);
                           if (sl?.id) hits.add(sl.id);
-                          else if (sl) hits.add(`att_${a.member_id}_${a.attend_date}`);
+                          else if (sl) hits.add(`att_${a.member_id}_${aDate}`);
                         });
                         total += hits.size;
                       });
@@ -530,9 +543,10 @@ export default function StaffPage() {
                           const status = (a.status || "").toLowerCase();
                           if (!["done","completed","present"].includes(status)) return;
                           if (a.slot_id && mySlotIds.has(a.slot_id)) { hits.add(a.slot_id); return; }
-                          const sl = slotByMD.get(`${a.member_id}__${a.attend_date}`);
+                          const aDate = a._date || a.attend_date || a.date;
+                          const sl = slotByMD.get(`${a.member_id}__${aDate}`);
                           if (sl?.id) hits.add(sl.id);
-                          else if (sl) hits.add(`att_${a.member_id}_${a.attend_date}`);
+                          else if (sl) hits.add(`att_${a.member_id}_${aDate}`);
                         });
                         const unit = (s.session_rate !== null && s.session_rate !== undefined) ? Number(s.session_rate)
                           : (s.salary_type === "session" ? Number(s.salary_amount || 0) : 0);
@@ -863,13 +877,24 @@ export default function StaffPage() {
               </div>
             </div>
             <Field label="주소"><input value={newStaff.address} onChange={e => setNewStaff({ ...newStaff, address: e.target.value })} className="w-full p-2 border rounded-lg text-sm" /></Field>
-            <Field label="색상">
-              <div className="flex gap-1">
-                {COLOR_PALETTE.map(c => (
-                  <button key={c} type="button" onClick={() => setNewStaff({ ...newStaff, color: c })}
-                    style={{ background: c }}
-                    className={`w-8 h-8 rounded-full ${newStaff.color === c ? "ring-2 ring-offset-2 ring-aqu-500" : ""}`} />
-                ))}
+            {/* v3.21.4: 색상 피커 UX 강화 – 프리셋 10색 + 커스텀 색상 인푻 */}
+            <Field label="색상 (시간표·통계에 사용)">
+              <div className="space-y-2">
+                <div className="grid grid-cols-10 gap-1.5">
+                  {COLOR_PALETTE.map(c => (
+                    <button key={c} type="button" onClick={() => setNewStaff({ ...newStaff, color: c })}
+                      style={{ background: c }}
+                      title={c}
+                      className={`w-8 h-8 rounded-full transition-all hover:scale-110 ${newStaff.color === c ? "ring-2 ring-offset-2 ring-aqu-500 scale-110 shadow-lg" : "ring-1 ring-slate-200"}`} />
+                  ))}
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-[11px] text-slate-600">커스텀:</label>
+                  <input type="color" value={newStaff.color || "#3b82f6"}
+                    onChange={e => setNewStaff({ ...newStaff, color: e.target.value })}
+                    className="w-10 h-8 rounded border border-slate-200 cursor-pointer" />
+                  <span className="text-[10px] text-slate-500 font-mono">{newStaff.color || "#3b82f6"}</span>
+                </div>
               </div>
             </Field>
             <div className="flex gap-2 pt-3">

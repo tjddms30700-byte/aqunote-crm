@@ -303,9 +303,25 @@ function FinancePage() {
     }
   }
 
+  // v3.21.4: 지출 삭제 시 연결된 leave_requests도 함께 삭제 (직원·근무 관리와 완전 양방향 연동)
   async function deleteExpense(id: string) {
-    if (!confirm("지출 이력을 삭제할까요?")) return;
-    await supabase.from("expenses").delete().eq("id", id);
+    if (!confirm("지출 이력을 삭제할까요?\n\n전자결재 지출 결재와 연결된 경우 해당 결재 이력도 함께 삭제됩니다.")) return;
+
+    // 1) 삭제할 지출의 leave_request_id 사전 조회
+    let linkedLeaveRequestId: string | null = null;
+    try {
+      const { data: expRow } = await supabase.from("expenses").select("leave_request_id").eq("id", id).maybeSingle();
+      linkedLeaveRequestId = (expRow as any)?.leave_request_id || null;
+    } catch {}
+
+    // 2) expenses 삭제
+    const { error: delErr } = await supabase.from("expenses").delete().eq("id", id);
+    if (delErr) { alert("지출 삭제 실패: " + delErr.message); return; }
+
+    // 3) 연결된 leave_requests 삭제 (직원·근무 관리 화면에서도 즐시 사라짐)
+    if (linkedLeaveRequestId) {
+      try { await supabase.from("leave_requests").delete().eq("id", linkedLeaveRequestId); } catch {}
+    }
     loadAll();
   }
 

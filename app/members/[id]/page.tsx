@@ -989,13 +989,7 @@ export default function MemberDetail() {
           <div>
             <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
               <h3 className="text-lg font-bold text-aqu-900">📝 세션 기록 & 라벨링</h3>
-              {/* ✅ v3.15.1: 카카오톡 파일 자동 등록 */}
-              <button
-                onClick={() => setShowKakaoImport(true)}
-                className="px-3 py-1.5 bg-gradient-to-r from-yellow-400 to-yellow-500 hover:from-yellow-500 hover:to-yellow-600 text-yellow-900 rounded-lg text-sm font-bold flex items-center gap-1.5 shadow-sm"
-                title="카카오톡 대화 파일(.txt)을 업로드하면 자동으로 세션이 생성됩니다">
-                💬 카톡 파일 → 자동 세션 등록
-              </button>
+              {/* v3.21.4: 카톡 파일 자동 세션 등록 버튼 제거 – QuickSessionNoteCard의 [카톡 붙여넣기 자동 라벨링]으로 대체 */}
             </div>
 
             {/* ✅ v3.17.0: 재활/수업 일지 (세션 노트) 원클릭 카드 */}
@@ -1735,13 +1729,25 @@ function MemberHistoryPanel({ memberId }: { memberId: string }) {
         }
         return r1;
       })(),
-      supabase.from("attendance").select("*").eq("member_id", memberId),
+      // v3.21.4: attendance 조회 – attend_date 우선, date/attendance_date/session_date/check_date 폴백
+      (async () => {
+        for (const col of ["attend_date", "date", "attendance_date", "session_date", "check_date"]) {
+          const r = await supabase.from("attendance").select("*").eq("member_id", memberId).order(col, { ascending: false });
+          if (!r.error) return r;
+        }
+        // 최종 폴백: 정렬 없이
+        return await supabase.from("attendance").select("*").eq("member_id", memberId);
+      })(),
       supabase.from("schedule_slots").select("*").eq("member_id", memberId).is("deleted_at", null).order("event_date", { ascending: false }),
       supabase.from("refunds").select("*").eq("member_id", memberId).order("refunded_at", { ascending: false }),
     ]);
     setPayments(p.data || []);
     setMemberships(ms.data || []);
-    setAttendance(at.data || []);
+    // v3.21.4: _date 필드 통일 (attend_date/date/attendance_date/session_date/check_date 순)
+    setAttendance((at.data || []).map((r: any) => ({
+      ...r,
+      _date: r.attend_date || r.date || r.attendance_date || r.session_date || r.check_date,
+    })));
     setSlots(sl.data || []);
     setRefunds(rf.data || []);
     setLoading(false);
@@ -1901,40 +1907,92 @@ function MemberHistoryPanel({ memberId }: { memberId: string }) {
         </div>
       )}
 
-      {/* 출석·수업 이력 */}
+      {/* v3.21.4: 수업·출결 이력 – attendance(사인 서명 포함) + schedule_slots 병합 표시 */}
       <div>
-        <h4 className="font-bold text-slate-900 mb-2 flex items-center gap-1">📅 수업·출결 이력 ({slots.length}건)</h4>
-        {slots.length === 0 ? (
-          <div className="text-center py-6 text-gray-400 text-sm bg-gray-50 rounded-xl">수업 이력이 없습니다</div>
-        ) : (
-          <div className="max-h-96 overflow-y-auto space-y-1">
-            {slots.map(s => {
-              const st = (s.status || "").toLowerCase();
-              const isDone = ["done", "completed"].includes(st);
-              const isNoshow = st === "noshow";
-              const isSick = st === "sick";
-              const isCancel = ["cancel", "cancelled"].includes(st);
-              const isCarry = st === "carryover";
-              const label = isDone ? "✅ 완료" : isNoshow ? "🚩 노쇼" : isSick ? "🤒 병결" :
-                            isCancel ? "❌ 취소" : isCarry ? "📅 이월" : "🔵 예약";
-              const bg = isDone ? "bg-green-50 border-green-200" :
-                        isNoshow ? "bg-red-50 border-red-200" :
-                        isSick ? "bg-orange-50 border-orange-200" :
-                        isCancel ? "bg-gray-50 border-gray-200" :
-                        isCarry ? "bg-purple-50 border-purple-200" : "bg-blue-50 border-blue-200";
-              const chargesSession = isDone || isNoshow;
-              return (
-                <div key={s.id} className={`flex items-center gap-2 p-2 border rounded-lg text-xs ${bg}`}>
-                  <div className="w-20 text-gray-700 font-mono text-[11px]">{s.event_date}</div>
-                  <div className="w-14 text-gray-500 text-[11px]">{s.time_slot || "-"}</div>
-                  <div className="flex-1 text-slate-700">{s.lesson_name || (s.event_type === "trial" ? "🌟 체험" : "수업")}</div>
-                  <div className="text-[11px] font-semibold">{label}</div>
-                  {chargesSession && <span className="text-[9px] px-1.5 py-0.5 bg-red-500 text-white rounded font-bold">-1회</span>}
+        {(() => {
+          // attendance 기반 이력을 우선 표시하고, schedule_slot이 있으면 시간/수업명 보강
+          const slotByMemberDate = new Map<string, any>();
+          slots.forEach((sl: any) => {
+            if (sl.event_date) slotByMemberDate.set(sl.event_date, sl);
+          });
+          // attendance 기반 이력 (사인 출결 반영)
+          const attRows = attendance.map((a: any) => {
+            const date = a._date || a.attend_date || a.date;
+            const sl = date ? slotByMemberDate.get(date) : null;
+            const st = (a.status || "").toLowerCase();
+            return {
+              key: `att_${a.id}`,
+              date,
+              time_slot: a.time_slot || sl?.time_slot || null,
+              event_type: sl?.event_type,
+              lesson_name: sl?.lesson_name,
+              status: st,
+              hasSignature: !!a.signature,
+              signer_role: a.signer_role,
+              source: "attendance",
+              slot_id: sl?.id || a.slot_id,
+            };
+          });
+          // schedule_slot만 있고 attendance 없는 이력
+          const attendedSlotIds = new Set(attRows.map((r: any) => r.slot_id).filter(Boolean));
+          const attendedDates = new Set(attRows.map((r: any) => r.date).filter(Boolean));
+          const slotOnlyRows = slots
+            .filter((sl: any) => !attendedSlotIds.has(sl.id) && !attendedDates.has(sl.event_date))
+            .map((sl: any) => ({
+              key: `slot_${sl.id}`,
+              date: sl.event_date,
+              time_slot: sl.time_slot,
+              event_type: sl.event_type,
+              lesson_name: sl.lesson_name,
+              status: (sl.status || "").toLowerCase(),
+              hasSignature: false,
+              signer_role: null,
+              source: "slot",
+              slot_id: sl.id,
+            }));
+          const allRows = [...attRows, ...slotOnlyRows].sort((a: any, b: any) => (b.date || "").localeCompare(a.date || ""));
+          return (
+            <>
+              <h4 className="font-bold text-slate-900 mb-2 flex items-center gap-1">📅 수업·출결 이력 ({allRows.length}건)</h4>
+              {allRows.length === 0 ? (
+                <div className="text-center py-6 text-gray-400 text-sm bg-gray-50 rounded-xl">수업 이력이 없습니다</div>
+              ) : (
+                <div className="max-h-96 overflow-y-auto space-y-1">
+                  {allRows.map((r: any) => {
+                    const st = r.status;
+                    const isDone     = ["done", "completed", "present"].includes(st);
+                    const isNoshow   = ["noshow", "absent"].includes(st);
+                    const isSick     = st === "sick";
+                    const isPersonal = st === "personal";
+                    const isCancel   = ["cancel", "cancelled"].includes(st);
+                    const isCarry    = st === "carryover";
+                    const label = isDone ? "✅ 완료" : isNoshow ? "🚩 노쇼/결석" : isSick ? "🤒 병결" :
+                                  isPersonal ? "📝 개인사정" :
+                                  isCancel ? "❌ 취소" : isCarry ? "📅 이월" : "🔵 예약";
+                    const bg = isDone ? "bg-green-50 border-green-200" :
+                              isNoshow ? "bg-red-50 border-red-200" :
+                              isSick ? "bg-orange-50 border-orange-200" :
+                              isPersonal ? "bg-amber-50 border-amber-200" :
+                              isCancel ? "bg-gray-50 border-gray-200" :
+                              isCarry ? "bg-purple-50 border-purple-200" : "bg-blue-50 border-blue-200";
+                    // v3.21.4: 회원권 차감 대상 – 출석 + 노쇼만 (병결·개인사정 미차감)
+                    const chargesSession = isDone || isNoshow;
+                    return (
+                      <div key={r.key} className={`flex items-center gap-2 p-2 border rounded-lg text-xs ${bg}`}>
+                        <div className="w-20 text-gray-700 font-mono text-[11px]">{r.date || "-"}</div>
+                        <div className="w-14 text-gray-500 text-[11px]">{r.time_slot || "-"}</div>
+                        <div className="flex-1 text-slate-700">{r.lesson_name || (r.event_type === "trial" ? "🌟 체험" : "수업")}</div>
+                        {r.hasSignature && <span className="text-[9px] px-1.5 py-0.5 bg-purple-500 text-white rounded font-bold" title={`서명자: ${r.signer_role || "-"}`}>✍️ 사인</span>}
+                        <div className="text-[11px] font-semibold">{label}</div>
+                        {chargesSession && <span className="text-[9px] px-1.5 py-0.5 bg-red-500 text-white rounded font-bold">-1회</span>}
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
-          </div>
-        )}
+              )}
+            </>
+          );
+        })()}
       </div>
     </div>
   );

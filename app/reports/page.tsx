@@ -82,6 +82,8 @@ function ReportsPage() {
   const searchParams = useSearchParams();
   const [topTab, setTopTab] = useState<"report" | "forms">("report");
   const [formsCat, setFormsCat] = useState<"staff" | "member">("staff");
+  // v3.21.4: 직원 하위 탭 (재직 / 퇴사)
+  const [staffTab, setStaffTab] = useState<"active" | "resigned">("active");
   const [formSearch, setFormSearch] = useState("");
   // v3.20.30: /contracts 리다이렉트 제거 - /reports 내 인라인 양식 작성
   const [selectedFormType, setSelectedFormType] = useState<string>("");
@@ -192,28 +194,29 @@ function ReportsPage() {
 
       setMembers(merged);
       if (merged.length > 0) setSelectedMember(merged[0].id);
-      // v3.21.3: 직원용 양식 – 퇴사자만 배제시키고 나머지 모두 노출 (데이터 0명 이슈 근원 해소)
-      //   기존: status 필드가 빈 문자열·"active"·"재직" 등 다양해 생각보다 많이 걱러졌음
-      //   개선: 명시적 퇴사 지표가 있는 직원만 제외 (whitelist → blacklist 전환)
-      const activeStaff = ((staffRes as any).data || []).filter((s: any) => {
+      // v3.21.4: 직원용 양식 – 재직·퇴사 별도 상태 보존으로 저장 (탭 분리 노출)
+      const allStaff = ((staffRes as any).data || []).map((s: any) => {
         const st = String(s.status || "").toLowerCase();
-        // 명시적 퇴사 상태만 제외 (빈 문자열·null·"active"·"재직" 등은 모두 재직자로 간주)
-        if (["resigned", "retired", "inactive", "terminated", "quit", "leave", "퇴사", "퇴직"].includes(st)) return false;
-        if (s.is_active === false) return false;
-        if (s.is_resigned === true) return false;
-        if (s.resign_date) return false;
-        return true;
+        const isResigned =
+          ["resigned", "retired", "inactive", "terminated", "quit", "leave", "퇴사", "퇴직"].includes(st) ||
+          s.is_active === false ||
+          s.is_resigned === true ||
+          !!s.resign_date;
+        return { ...s, __resigned: isResigned };
       });
-      setStaffList(activeStaff);
+      setStaffList(allStaff);
     })();
   }, []);
 
-  // v3.20.21: 양식 검색 필터링
+  // v3.21.4: 재직/퇴사 탭 분리 + 검색 필터링
+  const activeStaffList  = useMemo(() => staffList.filter((s: any) => !s.__resigned), [staffList]);
+  const resignedStaffList = useMemo(() => staffList.filter((s: any) =>  s.__resigned), [staffList]);
   const filteredStaff = useMemo(() => {
-    if (!formSearch) return staffList;
+    const base = staffTab === "resigned" ? resignedStaffList : activeStaffList;
+    if (!formSearch) return base;
     const q = formSearch.toLowerCase();
-    return staffList.filter(s => (s.name || "").toLowerCase().includes(q) || (s.phone || "").includes(q));
-  }, [staffList, formSearch]);
+    return base.filter((s: any) => (s.name || "").toLowerCase().includes(q) || (s.phone || "").includes(q));
+  }, [activeStaffList, resignedStaffList, staffTab, formSearch]);
   // v3.20.36: 이름 + 전화번호(뒷자리 포함) + 보호자명 + 생년월일 실시간 검색
   const filteredMembers = useMemo(() => {
     if (!formSearch) return members;
@@ -366,8 +369,21 @@ function ReportsPage() {
 
           {/* v3.20.30: 대상자 목록 - button으로 전환 (리다이렉트 제거) */}
           <div>
-            <div className="text-xs font-bold text-gray-600 mb-2">
-              2. {formsCat === "staff" ? "직원 선택" : "회원 선택"} ({formsCat === "staff" ? filteredStaff.length : filteredMembers.length}명)
+            <div className="text-xs font-bold text-gray-600 mb-2 flex items-center justify-between">
+              <span>2. {formsCat === "staff" ? "직원 선택" : "회원 선택"} ({formsCat === "staff" ? filteredStaff.length : filteredMembers.length}명)</span>
+              {/* v3.21.4: 직원용일 때 재직/퇴사 하위 탭 노출 */}
+              {formsCat === "staff" && (
+                <div className="flex gap-1">
+                  <button onClick={() => setStaffTab("active")}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition border ${staffTab==="active" ? "bg-emerald-500 text-white border-emerald-500" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}>
+                    🟢 재직 ({activeStaffList.length})
+                  </button>
+                  <button onClick={() => setStaffTab("resigned")}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition border ${staffTab==="resigned" ? "bg-slate-500 text-white border-slate-500" : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"}`}>
+                    👋 퇴사 ({resignedStaffList.length})
+                  </button>
+                </div>
+              )}
             </div>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-80 overflow-y-auto">
               {formsCat === "staff" ? filteredStaff.map(s => (
