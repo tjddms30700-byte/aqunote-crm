@@ -661,6 +661,17 @@ export default function SchedulePage() {
 
   /* 모달 열기 - 항상 액션 시트 우선 (time이 있어도 3가지 선택지 제공) */
   function openDateActionSheet(date: string, time?: string) {
+    // v3.21.7: 보강 예약 모드가 활성화되어 있으면 즉시 보강 등록 흐름으로
+    if (makeupMode) {
+      const targetTime = time || (timeSlotOptions && timeSlotOptions[0]) || "10:00";
+      if (confirm(`📅 보강 예약\n\n• 회원: ${makeupMode.member_name}\n• 원본 결석: ${makeupMode.date} (${makeupMode.status === "sick" ? "병결" : "개인사정"})\n• 보강일: ${date} ${targetTime}\n\n이 시간에 보강을 등록하시겠습니까?`)) {
+        (async () => {
+          await createMakeupForAbsent(makeupMode, date, targetTime);
+          setMakeupMode(null);
+        })();
+      }
+      return;
+    }
     setActionSheet({ date, time });
   }
 
@@ -940,22 +951,34 @@ export default function SchedulePage() {
     return `${ms.plan_name || "회원권"} (${remaining}/${total})`;
   }
 
-  // v3.21.6: 보강 필요 회원 자동 집계 (병결·개인사정 결석 + 보강 수업으로 상쇄되지 않은 건)
+  // v3.21.7: 보강 필요 회원 - FK 기반 자동 매칭 (보강 예약 등록 시 즉시 자동 제거)
   const makeupNeededList = useMemo(() => {
-    const makeupDoneKey = new Set<string>();
-    // 이미 보강한 건 집계 (event_type=makeup && status=done/scheduled)
+    // 1) 이미 보강 예약된 결석건 ID 집합 (schedule_slots 또는 attendance에서 makeup_for_id/is_makeup)
+    const makeupCoveredKeys = new Set<string>(); // "memberId__date" 형태
+    const makeupCoveredIds = new Set<string>();  // 원본 결석건 id
     slots.forEach((sl: any) => {
-      if (sl.event_type === "makeup" && sl.member_id) {
-        makeupDoneKey.add(sl.member_id);
+      const et = (sl.event_type || "").toLowerCase();
+      if (et === "makeup" || sl.is_makeup) {
+        if (sl.makeup_for_id) makeupCoveredIds.add(sl.makeup_for_id);
+        // 회원별 보강 예약만 있으면 가장 오래된 병결 자동 매칭 (FK 없는 유저 대응)
+        if (sl.member_id) makeupCoveredKeys.add(`_member_${sl.member_id}`);
       }
     });
-    // 병결/개인사정 출결 이별 수집
+    attendance.forEach((a: any) => {
+      if (a.is_makeup || a.makeup_for_id) {
+        if (a.makeup_for_id) makeupCoveredIds.add(a.makeup_for_id);
+        if (a.member_id) makeupCoveredKeys.add(`_member_${a.member_id}`);
+      }
+    });
+
+    // 2) 병결/개인사정 결석건 수집
     const absentList: any[] = [];
     slots.forEach((sl: any) => {
       const st = (sl.status || "").toLowerCase();
       if (st === "sick" || st === "personal") {
-        if (sl.member_id) {
+        if (sl.member_id && sl.event_date) {
           absentList.push({
+            id: sl.id,
             member_id: sl.member_id,
             date: sl.event_date,
             status: st,
@@ -969,10 +992,12 @@ export default function SchedulePage() {
     attendance.forEach((a: any) => {
       const st = (a.status || "").toLowerCase();
       if (st === "sick" || st === "personal") {
-        if (a.member_id) {
+        const dt = a.attend_date || a.date || a.attendance_date || a.session_date;
+        if (a.member_id && dt) {
           absentList.push({
+            id: a.id,
             member_id: a.member_id,
-            date: a.attend_date || a.date || a.attendance_date || a.session_date,
+            date: dt,
             status: st,
             source: "attendance",
             slot_id: a.slot_id,
@@ -980,51 +1005,132 @@ export default function SchedulePage() {
         }
       }
     });
-    // 회원별 그룹화
+
+    // 3) 회원+날짜 중복 제거 (slot과 attendance에 같은 건이 있으면 slot 우선)
     const grouped = new Map<string, any>();
     absentList.forEach((rec: any) => {
       const key = `${rec.member_id}__${rec.date}`;
-      if (!grouped.has(key)) grouped.set(key, rec);
+      const existing = grouped.get(key);
+      if (!existing || (rec.source === "slot" && existing.source === "attendance")) {
+        grouped.set(key, rec);
+      }
     });
-    // 보강 유무를 회원별로 집계 (단순 매칭: 병결/개인사정 회원 중 보강 기록이 없는 사람)
+
+    // 4) 보강 예약된 결석건은 제외
     const arr = Array.from(grouped.values()).map((rec: any) => {
       const m = members.find((mm: any) => mm.id === rec.member_id);
-      const hasMakeup = makeupDoneKey.has(rec.member_id);
-      return { ...rec, member_name: m?.name || "알 수 없음", phone: m?.phone, hasMakeup };
-    }).filter((r: any) => !r.hasMakeup);
-    // 날짜 내림차순 정렬
+      const isCovered = makeupCoveredIds.has(rec.id) || makeupCoveredKeys.has(`_member_${rec.member_id}`);
+      return { ...rec, member_name: m?.name || "알 수 없음", phone: m?.phone, isCovered };
+    }).filter((r: any) => !r.isCovered);
+
+    // 5) 날짜 내림차순 정렬
     arr.sort((a: any, b: any) => (b.date || "").localeCompare(a.date || ""));
     return arr;
   }, [slots, attendance, members]);
 
+  // v3.21.7: 보강 예약 모드 state - 카드에서 클릭 시 예약 모달에 자동 회원/날짜 프리필
+  const [makeupMode, setMakeupMode] = useState<any | null>(null);
+
+  // v3.21.7: 보강 예약 생성 (원본 결석건과 FK 매칭해 상단 알림에서 즉시 자동 제거)
+  async function createMakeupForAbsent(absent: any, targetDate: string, targetTime: string) {
+    try {
+      const orgRow = await supabase.from("organizations").select("id").limit(1).maybeSingle();
+      const orgId = orgRow.data?.id;
+      const m = members.find((mm: any) => mm.id === absent.member_id);
+      const payload: any = {
+        org_id: orgId,
+        event_date: targetDate,
+        event_time: targetTime,
+        member_id: absent.member_id,
+        staff_id: m?.staff_id || null,
+        event_type: "makeup",
+        status: "scheduled",
+        title: `보강 (${absent.date} ${absent.status === "sick" ? "병결" : "개인사정"})`,
+        is_makeup: true,
+        makeup_for_id: absent.id,
+      };
+      let payloadTry: any = { ...payload };
+      for (let i = 0; i < 6; i++) {
+        const r = await supabase.from("schedule_slots").insert(payloadTry);
+        if (!r.error) break;
+        const mm = /'([^']+)' column|column "([^"]+)"/.exec(r.error.message || "");
+        const missing = mm?.[1] || mm?.[2];
+        if (missing && missing in payloadTry) {
+          const { [missing]: _drop, ...rest } = payloadTry;
+          payloadTry = { ...rest };
+          continue;
+        }
+        alert("보강 등록 실패: " + r.error.message); return;
+      }
+      // 원본 결석건에도 makeup_for_id 역참조 (attendance에 가능하면)
+      if (absent.source === "attendance" && absent.id) {
+        try {
+          await supabase.from("attendance").update({ is_makeup_covered: true }).eq("id", absent.id);
+        } catch { /* 컴럼 없으면 무시 */ }
+      }
+      await loadAll();
+      alert(`✅ 보강 예약 완료\n\n• 회원: ${absent.member_name || ""}\n• 보강일: ${targetDate} ${targetTime}\n• 원본 결석: ${absent.date}\n\n상단 보강필요 목록에서 자동 제거됩니다`);
+    } catch (e: any) {
+      alert("보강 등록 실패: " + e.message);
+    }
+  }
+
   return (
     <main className="max-w-7xl mx-auto px-3 md:px-6 py-4 md:py-8">
-      {/* v3.21.6: 보강 필요 회원 알림 배너 */}
+      {/* v3.21.7: 보강 필요 회원 - Actionable Card UI (등록해두신 것으로 개편) */}
       {makeupNeededList.length > 0 && (
-        <div className="mb-4 bg-gradient-to-r from-orange-50 to-red-50 border-2 border-orange-300 rounded-xl p-3 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
+        <div className="mb-4 bg-gradient-to-br from-orange-50 via-amber-50 to-red-50 border-2 border-orange-300 rounded-xl p-3 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2 text-orange-800 font-bold text-sm">
               <span className="text-lg">🔔</span>
-              보강 필요 회원 ({makeupNeededList.length}명)
-              <span className="text-[10px] text-orange-600 font-normal">• 병결/개인사정 결석, 보강 미진행</span>
+              보강 필요 회원
+              <span className="px-2 py-0.5 bg-orange-600 text-white text-[10px] rounded-full">{makeupNeededList.length}건</span>
             </div>
+            <span className="text-[10px] text-orange-600 font-normal">등록 시 자동 제거 • 노쇼·이월 제외</span>
           </div>
-          <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
-            {makeupNeededList.slice(0, 20).map((r: any, i: number) => (
-              <button key={`${r.member_id}_${r.date}_${i}`}
-                onClick={() => { window.location.href = `/members/${r.member_id}`; }}
-                className="text-[11px] px-2 py-1 bg-white border border-orange-300 rounded-lg hover:bg-orange-100 flex items-center gap-1">
-                <span className={r.status === "sick" ? "text-orange-700" : "text-purple-700"}>
-                  {r.status === "sick" ? "🤒" : "📝"}
-                </span>
-                <span className="font-semibold text-slate-800">{r.member_name}</span>
-                <span className="text-gray-500">{r.date}</span>
-              </button>
-            ))}
-            {makeupNeededList.length > 20 && (
-              <span className="text-[11px] text-orange-600 self-center">+{makeupNeededList.length - 20}명</span>
+          <div className="space-y-1.5 max-h-52 overflow-y-auto">
+            {makeupNeededList.slice(0, 30).map((r: any, i: number) => {
+              const isSick = r.status === "sick";
+              return (
+                <div key={`${r.member_id}_${r.date}_${i}`}
+                  className="flex items-center gap-2 bg-white border border-orange-200 rounded-lg px-3 py-2 hover:border-orange-400 transition-colors">
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isSick ? "bg-orange-100 text-orange-700" : "bg-purple-100 text-purple-700"}`}>
+                    {isSick ? "🤒 병결" : "📝 개인사정"}
+                  </span>
+                  <button onClick={() => { window.location.href = `/members/${r.member_id}`; }}
+                    className="text-sm font-bold text-slate-800 hover:text-aqu-700 hover:underline">
+                    {r.member_name}
+                  </button>
+                  <span className="text-xs text-gray-500 flex-1">결석일: {r.date}</span>
+                  <button
+                    onClick={() => {
+                      // 보강 예약 모드 활성화 - 이후 시간표 셀 클릭 시 회원이 자동 프리필됨
+                      setMakeupMode(r);
+                      // 사용자에게 안내
+                      const msg = `📅 보강 예약 모드 활성화\n\n• 회원: ${r.member_name}\n• 원본 결석: ${r.date} (${isSick ? "병결" : "개인사정"})\n\n시간표에서 빈 셀을 클릭하면 보강으로 자동 등록됩니다.\n취소하려면 다시 버튼을 누르세요.`;
+                      alert(msg);
+                    }}
+                    className={`text-[11px] px-2.5 py-1 rounded-lg font-semibold border-2 flex items-center gap-1 ${
+                      makeupMode?.member_id === r.member_id && makeupMode?.date === r.date
+                        ? "bg-emerald-500 text-white border-emerald-600"
+                        : "bg-white text-orange-700 border-orange-300 hover:bg-orange-100"
+                    }`}>
+                    📅 {makeupMode?.member_id === r.member_id && makeupMode?.date === r.date ? "예약모드✓" : "보강예약"}
+                  </button>
+                </div>
+              );
+            })}
+            {makeupNeededList.length > 30 && (
+              <div className="text-[11px] text-orange-600 text-center py-1">+{makeupNeededList.length - 30}건 더 있음</div>
             )}
           </div>
+          {makeupMode && (
+            <div className="mt-2 p-2 bg-emerald-50 border border-emerald-300 rounded-lg text-[11px] text-emerald-800 flex items-center justify-between">
+              <span>📌 <b>{makeupMode.member_name}</b> 보강 예약 모드 → 시간표 빈셀 클릭 대기 중</span>
+              <button onClick={() => setMakeupMode(null)}
+                className="px-2 py-0.5 bg-white border border-emerald-400 text-emerald-700 rounded hover:bg-emerald-100 font-semibold">예약모드 종료</button>
+            </div>
+          )}
         </div>
       )}
 

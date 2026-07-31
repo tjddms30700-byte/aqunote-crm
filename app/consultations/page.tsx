@@ -39,6 +39,7 @@ type MatrixCell = {
   status: "open" | "fixed" | "closed";
   fixed_name?: string | null;
   member_id?: string | null;
+  staff_id?: string | null; // v3.21.7: 담당강사 지정 - 상담·시간표·수당 연동 상수
   note?: string | null;
 };
 
@@ -139,14 +140,32 @@ export default function ConsultationsPage() {
       memData = r.data;
     }
 
+    // v3.21.7: staff SELECT 컴럼 폴백 (is_resigned/is_active/resign_date 없는 DB에서도 동작)
+    async function loadStaffSafe() {
+      const attempts = [
+        "id, name, color, role, status, is_active, is_resigned, resign_date",
+        "id, name, color, role, status, is_resigned, resign_date",
+        "id, name, color, role, status, resign_date",
+        "id, name, color, role, status",
+        "id, name, color, role",
+        "id, name, color",
+        "id, name",
+      ];
+      for (const cols of attempts) {
+        const r = await supabase.from("staff").select(cols).order("name");
+        if (!r.error) return r;
+      }
+      return { data: [], error: null } as any;
+    }
+
     const [staffRes, matrixRes] = await Promise.all([
-      supabase.from("staff").select("id, name, color, status, is_active, is_resigned, resign_date").order("name"),
+      loadStaffSafe(),
       supabase.from("slot_matrix").select("*"),
     ]);
 
     setMembers((memData as any) || []);
-    // v3.21.2: 상담 매칭에서 퇴사자 자동 배제
-    const activeStaff = (staffRes.data || []).filter((s: any) => {
+    // v3.21.7: 퇴사자 자동 배제 - 모든 필드에 대해 optional 처리
+    const activeStaff = ((staffRes as any).data || []).filter((s: any) => {
       const status = String(s.status || "").toLowerCase();
       if (["resigned", "retired", "inactive", "terminated", "quit", "leave"].includes(status)) return false;
       if (s.is_active === false) return false;
@@ -308,15 +327,28 @@ export default function ConsultationsPage() {
   async function saveCell(day: number, time: string, patch: Partial<MatrixCell>) {
     setSaving(true);
     const existing = getCell(day, time);
-    let error;
-    if (existing) {
-      const r = await supabase.from("slot_matrix").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", existing.id!);
+    let error: any;
+    // v3.21.7: staff_id 컴럼 미존재 시 6회 폴백 (이름 변경 대응)
+    let tryPatch: any = { ...patch };
+    for (let i = 0; i < 6; i++) {
+      let r;
+      if (existing) {
+        r = await supabase.from("slot_matrix").update({ ...tryPatch, updated_at: new Date().toISOString() }).eq("id", existing.id!);
+      } else {
+        r = await supabase.from("slot_matrix").insert({ org_id: orgId, day_of_week: day, time_slot: time, status: "closed", ...tryPatch });
+      }
+      if (!r.error) { error = null; break; }
       error = r.error;
-    } else {
-      const r = await supabase.from("slot_matrix").insert({ org_id: orgId, day_of_week: day, time_slot: time, status: "closed", ...patch });
-      error = r.error;
+      const m = /'([^']+)' column|column "([^"]+)"/.exec(r.error.message || "");
+      const missing = m?.[1] || m?.[2];
+      if (missing && missing in tryPatch) {
+        const { [missing]: _drop, ...rest } = tryPatch;
+        tryPatch = { ...rest };
+        continue;
+      }
+      break;
     }
-    if (error) alert("저장 실패: " + error.message);
+    if (error) alert("저장 실패: " + error.message + "\n\n💡 slot_matrix 테이블에 staff_id 컴럼이 없으면 추가 필요");
     else await loadAll();
     setSaving(false);
   }

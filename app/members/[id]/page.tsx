@@ -2025,6 +2025,123 @@ function MemberHistoryPanel({ memberId }: { memberId: string }) {
           );
         })()}
       </div>
+
+      {/* v3.21.7: 통합 타임라인 - 결제·수업·출결·보강을 단일 허브로 통합 */}
+      <div>
+        {(() => {
+          type Event = { key: string; date: string; time?: string; kind: "payment" | "lesson" | "attendance" | "makeup" | "refund"; icon: string; title: string; sub?: string; badge?: string; color: string; };
+          const events: Event[] = [];
+          // 결제 이별
+          payments.forEach((p: any) => {
+            const isCancel = p.status === "cancelled";
+            events.push({
+              key: `pay_${p.id}`,
+              date: p.paid_at || p.created_at?.slice(0, 10) || "",
+              kind: "payment",
+              icon: isCancel ? "❌" : "💰",
+              title: `${p.plan_name || "결제"} ₩${(p.amount || 0).toLocaleString()}`,
+              sub: isCancel ? "취소됨" : (p.payment_method || ""),
+              color: isCancel ? "gray" : "blue",
+            });
+          });
+          // 환불
+          refunds.forEach((rf: any) => {
+            events.push({
+              key: `rf_${rf.id}`,
+              date: rf.refunded_at?.slice(0, 10) || "",
+              kind: "refund",
+              icon: "💸",
+              title: `환불 ₩${(rf.amount || 0).toLocaleString()}`,
+              sub: rf.reason || "",
+              color: "rose",
+            });
+          });
+          // 수업/출결 (attendance 우선, 없으면 slot)
+          const slotByDate = new Map<string, any>();
+          slots.forEach((sl: any) => { if (sl.event_date) slotByDate.set(sl.event_date, sl); });
+          const attSeen = new Set<string>();
+          attendance.forEach((a: any) => {
+            const date = a._date || a.attend_date || a.date;
+            if (!date) return;
+            attSeen.add(date);
+            const sl = slotByDate.get(date);
+            const st = (a.status || "").toLowerCase();
+            const isMakeup = (sl?.event_type === "makeup") || a.is_makeup;
+            const staffName = sl?.staff_id ? "" : ""; // 강사 명 이름은 상위 로드 필요 시
+            const label = st === "present" || st === "done" ? "수업 완료"
+              : st === "absent" || st === "noshow" ? "노쇼"
+              : st === "sick" ? "병결"
+              : st === "personal" ? "개인사정" : st;
+            const color = st === "present" || st === "done" ? "emerald"
+              : st === "absent" || st === "noshow" ? "red"
+              : st === "sick" ? "orange"
+              : st === "personal" ? "amber" : "slate";
+            events.push({
+              key: `att_${a.id}`,
+              date, time: a.time_slot || sl?.time_slot,
+              kind: isMakeup ? "makeup" : "attendance",
+              icon: isMakeup ? "🔄" : (a.signature ? "✍️" : (st === "sick" ? "🤒" : st === "personal" ? "📝" : "🎤")),
+              title: (sl?.lesson_name || (isMakeup ? "보강 수업" : "수업")) + " • " + label,
+              sub: a.signer_role ? `서명자: ${a.signer_role}` : "",
+              badge: (st === "present" || st === "done" || st === "absent" || st === "noshow") ? "-1회" : (st === "sick" || st === "personal" ? "보강필요" : undefined),
+              color,
+            });
+          });
+          // slot만 있고 attendance 없는 건
+          slots.forEach((sl: any) => {
+            if (attSeen.has(sl.event_date)) return;
+            const st = (sl.status || "").toLowerCase();
+            const isMakeup = sl.event_type === "makeup";
+            const label = st === "done" || st === "completed" ? "수업 완료"
+              : st === "noshow" ? "노쇼"
+              : st === "sick" ? "병결"
+              : st === "personal" ? "개인사정"
+              : st === "cancel" || st === "cancelled" ? "취소"
+              : st === "carryover" ? "이월" : "예약";
+            const color = st === "done" ? "emerald" : st === "noshow" ? "red" : st === "sick" ? "orange" : st === "personal" ? "amber" : st === "carryover" ? "purple" : "blue";
+            events.push({
+              key: `slot_${sl.id}`,
+              date: sl.event_date, time: sl.time_slot,
+              kind: isMakeup ? "makeup" : "lesson",
+              icon: isMakeup ? "🔄" : "🎤",
+              title: (sl.lesson_name || (isMakeup ? "보강" : "수업")) + " • " + label,
+              badge: (st === "done" || st === "noshow") ? "-1회" : (st === "sick" || st === "personal" ? "보강필요" : undefined),
+              color,
+            });
+          });
+          // 날짜 내림차순
+          events.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+          if (events.length === 0) return null;
+          const colorClass = (c: string) => ({
+            blue:    "bg-blue-50 border-blue-200 text-blue-800",
+            emerald: "bg-emerald-50 border-emerald-200 text-emerald-800",
+            red:     "bg-red-50 border-red-200 text-red-800",
+            orange:  "bg-orange-50 border-orange-200 text-orange-800",
+            amber:   "bg-amber-50 border-amber-200 text-amber-800",
+            purple:  "bg-purple-50 border-purple-200 text-purple-800",
+            rose:    "bg-rose-50 border-rose-200 text-rose-800",
+            gray:    "bg-gray-50 border-gray-200 text-gray-500",
+            slate:   "bg-slate-50 border-slate-200 text-slate-700",
+          } as any)[c] || "bg-white border-gray-200 text-gray-700";
+          return (
+            <>
+              <h4 className="font-bold text-slate-900 mt-4 mb-2 flex items-center gap-1">🔗 통합 타임라인 ({events.length}건) <span className="text-[10px] text-gray-500 font-normal">결제·수업·출결·보강·환불 통합</span></h4>
+              <div className="max-h-[400px] overflow-y-auto space-y-1 border border-gray-100 rounded-xl p-2 bg-white">
+                {events.slice(0, 100).map((e) => (
+                  <div key={e.key} className={`flex items-center gap-2 p-2 border rounded-lg text-xs ${colorClass(e.color)}`}>
+                    <div className="w-20 text-gray-700 font-mono text-[11px]">{e.date || "-"}</div>
+                    <div className="w-12 text-gray-500 text-[11px]">{e.time || "-"}</div>
+                    <div className="text-lg">{e.icon}</div>
+                    <div className="flex-1 font-semibold text-slate-800">{e.title}</div>
+                    {e.sub && <div className="text-[10px] text-gray-500">{e.sub}</div>}
+                    {e.badge && <span className="text-[9px] px-1.5 py-0.5 bg-red-500 text-white rounded font-bold">{e.badge}</span>}
+                  </div>
+                ))}
+              </div>
+            </>
+          );
+        })()}
+      </div>
     </div>
   );
 }

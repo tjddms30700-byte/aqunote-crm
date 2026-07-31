@@ -490,8 +490,17 @@ export default function StaffPage() {
                   }
                 }
 
-                // 1) schedule_slots (직접 staff_id 배정된 것) + slot_matrix 가상 예약
-                const realSlots = slots.filter((sl: any) => sl.staff_id === s.id && (sl.event_type === "lesson" || sl.event_type === "trial" || sl.event_type === "makeup"));
+                // 1) schedule_slots – 직접 staff_id 배정 또는 member.staff_id 역매핑으로 이 강사에 귀속
+                // v3.21.7: staff_id가 null인 slot도 담당회원 기준으로 강사 귀속 + event_type 마이너스 필터
+                const realSlots = slots.filter((sl: any) => {
+                  const et = (sl.event_type || "").toLowerCase();
+                  if (et === "revenue" || et === "other") return false;
+                  // (a) 직접 staff_id 배정된 것
+                  if (sl.staff_id === s.id) return true;
+                  // (b) staff_id 없는 slot: 회원의 담당강사가 이 사람이면 이 강사에 귀속
+                  if (!sl.staff_id && sl.member_id && myMemberIds.has(sl.member_id)) return true;
+                  return false;
+                });
                 // 실제 schedule_slots와 중복되는 가상 예약은 제거 (같은 member+date이면 실제를 우선)
                 const realKey = new Set(realSlots.map((sl: any) => `${sl.member_id}__${sl.event_date}`));
                 const dedupedVirtual = virtualSlotsFromMatrix.filter((v: any) => !realKey.has(`${v.member_id}__${v.event_date}`));
@@ -589,7 +598,14 @@ export default function StaffPage() {
                       let total = 0;
                       activeStaff.forEach((s: any) => {
                         const myMemberIds = new Set((membersLite || []).filter((mm: any) => mm.staff_id === s.id).map((mm: any) => mm.id));
-                        const mySlots = slots.filter((sl: any) => sl.staff_id === s.id && ["lesson","trial","makeup"].includes(sl.event_type));
+                        // v3.21.7: staff_id null slot도 담당회원 기준으로 관리
+                        const mySlots = slots.filter((sl: any) => {
+                          const et = (sl.event_type || "").toLowerCase();
+                          if (et === "revenue" || et === "other") return false;
+                          if (sl.staff_id === s.id) return true;
+                          if (!sl.staff_id && sl.member_id && myMemberIds.has(sl.member_id)) return true;
+                          return false;
+                        });
                         const mySlotIds = new Set(mySlots.map((sl: any) => sl.id).filter(Boolean));
                         const slotByMD = new Map<string, any>();
                         mySlots.forEach((sl: any) => { if (sl.member_id && sl.event_date) slotByMD.set(`${sl.member_id}__${sl.event_date}`, sl); });
@@ -621,7 +637,13 @@ export default function StaffPage() {
                       let sum = 0;
                       activeStaff.forEach((s: any) => {
                         const myMemberIds = new Set((membersLite || []).filter((mm: any) => mm.staff_id === s.id).map((mm: any) => mm.id));
-                        const mySlots = slots.filter((sl: any) => sl.staff_id === s.id && ["lesson","trial","makeup"].includes(sl.event_type));
+                        const mySlots = slots.filter((sl: any) => {
+                          const et = (sl.event_type || "").toLowerCase();
+                          if (et === "revenue" || et === "other") return false;
+                          if (sl.staff_id === s.id) return true;
+                          if (!sl.staff_id && sl.member_id && myMemberIds.has(sl.member_id)) return true;
+                          return false;
+                        });
                         const mySlotIds = new Set(mySlots.map((sl: any) => sl.id).filter(Boolean));
                         const slotByMD = new Map<string, any>();
                         mySlots.forEach((sl: any) => { if (sl.member_id && sl.event_date) slotByMD.set(`${sl.member_id}__${sl.event_date}`, sl); });
