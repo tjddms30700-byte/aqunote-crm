@@ -103,6 +103,15 @@ export async function POST(req: Request) {
       const orgRow = await supabase.from("organizations").select("id").limit(1).maybeSingle();
       const orgId = orgRow.data?.id;
 
+      // v3.21.5: 첫 번째 branch_id 조회 - members가 지점 필터에 걸리지 않도록
+      let defaultBranchId: string | null = null;
+      try {
+        const brRow = await supabase.from("branches").select("id").limit(1).maybeSingle();
+        defaultBranchId = brRow.data?.id || null;
+      } catch (e) {
+        // branches 테이블 미존재 시 무시
+      }
+
       // 이미 동일 전화번호로 등록된 members가 있는지 확인 (중복 방지)
       const dup = await supabase.from("members")
         .select("id").eq("phone", phone).is("deleted_at", null).maybeSingle();
@@ -111,6 +120,7 @@ export async function POST(req: Request) {
         // v3.20.28: birth_date, gender, address, diagnosis 기본 정보 매핑 보강
         const memberPayload: any = {
           org_id: orgId,
+          branch_id: defaultBranchId, // v3.21.5: 자동 지점 매핑
           name,
           phone,
           member_type: body.member_type,

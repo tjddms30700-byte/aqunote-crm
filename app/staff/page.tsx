@@ -87,6 +87,8 @@ export default function StaffPage() {
   const [slots, setSlots] = useState<any[]>([]);
   // v3.21.2: 이번달 attendance 이력 (강사별 자동 수당 계산용)
   const [monthAttendance, setMonthAttendance] = useState<any[]>([]);
+  // v3.21.5: 회원 담당강사 역매핑용 - members.staff_id 로 attendance 귀속 직원 판별
+  const [membersLite, setMembersLite] = useState<any[]>([]);
   const [slotsMonth, setSlotsMonth] = useState<string>(new Date().toISOString().slice(0, 7));
 
   useEffect(() => { loadAll(); }, [slotsMonth]);
@@ -125,7 +127,21 @@ export default function StaffPage() {
       return { data: [], error: null };
     }
 
-    const [s, ph, al, sl, att] = await Promise.all([
+    // v3.21.5: members(id, staff_id) 로드 – attendance → staff 역매핑용
+    async function loadMembersLite() {
+      const attempts = [
+        "id, staff_id, name",
+        "id, staff_id",
+        "id, name",
+      ];
+      for (const cols of attempts) {
+        const r = await supabase.from("members").select(cols).is("deleted_at", null);
+        if (!r.error) return r;
+      }
+      return { data: [], error: null } as any;
+    }
+
+    const [s, ph, al, sl, att, mm] = await Promise.all([
       supabase.from("staff").select("*").order("created_at", { ascending: false }),
       supabase.from("payroll_history").select("*").order("pay_year", { ascending: false }).order("pay_month", { ascending: false }),
       loadAttendanceLogs(),
@@ -134,8 +150,10 @@ export default function StaffPage() {
         .lt("event_date", slotsMonth + "-32")
         .is("deleted_at", null),
       loadMonthAttendance(),
+      loadMembersLite(),
     ]);
     setStaff(s.data || []);
+    setMembersLite(((mm as any).data || []) as any[]);
     setPayrollHistory(ph.data || []);
     // ✅ v3.20.14: work_date 또는 log_date 중 있는 것을 사용 (유연 표시)
     setAttendanceLogs((al || []).map((r: any) => ({
@@ -430,42 +448,63 @@ export default function StaffPage() {
               {activeStaff.length === 0 ? (
                 <tr><td colSpan={7} className="text-center py-4 text-gray-400">재직 직원이 없습니다</td></tr>
               ) : activeStaff.map((s: any) => {
-                // v3.21.3: 강사별 수업 통계 – schedule_slots + attendance 결합 (slot_id 부재 시 member_id+date 매핑)
+                // v3.21.5: 강사별 통계 3중 매핑 – (1) slot.staff_id (2) attendance.slot_id (3) member.staff_id 역매핑
+                // 담당 회원 id 집합 (member.staff_id 기준)
+                const myMemberIds = new Set(
+                  (membersLite || []).filter((mm: any) => mm.staff_id === s.id).map((mm: any) => mm.id)
+                );
+                // 1) schedule_slots (직접 staff_id 배정된 것)
                 const mySlots = slots.filter((sl: any) => sl.staff_id === s.id && (sl.event_type === "lesson" || sl.event_type === "trial" || sl.event_type === "makeup"));
-                const total = mySlots.length;
                 const mySlotIds = new Set(mySlots.map((sl: any) => sl.id).filter(Boolean));
-                // (member_id + event_date) 조합 키 → slot 매핑 테이블 구성
                 const slotByMemberDate = new Map<string, any>();
                 mySlots.forEach((sl: any) => {
                   if (sl.member_id && sl.event_date) slotByMemberDate.set(`${sl.member_id}__${sl.event_date}`, sl);
                 });
-                // 해당 강사와 매핑되는 attendance 필터링 (slot_id 우선, 없으면 member_id+date로 매칭)
+                // 2) attendance 필터링 – slot_id 매칭 OR 담당회원 매칭 OR member+date로 slot 매핑
                 const myAtt = (monthAttendance || []).filter((a: any) => {
                   if (a.slot_id && mySlotIds.has(a.slot_id)) return true;
                   const aDate = a._date || a.attend_date || a.date;
                   if (a.member_id && aDate && slotByMemberDate.has(`${a.member_id}__${aDate}`)) return true;
+                  // v3.21.5: 담당 회원 attendance 는 slot 없어도 이 강사 귀속
+                  if (a.member_id && myMemberIds.has(a.member_id)) return true;
                   return false;
                 });
-                // attendance status와 slot 매칭 (slot_id 없으면 member+date로 slot 찾아 매핑)
-                const attToSlotId = (a: any): string | null => {
-                  if (a.slot_id) return a.slot_id;
-                  const aDate = a._date || a.attend_date || a.date;
-                  const sl = slotByMemberDate.get(`${a.member_id}__${aDate}`);
-                  return sl?.id || null;
+                // 통합 고유 이벤트 키 생성 (중복 카운트 방지)
+                const eventKey = (source: "slot" | "att", ref: any): string => {
+                  if (source === "slot") return `slot_${ref.id}`;
+                  const aDate = ref._date || ref.attend_date || ref.date;
+                  const sl = ref.slot_id ? mySlots.find((x: any) => x.id === ref.slot_id) : slotByMemberDate.get(`${ref.member_id}__${aDate}`);
+                  if (sl?.id) return `slot_${sl.id}`;
+                  return `att_${ref.member_id}_${aDate}`;
                 };
+                // 예약(total) = slot + attendance 통합 고유 이벤트 수
+                const allKeys = new Set<string>();
+                mySlots.forEach((sl: any) => allKeys.add(eventKey("slot", sl)));
+                myAtt.forEach((a: any) => allKeys.add(eventKey("att", a)));
+                const total = allKeys.size;
+
+                // status 별 카운트 – slot.status와 attendance.status 중 하나라도 매칭되면 카운트
+                const eventStatusMap = new Map<string, string>();
+                mySlots.forEach((sl: any) => {
+                  const k = eventKey("slot", sl);
+                  eventStatusMap.set(k, (sl.status || "").toLowerCase());
+                });
+                myAtt.forEach((a: any) => {
+                  const k = eventKey("att", a);
+                  const st = (a.status || "").toLowerCase();
+                  const prev = eventStatusMap.get(k);
+                  // done/noshow가 우선 (실제 발생 상태가 예약보다 우선)
+                  const priority = ["done", "completed", "present", "noshow", "absent", "sick", "personal"];
+                  if (!prev || (priority.indexOf(st) >= 0 && priority.indexOf(prev) < 0)) {
+                    eventStatusMap.set(k, st);
+                  } else if (priority.indexOf(st) >= 0 && priority.indexOf(prev) >= 0 && priority.indexOf(st) < priority.indexOf(prev)) {
+                    eventStatusMap.set(k, st);
+                  }
+                });
                 const countBy = (predicate: (status: string) => boolean) => {
-                  const hits = new Set<string>();
-                  // schedule_slot 기준
-                  mySlots.forEach((sl: any) => { if (predicate((sl.status || "").toLowerCase()) && sl.id) hits.add(sl.id); });
-                  // attendance 기준 (slot_id 또는 member_id+date 매핑)
-                  myAtt.forEach((a: any) => {
-                    if (predicate((a.status || "").toLowerCase())) {
-                      const sid = attToSlotId(a);
-                      if (sid) hits.add(sid);
-                      else hits.add(`att_${a.member_id}_${a._date || a.attend_date || a.date}`); // slot 없어도 attendance 자체로 카운트
-                    }
-                  });
-                  return hits.size;
+                  let n = 0;
+                  eventStatusMap.forEach((st) => { if (predicate(st)) n++; });
+                  return n;
                 };
                 const done   = countBy((st) => ["done", "completed", "present"].includes(st));
                 const noshow = countBy((st) => ["noshow", "absent"].includes(st));
@@ -505,25 +544,32 @@ export default function StaffPage() {
                   <td colSpan={2} className="px-2 py-2 text-aqu-800">합계</td>
                   <td className="px-2 py-2 text-center text-emerald-700">
                     {(() => {
-                      // v3.21.3: 합계 – slot + attendance 결합 완료 카운트 (member_id+date 폴백)
+                      // v3.21.5: 합계 - 3중 매핑 통일 (slot.staff_id + attendance.slot_id + member.staff_id 역매핑)
                       let total = 0;
                       activeStaff.forEach((s: any) => {
+                        const myMemberIds = new Set((membersLite || []).filter((mm: any) => mm.staff_id === s.id).map((mm: any) => mm.id));
                         const mySlots = slots.filter((sl: any) => sl.staff_id === s.id && ["lesson","trial","makeup"].includes(sl.event_type));
                         const mySlotIds = new Set(mySlots.map((sl: any) => sl.id).filter(Boolean));
                         const slotByMD = new Map<string, any>();
                         mySlots.forEach((sl: any) => { if (sl.member_id && sl.event_date) slotByMD.set(`${sl.member_id}__${sl.event_date}`, sl); });
-                        const hits = new Set<string>();
-                        mySlots.forEach((sl: any) => { if (["done","completed","present"].includes((sl.status||"").toLowerCase())) hits.add(sl.id); });
+                        const eventStatus = new Map<string, string>();
+                        mySlots.forEach((sl: any) => { eventStatus.set(`slot_${sl.id}`, (sl.status||"").toLowerCase()); });
                         (monthAttendance || []).forEach((a: any) => {
-                          const status = (a.status || "").toLowerCase();
-                          if (!["done","completed","present"].includes(status)) return;
-                          if (a.slot_id && mySlotIds.has(a.slot_id)) { hits.add(a.slot_id); return; }
                           const aDate = a._date || a.attend_date || a.date;
-                          const sl = slotByMD.get(`${a.member_id}__${aDate}`);
-                          if (sl?.id) hits.add(sl.id);
-                          else if (sl) hits.add(`att_${a.member_id}_${aDate}`);
+                          const belongs = (a.slot_id && mySlotIds.has(a.slot_id))
+                            || (a.member_id && aDate && slotByMD.has(`${a.member_id}__${aDate}`))
+                            || (a.member_id && myMemberIds.has(a.member_id));
+                          if (!belongs) return;
+                          const sl = a.slot_id ? mySlots.find((x: any) => x.id === a.slot_id) : slotByMD.get(`${a.member_id}__${aDate}`);
+                          const key = sl?.id ? `slot_${sl.id}` : `att_${a.member_id}_${aDate}`;
+                          const st = (a.status || "").toLowerCase();
+                          const prev = eventStatus.get(key);
+                          const priority = ["done","completed","present","noshow","absent","sick","personal"];
+                          if (!prev || (priority.indexOf(st) >= 0 && (priority.indexOf(prev) < 0 || priority.indexOf(st) < priority.indexOf(prev)))) {
+                            eventStatus.set(key, st);
+                          }
                         });
-                        total += hits.size;
+                        eventStatus.forEach((st) => { if (["done","completed","present"].includes(st)) total++; });
                       });
                       return total;
                     })()}
@@ -533,24 +579,33 @@ export default function StaffPage() {
                     ₩{(() => {
                       let sum = 0;
                       activeStaff.forEach((s: any) => {
+                        const myMemberIds = new Set((membersLite || []).filter((mm: any) => mm.staff_id === s.id).map((mm: any) => mm.id));
                         const mySlots = slots.filter((sl: any) => sl.staff_id === s.id && ["lesson","trial","makeup"].includes(sl.event_type));
                         const mySlotIds = new Set(mySlots.map((sl: any) => sl.id).filter(Boolean));
                         const slotByMD = new Map<string, any>();
                         mySlots.forEach((sl: any) => { if (sl.member_id && sl.event_date) slotByMD.set(`${sl.member_id}__${sl.event_date}`, sl); });
-                        const hits = new Set<string>();
-                        mySlots.forEach((sl: any) => { if (["done","completed","present"].includes((sl.status||"").toLowerCase())) hits.add(sl.id); });
+                        const eventStatus = new Map<string, string>();
+                        mySlots.forEach((sl: any) => { eventStatus.set(`slot_${sl.id}`, (sl.status||"").toLowerCase()); });
                         (monthAttendance || []).forEach((a: any) => {
-                          const status = (a.status || "").toLowerCase();
-                          if (!["done","completed","present"].includes(status)) return;
-                          if (a.slot_id && mySlotIds.has(a.slot_id)) { hits.add(a.slot_id); return; }
                           const aDate = a._date || a.attend_date || a.date;
-                          const sl = slotByMD.get(`${a.member_id}__${aDate}`);
-                          if (sl?.id) hits.add(sl.id);
-                          else if (sl) hits.add(`att_${a.member_id}_${aDate}`);
+                          const belongs = (a.slot_id && mySlotIds.has(a.slot_id))
+                            || (a.member_id && aDate && slotByMD.has(`${a.member_id}__${aDate}`))
+                            || (a.member_id && myMemberIds.has(a.member_id));
+                          if (!belongs) return;
+                          const sl = a.slot_id ? mySlots.find((x: any) => x.id === a.slot_id) : slotByMD.get(`${a.member_id}__${aDate}`);
+                          const key = sl?.id ? `slot_${sl.id}` : `att_${a.member_id}_${aDate}`;
+                          const st = (a.status || "").toLowerCase();
+                          const prev = eventStatus.get(key);
+                          const priority = ["done","completed","present","noshow","absent","sick","personal"];
+                          if (!prev || (priority.indexOf(st) >= 0 && (priority.indexOf(prev) < 0 || priority.indexOf(st) < priority.indexOf(prev)))) {
+                            eventStatus.set(key, st);
+                          }
                         });
+                        let done = 0;
+                        eventStatus.forEach((st) => { if (["done","completed","present"].includes(st)) done++; });
                         const unit = (s.session_rate !== null && s.session_rate !== undefined) ? Number(s.session_rate)
                           : (s.salary_type === "session" ? Number(s.salary_amount || 0) : 0);
-                        sum += hits.size * unit;
+                        sum += done * unit;
                       });
                       return sum.toLocaleString();
                     })()}

@@ -305,6 +305,66 @@ export default function InboxPage() {
     else { alert(`✅ ${selectedIds.size}건 아카이브 완료`); await loadAll(); }
   }
 
+  // v3.21.5: 아카이브 리드 → 회원DB 재승격 (member_id가 실제 members에 없으면 자동 재생성)
+  async function restoreArchivedToMembers() {
+    if (!confirm("아카이브된 유입 중 회원DB에 없는 항목들을 자동으로 재승격합니다.\n\n계속하시겠습니까?")) return;
+    setProcessing(true);
+    try {
+      const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
+      // 첫 지점 조회 (branch_id 자동 할당용)
+      let defaultBranchId: string | null = null;
+      try {
+        const br = await supabase.from("branches").select("id").limit(1).maybeSingle();
+        defaultBranchId = br.data?.id || null;
+      } catch (_e) {}
+
+      const archivedLeads = leads.filter((l: any) => l.archived === true);
+      let restored = 0, skipped = 0, failed = 0;
+
+      for (const lead of archivedLeads) {
+        // 실제 members 테이블에 존재하는지 확인 (동일 이름+전화)
+        const { data: exists } = await supabase.from("members")
+          .select("id").eq("phone", lead.phone || "").is("deleted_at", null).limit(1);
+        if (exists && exists.length > 0) {
+          // 존재하지만 branch_id가 null이면 자동 매핑
+          if (defaultBranchId) {
+            await supabase.from("members").update({ branch_id: defaultBranchId })
+              .eq("id", exists[0].id).is("branch_id", null);
+          }
+          skipped++;
+          continue;
+        }
+
+        // 재승격 (buildMemberPayload 재사용)
+        const payload: any = buildMemberPayload(lead, orgId);
+        payload.branch_id = defaultBranchId;
+        let tryPayload = { ...payload };
+        let ok = false;
+        for (let i = 0; i < 6; i++) {
+          const { data: newM, error: err } = await supabase.from("members").insert(tryPayload).select().single();
+          if (!err && newM) {
+            await supabase.from("leads_inbox").update({ member_id: newM.id, processed: true }).eq("id", lead.id);
+            restored++; ok = true; break;
+          }
+          const m = /'([^']+)' column|column "([^"]+)"/.exec(err?.message || "");
+          const missing = m?.[1] || m?.[2];
+          if (missing && missing in tryPayload) {
+            const { [missing]: _drop, ...rest } = tryPayload;
+            tryPayload = { ...rest };
+            continue;
+          }
+          break;
+        }
+        if (!ok) failed++;
+      }
+
+      alert(`✅ 회원DB 복구 완료\n\n• 신규 재승격: ${restored}건\n• 이미 존재(branch 매핑 갱신): ${skipped}건\n• 실패: ${failed}건`);
+      await loadAll();
+    } catch (e: any) {
+      alert("복구 실패: " + e.message);
+    } finally { setProcessing(false); }
+  }
+
   // 종료된 리드 자동 정리 (삭제된 회원 참조 + 회원 사라진 참조 + 7일 지난 승격완료)
   async function cleanupIntegrity() {
     if (!confirm("데이터 무결성 자동 정리를 실행합니다.\n\n• 삭제된 회원 참조 유입 → 자동 삭제\n• 회원이 사라진 유입 → 대기 상태로 복원\n• 7일 지난 승격완료 → 아카이브\n\n계속하시겠습니까?")) return;
@@ -419,6 +479,12 @@ export default function InboxPage() {
             className="px-3 py-2 text-sm rounded-lg bg-white border border-red-200 text-red-600 hover:bg-red-50"
             title="삭제된 회원이 참조하는 유입 자동 정리 + 7일 지난 승격완료 아카이브">
             🧹 무결성 정리
+          </button>
+          {/* v3.21.5: 아카이브 → 회원DB 복구 */}
+          <button onClick={restoreArchivedToMembers} disabled={processing}
+            className="px-3 py-2 text-sm rounded-lg bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+            title="아카이브 유입을 회원DB에 재승격 (누락된 기존 유입자 복구)">
+            ♻️ 회원DB 복구
           </button>
         </div>
         {selectedIds.size > 0 && (

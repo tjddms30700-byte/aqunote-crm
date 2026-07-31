@@ -387,12 +387,64 @@ function ReportsPage() {
             </div>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-80 overflow-y-auto">
               {formsCat === "staff" ? filteredStaff.map(s => (
-                <button key={s?.id}
-                  onClick={() => setSelectedSubject({ kind: "staff", id: s?.id, name: s?.name || "", phone: s?.phone || "", role: s?.role || "" })}
-                  className={`p-2.5 rounded-lg border text-left transition ${selectedSubject?.id===s?.id ? "border-aqu-500 bg-aqu-50 ring-2 ring-aqu-200" : "border-gray-200 hover:border-aqu-400 hover:bg-aqu-50"}`}>
-                  <div className="text-sm font-bold text-gray-800">{s?.name}</div>
-                  <div className="text-[10px] text-gray-500">{s?.role || "직원"} · {s?.phone || "-"}</div>
-                </button>
+                <div key={s?.id} className={`relative p-2.5 rounded-lg border text-left transition ${selectedSubject?.id===s?.id ? "border-aqu-500 bg-aqu-50 ring-2 ring-aqu-200" : "border-gray-200 hover:border-aqu-400 hover:bg-aqu-50"}`}>
+                  <button
+                    onClick={() => setSelectedSubject({ kind: "staff", id: s?.id, name: s?.name || "", phone: s?.phone || "", role: s?.role || "" })}
+                    className="w-full text-left">
+                    <div className="text-sm font-bold text-gray-800 pr-6">{s?.name}</div>
+                    <div className="text-[10px] text-gray-500">{s?.role || "직원"} · {s?.phone || "-"}</div>
+                  </button>
+                  {/* v3.21.5: 원클릭 퇴사/복직 토글 버튼 */}
+                  {staffTab === "active" ? (
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (!confirm(`${s?.name} 님을 퇴사 처리하시겠습니까?\n\n• 퇴사자 탭으로 이동\n• 시간표·상담 등에서 자동 제외`)) return;
+                        const today = new Date().toISOString().slice(0, 10);
+                        // 6시도 폴백 - is_resigned/resign_date 컴럼 미존재 DB 대응
+                        let payload: any = { is_resigned: true, resign_date: today, status: "resigned", is_active: false };
+                        let ok = false;
+                        for (let i = 0; i < 6; i++) {
+                          const { error } = await supabase.from("staff").update(payload).eq("id", s?.id);
+                          if (!error) { ok = true; break; }
+                          const m = /'([^']+)' column|column "([^"]+)"/.exec(error.message || "");
+                          const missing = m?.[1] || m?.[2];
+                          if (missing && missing in payload) { const { [missing]: _drop, ...rest } = payload; payload = rest; continue; }
+                          alert("퇴사 처리 실패: " + error.message); return;
+                        }
+                        if (!ok) return alert("퇴사 처리 실패 - 필드 미존재");
+                        setStaffList(prev => prev.map((x: any) => x.id === s?.id ? { ...x, __resigned: true, is_resigned: true, resign_date: today, status: "resigned" } : x));
+                        alert(`✅ ${s?.name} 님 퇴사 처리 완료 (${today})`);
+                      }}
+                      className="absolute top-1 right-1 text-[10px] px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 hover:bg-orange-200 font-semibold"
+                      title="퇴사 처리">
+                      🚪
+                    </button>
+                  ) : (
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (!confirm(`${s?.name} 님의 퇴사를 취소하시겠습니까?`)) return;
+                        let payload: any = { is_resigned: false, resign_date: null, status: "active", is_active: true };
+                        let ok = false;
+                        for (let i = 0; i < 6; i++) {
+                          const { error } = await supabase.from("staff").update(payload).eq("id", s?.id);
+                          if (!error) { ok = true; break; }
+                          const m = /'([^']+)' column|column "([^"]+)"/.exec(error.message || "");
+                          const missing = m?.[1] || m?.[2];
+                          if (missing && missing in payload) { const { [missing]: _drop, ...rest } = payload; payload = rest; continue; }
+                          alert("퇴사 취소 실패: " + error.message); return;
+                        }
+                        if (!ok) return alert("퇴사 취소 실패");
+                        setStaffList(prev => prev.map((x: any) => x.id === s?.id ? { ...x, __resigned: false, is_resigned: false, resign_date: null, status: "active" } : x));
+                        alert(`✅ ${s?.name} 님 재입사 완료`);
+                      }}
+                      className="absolute top-1 right-1 text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-semibold"
+                      title="퇴사 취소">
+                      🔄
+                    </button>
+                  )}
+                </div>
               )) : filteredMembers.map((m: any) => (
                 <button key={m?.id}
                   onClick={() => setSelectedSubject({

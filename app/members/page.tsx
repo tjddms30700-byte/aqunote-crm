@@ -87,12 +87,12 @@ export default function MembersPage() {
   async function loadMembers() {
     setLoading(true);
     const branchId = getActiveBranchId();
+    // v3.21.5: branch_id 필터 완화 - 지점이 지정되어 있어도 branch_id가 null인 회원(신규 유입자 포함)은 함께 노출
     let query = supabase
       .from("members")
       .select("*")
       .is("deleted_at", null);
-    // ✅ 지점 필터 (branchId가 있을 때만)
-    if (branchId) query = query.eq("branch_id", branchId);
+    if (branchId) query = query.or(`branch_id.eq.${branchId},branch_id.is.null`);
     query = query.order("name", { ascending: true });
     const { data, error } = await query;
     // branch_id 컴럼 미존재 시 네트워크 에러 가능 → 폴백
@@ -101,6 +101,10 @@ export default function MembersPage() {
       if (fb.data) setMembers(fb.data as Member[]);
     } else if (!error && data) {
       setMembers(data as Member[]);
+    } else if (error) {
+      // v3.21.5: 기타 에러(RLS 등)도 폴백 시도
+      const fb = await supabase.from("members").select("*").is("deleted_at", null).order("name");
+      if (fb.data) setMembers(fb.data as Member[]);
     }
     setLoading(false);
   }

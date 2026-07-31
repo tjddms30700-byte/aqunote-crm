@@ -825,28 +825,32 @@ function MatchView({ matrix, members, staff, waiters, stats, getCell, getMatched
                     // v3.21.4: 체험예정 회원 자동 표시 (open 셀에서만)
                     const trialScheduled = (status === "open" && getTrialScheduled) ? getTrialScheduled(day, time) : [];
                     const member = cell?.member_id ? memberMap[cell.member_id] : null;
-                    const staffColor = (member?.staff_id && staffMap[member.staff_id]?.color) || null;
+                    // v3.21.5: staffColor 우선순위 근본 개선 - cell.staff_id → member.staff_id 순차 확인
+                    const effectiveStaffId = cell?.staff_id || member?.staff_id || null;
+                    const effectiveStaff = effectiveStaffId ? staffMap[effectiveStaffId] : null;
+                    const staffColor = effectiveStaff?.color || null;
+                    const staffName = effectiveStaff?.name || null;
                     return (
                       <td key={`${day}-${time}`}
                         onClick={() => onCellClick(day, time)}
                         className={`p-1 border-b border-r border-aqu-100 align-top cursor-pointer min-w-[110px] transition-colors
-                          ${status === "fixed" ? "bg-emerald-50 hover:bg-emerald-100" : ""}
-                          ${status === "open" ? "bg-blue-50 hover:bg-blue-100" : ""}
+                          ${status === "fixed" && !staffColor ? "bg-emerald-50 hover:bg-emerald-100" : ""}
+                          ${status === "open" && !staffColor ? "bg-blue-50 hover:bg-blue-100" : ""}
                           ${status === "closed" ? "bg-gray-100 hover:bg-gray-200" : ""}
-                          ${staffFilter && status === "fixed" && cell?.staff_id !== staffFilter && member?.staff_id !== staffFilter ? "opacity-30" : ""}`}
-                        style={status === "fixed" && staffColor ? {
-                          backgroundColor: staffColor + "22",
+                          ${staffFilter && effectiveStaffId !== staffFilter && status !== "closed" ? "opacity-30" : ""}`}
+                        style={staffColor && status !== "closed" ? {
+                          backgroundColor: staffColor + (status === "fixed" ? "33" : "18"),
                           borderLeftColor: staffColor,
                           borderLeftWidth: 3,
                         } : {}}
                       >
                         {status === "fixed" && (
                           <div className="text-[11px]">
-                            <div className="flex items-center gap-0.5 text-emerald-800 font-bold">
+                            <div className="flex items-center gap-0.5 font-bold" style={{ color: staffColor || "#065f46" }}>
                               <Lock className="w-3 h-3" /> {cell?.fixed_name || "고정"}
                             </div>
-                            {(cell?.staff_id && staffMap[cell.staff_id]?.name) && (
-                              <div className="text-[9px] text-emerald-600 mt-0.5">👨‍⚕️ {staffMap[cell.staff_id].name}</div>
+                            {staffName && (
+                              <div className="text-[9px] mt-0.5 font-semibold" style={{ color: staffColor || "#059669" }}>👨‍⚕️ {staffName}</div>
                             )}
                           </div>
                         )}

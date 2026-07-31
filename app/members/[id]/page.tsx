@@ -1742,7 +1742,38 @@ function MemberHistoryPanel({ memberId }: { memberId: string }) {
       supabase.from("refunds").select("*").eq("member_id", memberId).order("refunded_at", { ascending: false }),
     ]);
     setPayments(p.data || []);
-    setMemberships(ms.data || []);
+    // v3.21.5: 사인 출결 소급 반영 - present/absent 서명 건수 vs used_sessions 비교, 부족 시 자동 차감
+    let mergedMemberships = ms.data || [];
+    try {
+      const signedAtt = (at.data || []).filter((r: any) =>
+        (r.signature || r.signed_at) && (r.status === "present" || r.status === "absent")
+      );
+      const activeMs = mergedMemberships.filter((m: any) => m.status !== "cancelled");
+      const totalUsed = activeMs.reduce((s: number, m: any) => s + (m.used_sessions || 0), 0);
+      const shouldBeUsed = signedAtt.length;
+
+      if (shouldBeUsed > totalUsed && activeMs.length > 0) {
+        // 부족한 만큼 가장 최근 활성 회원권에 소급 차감
+        const deficit = shouldBeUsed - totalUsed;
+        const today = new Date().toISOString().slice(0, 10);
+        const target = activeMs.find((m: any) => {
+          const remain = (m.total_sessions || 0) + (m.adjustment || 0) - (m.used_sessions || 0);
+          return remain >= deficit && (!m.end_date || m.end_date >= today);
+        }) || activeMs[0];
+        if (target) {
+          const newUsed = (target.used_sessions || 0) + deficit;
+          await supabase.from("memberships").update({ used_sessions: newUsed }).eq("id", target.id);
+          // 로컬 데이터 즉시 반영
+          mergedMemberships = mergedMemberships.map((m: any) =>
+            m.id === target.id ? { ...m, used_sessions: newUsed } : m
+          );
+          console.log(`✅ 사인 출결 소급 차감: ${deficit}회 (회원권 ${target.plan_name})`);
+        }
+      }
+    } catch (e: any) {
+      console.warn("사인 출결 소급 반영 실패:", e?.message);
+    }
+    setMemberships(mergedMemberships);
     // v3.21.4: _date 필드 통일 (attend_date/date/attendance_date/session_date/check_date 순)
     setAttendance((at.data || []).map((r: any) => ({
       ...r,
