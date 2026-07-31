@@ -1816,8 +1816,8 @@ function MemberHistoryPanel({ memberId }: { memberId: string }) {
           sub={`취소 ${cancelSlots} · 이월 ${carryoverSlots}`} color="from-orange-500 to-red-500" />
       </div>
 
-      {/* v3.23.0: 요일별 담당 강사 매핑 */}
-      <StaffByDayEditor memberId={id} member={member} onSaved={loadAll} />
+      {/* v3.23.1: 요일별 담당 강사 매핑 (MemberHistoryPanel scope 내부 - loadAll 사용 가능) */}
+      <StaffByDayEditor memberId={memberId} onSaved={loadAll} />
 
       {/* 회원권 목록 */}
       <div>
@@ -2160,7 +2160,7 @@ function StatCard({ icon, label, val, sub, color }: any) {
 }
 
 // v3.23.0: 요일별 담당 강사 매핑 편집 (members.staff_by_day JSONB)
-function StaffByDayEditor({ memberId, member, onSaved }: any) {
+function StaffByDayEditor({ memberId, onSaved }: any) {
   const WEEKDAYS = [
     { key: "1", label: "월" }, { key: "2", label: "화" }, { key: "3", label: "수" },
     { key: "4", label: "목" }, { key: "5", label: "금" }, { key: "6", label: "토" },
@@ -2172,6 +2172,12 @@ function StaffByDayEditor({ memberId, member, onSaved }: any) {
 
   useEffect(() => {
     (async () => {
+      // v3.23.1: 회원 자체 로드 (staff_by_day 컬럼 없을 수 있으므로 폴백)
+      let curMember: any = null;
+      for (const cols of ["id, staff_by_day, staff_id", "id, staff_id", "id"]) {
+        const r = await supabase.from("members").select(cols).eq("id", memberId).maybeSingle();
+        if (!r.error) { curMember = r.data; break; }
+      }
       // 재직 강사 로드 (컴럼 폴백)
       let staff: any[] = [];
       for (const cols of ["id, name, color, is_resigned", "id, name, color", "id, name"]) {
@@ -2180,7 +2186,7 @@ function StaffByDayEditor({ memberId, member, onSaved }: any) {
       }
       setStaffList(staff.filter((s: any) => !s.is_resigned));
       // 현재 매핑 로드
-      const cur = (member as any)?.staff_by_day || {};
+      const cur = (curMember as any)?.staff_by_day || {};
       const initial: Record<string, string | null> = {};
       WEEKDAYS.forEach(d => { initial[d.key] = cur[d.key] || null; });
       setByDay(initial);
