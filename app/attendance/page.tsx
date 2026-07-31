@@ -80,10 +80,14 @@ export default function AttendancePage() {
     setMembers(mRes.data || []);
     setStaff(stRes.data || []);
     setAttendance(aRes.data || []);
-    // 오늘의 기존 출결 → drafts 초기값
+    // v3.23.0: slot 단위 drafts 초기화 (slotKey = memberId__timeSlot)
     const today = (aRes.data || []).filter((a: any) => a.attend_date === date);
     const dr: Record<string, string> = {};
-    today.forEach((a: any) => { dr[a.member_id] = a.status; });
+    today.forEach((a: any) => {
+      // time_slot이 있으면 slotKey, 없으면 회원 단일 키로 폴백
+      const key = a.time_slot ? `${a.member_id}__${a.time_slot}` : a.member_id;
+      dr[key] = a.status;
+    });
     setDrafts(dr);
     setChanged(new Set());
     setLoading(false);
@@ -161,22 +165,26 @@ export default function AttendancePage() {
     });
   }, [todayMembers, attendance]);
 
-  function pickStatus(memberId: string, status: string) {
+  // v3.23.0: slot 단위 상태 지정 - slotKey(memberId__timeSlot) 기반
+  function pickStatus(memberId: string, status: string, timeSlot?: string) {
+    const slotKey = timeSlot ? `${memberId}__${timeSlot}` : memberId;
     setDrafts(prev => {
-      const currentSaved = attendance.find((a: any) => a.member_id === memberId && a.attend_date === date);
+      const currentSaved = attendance.find((a: any) =>
+        a.member_id === memberId && a.attend_date === date &&
+        (timeSlot ? a.time_slot === timeSlot : true)
+      );
       const newDrafts = { ...prev };
-      // 같은 상태 재클릭 → 해제
-      if (newDrafts[memberId] === status) {
-        delete newDrafts[memberId];
+      if (newDrafts[slotKey] === status) {
+        delete newDrafts[slotKey];
       } else {
-        newDrafts[memberId] = status;
+        newDrafts[slotKey] = status;
       }
       const savedStatus = currentSaved?.status;
-      const draftStatus = newDrafts[memberId];
+      const draftStatus = newDrafts[slotKey];
       setChanged(prevSet => {
         const s = new Set(prevSet);
-        if (savedStatus === draftStatus) s.delete(memberId);
-        else s.add(memberId);
+        if (savedStatus === draftStatus) s.delete(slotKey);
+        else s.add(slotKey);
         return s;
       });
       return newDrafts;
@@ -187,32 +195,52 @@ export default function AttendancePage() {
     if (!confirm("변경사항을 초기화합니다")) return;
     const today = attendance.filter((a: any) => a.attend_date === date);
     const dr: Record<string, string> = {};
-    today.forEach((a: any) => { dr[a.member_id] = a.status; });
+    today.forEach((a: any) => {
+      const key = a.time_slot ? `${a.member_id}__${a.time_slot}` : a.member_id;
+      dr[key] = a.status;
+    });
     setDrafts(dr);
     setChanged(new Set());
   }
 
-  /* 저장 - 변경된 항목만 upsert/insert/delete + 회원권 자동차감 */
+  /* v3.23.0: 저장 - slot 단위로 관리 → 연타임 시 slot 개수만큼 회원권 차감 */
   async function saveAll() {
     if (changed.size === 0) { alert("변경된 내용이 없습니다"); return; }
     setSaving(true);
 
     const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
 
+    // changed는 slotKey(memberId__timeSlot) Set - memberId 추출
+    const slotKeys = Array.from(changed);
+    const memberIdsInvolved = Array.from(new Set(slotKeys.map(k => k.split("__")[0])));
+
     // 멤버십 로드 (자동차감용)
-    const memberIds = Array.from(changed);
     const { data: allMs } = await supabase.from("memberships").select("*")
-      .in("member_id", memberIds)
+      .in("member_id", memberIdsInvolved)
       .or("status.is.null,status.neq.cancelled");
 
     const errors: string[] = [];
     let deductedCount = 0;
     let restoredCount = 0;
 
-    for (const memberId of memberIds) {
-      const draft = drafts[memberId];
-      const existing = attendance.find((a: any) => a.member_id === memberId && a.attend_date === date);
-      const slot = scheduleSlots.find(s => s.member_id === memberId);
+    // v3.23.0: 회원권 차감 상태 실시간 트래킹 (연타임 차감 시 used_sessions 누적)
+    const msUsedCache = new Map<string, number>();
+    (allMs || []).forEach((ms: any) => msUsedCache.set(ms.id, ms.used_sessions || 0));
+
+    for (const slotKey of slotKeys) {
+      const parts = slotKey.split("__");
+      const memberId = parts[0];
+      const timeSlot = parts.length > 1 ? parts.slice(1).join("__") : null;
+      const draft = drafts[slotKey];
+      // slot 단위 기존 레코드 - time_slot 매칭
+      const existing = attendance.find((a: any) =>
+        a.member_id === memberId && a.attend_date === date &&
+        (timeSlot ? a.time_slot === timeSlot : !a.time_slot)
+      );
+      // slot 매칭
+      const slot = timeSlot
+        ? scheduleSlots.find(s => s.member_id === memberId && s.time_slot === timeSlot)
+        : scheduleSlots.find(s => s.member_id === memberId);
 
       // 해당 회원의 활성 회원권 (수업일 포함)
       const activeMs = (allMs || [])
@@ -235,7 +263,10 @@ export default function AttendancePage() {
           else if (prevCounted && existing.membership_id) {
             const ms = (allMs || []).find((x: any) => x.id === existing.membership_id);
             if (ms) {
-              await supabase.from("memberships").update({ used_sessions: Math.max(0, (ms.used_sessions || 0) - 1) }).eq("id", ms.id);
+              const curUsed = msUsedCache.get(ms.id) ?? (ms.used_sessions || 0);
+              const newUsed = Math.max(0, curUsed - 1);
+              await supabase.from("memberships").update({ used_sessions: newUsed }).eq("id", ms.id);
+              msUsedCache.set(ms.id, newUsed);
               restoredCount++;
             }
           }
@@ -247,9 +278,12 @@ export default function AttendancePage() {
           slot_id: slot?.id || existing.slot_id,
           saved_at: nowIso,
         };
-        // 상태 전환에 따른 회원권 차감/복원
+        // v3.23.0: 상태 전환 시 회원권 차감/복원 (msUsedCache로 연타임 실시간 트래킹)
         if (!prevCounted && newCounted && activeMs) {
-          await supabase.from("memberships").update({ used_sessions: (activeMs.used_sessions || 0) + 1 }).eq("id", activeMs.id);
+          const curUsed = msUsedCache.get(activeMs.id) ?? (activeMs.used_sessions || 0);
+          const newUsed = curUsed + 1;
+          await supabase.from("memberships").update({ used_sessions: newUsed }).eq("id", activeMs.id);
+          msUsedCache.set(activeMs.id, newUsed);
           patch.membership_id = activeMs.id;
           patch.deducted_at = nowIso;
           patch.deduction_mode = "auto";
@@ -257,7 +291,10 @@ export default function AttendancePage() {
         } else if (prevCounted && !newCounted && existing.membership_id) {
           const ms = (allMs || []).find((x: any) => x.id === existing.membership_id);
           if (ms) {
-            await supabase.from("memberships").update({ used_sessions: Math.max(0, (ms.used_sessions || 0) - 1) }).eq("id", ms.id);
+            const curUsed = msUsedCache.get(ms.id) ?? (ms.used_sessions || 0);
+            const newUsed = Math.max(0, curUsed - 1);
+            await supabase.from("memberships").update({ used_sessions: newUsed }).eq("id", ms.id);
+            msUsedCache.set(ms.id, newUsed);
             restoredCount++;
           }
           patch.deducted_at = null;
@@ -285,7 +322,10 @@ export default function AttendancePage() {
           saved_at: nowIso,
         };
         if (newCounted && activeMs) {
-          await supabase.from("memberships").update({ used_sessions: (activeMs.used_sessions || 0) + 1 }).eq("id", activeMs.id);
+          const curUsed = msUsedCache.get(activeMs.id) ?? (activeMs.used_sessions || 0);
+          const newUsed = curUsed + 1;
+          await supabase.from("memberships").update({ used_sessions: newUsed }).eq("id", activeMs.id);
+          msUsedCache.set(activeMs.id, newUsed);
           insertPayload.membership_id  = activeMs.id;
           insertPayload.deducted_at    = nowIso;
           insertPayload.deduction_mode = "auto";
@@ -340,12 +380,13 @@ export default function AttendancePage() {
     await loadAll();
   }
 
+  // v3.23.0: slot 단위 통계 (연타임은 각각 카운트)
   const stat = {
-    total: todayMembers.length,
+    total: scheduleSlots.filter(s => s.member_id && (s.event_type === "lesson" || s.event_type === "trial" || s.event_type === "makeup")).length,
     present: Object.values(drafts).filter(v => v === "present").length,
     absent: Object.values(drafts).filter(v => v === "absent").length,
     sick: Object.values(drafts).filter(v => v === "sick").length,
-    unchecked: todayMembers.length - Object.keys(drafts).length,
+    unchecked: Math.max(0, scheduleSlots.filter(s => s.member_id).length - Object.keys(drafts).length),
   };
 
   return (
@@ -516,9 +557,11 @@ export default function AttendancePage() {
           {/* Mobile card view */}
           <div className="md:hidden divide-y divide-gray-100">
             {memberStats.map(m => {
-              const cur = drafts[m.id];
-              const isChanged = changed.has(m.id);
               const mSlots = slotsForMember(m.id);
+              // v3.23.0: slot별 slotKey 기준으로 변경 여부 판정 (연타임 대응)
+              const isChanged = mSlots.length > 0
+                ? mSlots.some(s => changed.has(`${m.id}__${s.time_slot}`))
+                : changed.has(m.id);
               return (
                 <div key={m.id} className={`p-3 ${isChanged ? "bg-yellow-50/50" : ""}`}>
                   <div className="flex items-center justify-between mb-2">
@@ -530,28 +573,47 @@ export default function AttendancePage() {
                         {m.member_type === "child" ? "아동" : "성인"}
                       </span>
                       {isChanged && <span className="ml-2 text-[9px] px-1.5 py-0.5 bg-yellow-200 text-yellow-800 rounded">변경</span>}
+                      {mSlots.length >= 2 && <span className="ml-1 text-[9px] px-1.5 py-0.5 bg-purple-200 text-purple-800 rounded font-bold">연타임 {mSlots.length}</span>}
                     </div>
                     <div className="text-[10px] text-gray-500">30일: {m.rate}%</div>
                   </div>
-                  {/* 그날의 수업 정보 */}
-                  {mSlots.length > 0 && (
-                    <div className="mb-2 flex flex-wrap gap-1">
-                      {mSlots.map(s => (
-                        <span key={s.id} className="text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1"
-                          style={{ backgroundColor: staffColorFor(s.staff_id) + "20", color: staffColorFor(s.staff_id), border: `1px solid ${staffColorFor(s.staff_id)}` }}>
-                          <Clock className="w-2.5 h-2.5" /> {s.time_slot?.slice(0,5)} · {staffNameFor(s.staff_id) || "미배정"}
-                        </span>
+                  {/* v3.23.0: slot별 개별 상태 버튼 */}
+                  {mSlots.length > 0 ? (
+                    <div className="space-y-2">
+                      {mSlots.map(sl => {
+                        const slotKey = `${m.id}__${sl.time_slot}`;
+                        const curSlot = drafts[slotKey];
+                        return (
+                          <div key={sl.id} className="border border-gray-100 rounded-lg p-2 bg-white">
+                            <div className="flex items-center gap-2 mb-1.5">
+                              <span className="text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1"
+                                style={{ backgroundColor: staffColorFor(sl.staff_id) + "20", color: staffColorFor(sl.staff_id), border: `1px solid ${staffColorFor(sl.staff_id)}` }}>
+                                <Clock className="w-2.5 h-2.5" /> {sl.time_slot?.slice(0, 5)}
+                              </span>
+                              <span className="text-[10px] text-gray-500">{staffNameFor(sl.staff_id) || "미배정"}</span>
+                            </div>
+                            <div className="grid grid-cols-4 gap-1">
+                              {STATUS_OPTIONS.map(s => (
+                                <button key={s.value} onClick={() => pickStatus(m.id, s.value, sl.time_slot)}
+                                  className={`text-[11px] py-1.5 rounded border-2 transition font-medium ${curSlot === s.value ? s.color + " font-bold" : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"}`}>
+                                  {s.icon} {s.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-4 gap-1">
+                      {STATUS_OPTIONS.map(s => (
+                        <button key={s.value} onClick={() => pickStatus(m.id, s.value)}
+                          className={`text-xs py-2 rounded border-2 transition font-medium ${drafts[m.id] === s.value ? s.color + " font-bold" : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"}`}>
+                          {s.icon} {s.label}
+                        </button>
                       ))}
                     </div>
                   )}
-                  <div className="grid grid-cols-3 gap-1">
-                    {STATUS_OPTIONS.map(s => (
-                      <button key={s.value} onClick={() => pickStatus(m.id, s.value)}
-                        className={`text-xs py-2 rounded border-2 transition font-medium ${cur === s.value ? s.color + " font-bold" : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"}`}>
-                        {s.icon} {s.label}
-                      </button>
-                    ))}
-                  </div>
                 </div>
               );
             })}
@@ -570,35 +632,43 @@ export default function AttendancePage() {
               </tr>
             </thead>
             <tbody>
-              {memberStats.map(m => {
-                const cur = drafts[m.id];
-                const isChanged = changed.has(m.id);
+              {memberStats.flatMap(m => {
                 const mSlots = slotsForMember(m.id);
-                return (
-                  <tr key={m.id} className={`border-b border-gray-100 ${isChanged ? "bg-yellow-50/70" : "hover:bg-aqu-50/30"}`}>
+                // v3.23.0: 예약이 없는 회원은 가상 slot 1개로 대응, 있으면 slot별 행
+                const displaySlots = mSlots.length > 0 ? mSlots : [{ id: null, time_slot: null, staff_id: null }];
+                return displaySlots.map((sl: any, idx: number) => {
+                  const slotKey = sl.time_slot ? `${m.id}__${sl.time_slot}` : m.id;
+                  const cur = drafts[slotKey];
+                  const isChanged = changed.has(slotKey);
+                  const isFirstRow = idx === 0;
+                  return (
+                  <tr key={`${m.id}_${sl.id || "virt"}`} className={`border-b border-gray-100 ${isChanged ? "bg-yellow-50/70" : "hover:bg-aqu-50/30"}`}>
                     <td className="p-3">
-                      <Link href={`/members/${m.id}`} className="text-aqu-700 hover:underline font-medium">
-                        {m.name}
-                      </Link>
-                      {isChanged && <span className="ml-2 text-[9px] px-1.5 py-0.5 bg-yellow-200 text-yellow-800 rounded">변경</span>}
+                      {isFirstRow ? (
+                        <>
+                          <Link href={`/members/${m.id}`} className="text-aqu-700 hover:underline font-medium">
+                            {m.name}
+                          </Link>
+                          {mSlots.length >= 2 && <span className="ml-1 text-[9px] px-1.5 py-0.5 bg-purple-200 text-purple-800 rounded font-bold">연타임 {mSlots.length}</span>}
+                          {isChanged && <span className="ml-2 text-[9px] px-1.5 py-0.5 bg-yellow-200 text-yellow-800 rounded">변경</span>}
+                        </>
+                      ) : (
+                        <span className="text-[10px] text-gray-400">↳ 연속 수업</span>
+                      )}
                     </td>
-                    <td className="p-3 text-gray-600 text-xs">{m.member_type === "child" ? "아동" : "성인"}</td>
+                    <td className="p-3 text-gray-600 text-xs">{isFirstRow ? (m.member_type === "child" ? "아동" : "성인") : ""}</td>
                     <td className="p-3">
-                      {mSlots.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {mSlots.map(s => (
-                            <span key={s.id} className="text-[10px] px-1.5 py-1 rounded inline-flex items-center gap-1"
-                              style={{ backgroundColor: staffColorFor(s.staff_id) + "20", color: staffColorFor(s.staff_id), border: `1px solid ${staffColorFor(s.staff_id)}` }}>
-                              <Clock className="w-2.5 h-2.5" /> {s.time_slot?.slice(0,5)}
-                              {staffNameFor(s.staff_id) && ` · ${staffNameFor(s.staff_id)}`}
-                            </span>
-                          ))}
-                        </div>
+                      {sl.time_slot ? (
+                        <span className="text-[10px] px-1.5 py-1 rounded inline-flex items-center gap-1"
+                          style={{ backgroundColor: staffColorFor(sl.staff_id) + "20", color: staffColorFor(sl.staff_id), border: `1px solid ${staffColorFor(sl.staff_id)}` }}>
+                          <Clock className="w-2.5 h-2.5" /> {sl.time_slot?.slice(0, 5)}
+                          {staffNameFor(sl.staff_id) && ` · ${staffNameFor(sl.staff_id)}`}
+                        </span>
                       ) : <span className="text-[10px] text-gray-400">예약 없음</span>}
                     </td>
                     {STATUS_OPTIONS.map(s => (
                       <td key={s.value} className="p-1 text-center">
-                        <button onClick={() => pickStatus(m.id, s.value)}
+                        <button onClick={() => pickStatus(m.id, s.value, sl.time_slot || undefined)}
                           className={`w-full text-xs px-2 py-1.5 rounded border-2 transition font-medium ${cur === s.value ? s.color + " font-bold shadow-sm" : "bg-white border-gray-200 text-gray-400 hover:bg-gray-50"}`}>
                           {s.icon} {s.label}
                         </button>
@@ -640,7 +710,8 @@ export default function AttendancePage() {
                       <div className="text-[10px] text-gray-400">{m.present}/{m.total}회</div>
                     </td>
                   </tr>
-                );
+                  );
+                });
               })}
             </tbody>
           </table>

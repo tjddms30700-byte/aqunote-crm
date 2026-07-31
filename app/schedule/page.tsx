@@ -661,15 +661,15 @@ export default function SchedulePage() {
 
   /* 모달 열기 - 항상 액션 시트 우선 (time이 있어도 3가지 선택지 제공) */
   function openDateActionSheet(date: string, time?: string) {
-    // v3.21.7: 보강 예약 모드가 활성화되어 있으면 즉시 보강 등록 흐름으로
+    // v3.23.0: 보강 예약 모드가 활성화되어 있으면 상세 모달로 이동 (시간·강사 지정 팔야용)
     if (makeupMode) {
       const targetTime = time || (timeSlotOptions && timeSlotOptions[0]) || "10:00";
-      if (confirm(`📅 보강 예약\n\n• 회원: ${makeupMode.member_name}\n• 원본 결석: ${makeupMode.date} (${makeupMode.status === "sick" ? "병결" : "개인사정"})\n• 보강일: ${date} ${targetTime}\n\n이 시간에 보강을 등록하시겠습니까?`)) {
-        (async () => {
-          await createMakeupForAbsent(makeupMode, date, targetTime);
-          setMakeupMode(null);
-        })();
-      }
+      setMakeupDetailModal({
+        absent: makeupMode,
+        date,
+        time: targetTime,
+        staff_id: (members.find((mm: any) => mm.id === makeupMode.member_id) as any)?.staff_id || null,
+      });
       return;
     }
     setActionSheet({ date, time });
@@ -776,7 +776,20 @@ export default function SchedulePage() {
     };
     if (orgId) basePayload.org_id = orgId;
     if (f.member_id) basePayload.member_id = f.member_id;
-    if (f.staff_id) basePayload.staff_id = f.staff_id;
+    // v3.23.0: staff_id 미지정 시 회원의 요일별 담당 강사 (members.staff_by_day) 자동 매핑
+    let resolvedStaffId = f.staff_id;
+    if (!resolvedStaffId && f.member_id && f.event_date) {
+      const targetMember = members.find((mm: any) => mm.id === f.member_id);
+      const byDay = (targetMember as any)?.staff_by_day;
+      if (byDay) {
+        const jsDow = new Date(f.event_date).getDay(); // 0=일 ~ 6=토
+        const isoDow = jsDow === 0 ? 7 : jsDow;         // 1=월 ~ 7=일
+        resolvedStaffId = byDay[String(isoDow)] || byDay[String(jsDow)] || (targetMember as any)?.staff_id || null;
+      } else {
+        resolvedStaffId = (targetMember as any)?.staff_id || null;
+      }
+    }
+    if (resolvedStaffId) basePayload.staff_id = resolvedStaffId;
     if (f.event_type === "revenue") basePayload.amount = Number(f.amount || 0);
     // ✅ v3.16.0: 회원권 ID 저장 (출석 시 자동 차감용)
     if (f.membership_id) basePayload.membership_id = f.membership_id;
@@ -971,10 +984,12 @@ export default function SchedulePage() {
       }
     });
 
-    // 2) 병결/개인사정 결석건 수집
+    // 2) 병결/개인사정 결석건 수집 - v3.23.0: makeup_waived/carryover 제외
     const absentList: any[] = [];
     slots.forEach((sl: any) => {
       const st = (sl.status || "").toLowerCase();
+      // v3.23.0: 이월(carryover) 상태이거나 makeup_waived=true 면 제외
+      if (sl.makeup_waived === true) return;
       if (st === "sick" || st === "personal") {
         if (sl.member_id && sl.event_date) {
           absentList.push({
@@ -991,6 +1006,8 @@ export default function SchedulePage() {
     });
     attendance.forEach((a: any) => {
       const st = (a.status || "").toLowerCase();
+      // v3.23.0: is_makeup_waived=true 면 제외
+      if (a.is_makeup_waived === true) return;
       if (st === "sick" || st === "personal") {
         const dt = a.attend_date || a.date || a.attendance_date || a.session_date;
         if (a.member_id && dt) {
@@ -1030,25 +1047,39 @@ export default function SchedulePage() {
 
   // v3.21.7: 보강 예약 모드 state - 카드에서 클릭 시 예약 모달에 자동 회원/날짜 프리필
   const [makeupMode, setMakeupMode] = useState<any | null>(null);
+  // v3.23.0: 보강 상세 예약 모달 (시간·강사 지정)
+  const [makeupDetailModal, setMakeupDetailModal] = useState<any | null>(null);
 
   // v3.21.7: 보강 예약 생성 (원본 결석건과 FK 매칭해 상단 알림에서 즉시 자동 제거)
   async function createMakeupForAbsent(absent: any, targetDate: string, targetTime: string) {
     try {
       const orgRow = await supabase.from("organizations").select("id").limit(1).maybeSingle();
       const orgId = orgRow.data?.id;
-      const m = members.find((mm: any) => mm.id === absent.member_id);
+      const m: any = members.find((mm: any) => mm.id === absent.member_id);
+      // v3.23.0: 강사 override 반영 (모달에서 지정한 강사 우선) → 없으면 요일별 담당강사 → 회원 staff_id
+      let resolvedStaffId = absent._override_staff_id || null;
+      if (!resolvedStaffId && m?.staff_by_day && targetDate) {
+        const jsDow = new Date(targetDate).getDay();
+        const isoDow = jsDow === 0 ? 7 : jsDow;
+        resolvedStaffId = m.staff_by_day[String(isoDow)] || m.staff_by_day[String(jsDow)] || m.staff_id || null;
+      }
+      if (!resolvedStaffId) resolvedStaffId = m?.staff_id || null;
       const payload: any = {
         org_id: orgId,
         event_date: targetDate,
-        event_time: targetTime,
+        time_slot: targetTime, // v3.23.0: event_time → time_slot 통일 (다른 예약과 동일 컬럼 사용)
+        event_time: targetTime, // 레거시 허용 - 폴백으로 둘 다
         member_id: absent.member_id,
-        staff_id: m?.staff_id || null,
+        staff_id: resolvedStaffId,
         event_type: "makeup",
         status: "scheduled",
         title: `보강 (${absent.date} ${absent.status === "sick" ? "병결" : "개인사정"})`,
         is_makeup: true,
         makeup_for_id: absent.id,
       };
+      // v3.23.0: branch_id 자동 태깅
+      const _bid = getActiveBranchId();
+      if (_bid) payload.branch_id = _bid;
       let payloadTry: any = { ...payload };
       for (let i = 0; i < 6; i++) {
         const r = await supabase.from("schedule_slots").insert(payloadTry);
@@ -1104,10 +1135,8 @@ export default function SchedulePage() {
                   <span className="text-xs text-gray-500 flex-1">결석일: {r.date}</span>
                   <button
                     onClick={() => {
-                      // 보강 예약 모드 활성화 - 이후 시간표 셀 클릭 시 회원이 자동 프리필됨
                       setMakeupMode(r);
-                      // 사용자에게 안내
-                      const msg = `📅 보강 예약 모드 활성화\n\n• 회원: ${r.member_name}\n• 원본 결석: ${r.date} (${isSick ? "병결" : "개인사정"})\n\n시간표에서 빈 셀을 클릭하면 보강으로 자동 등록됩니다.\n취소하려면 다시 버튼을 누르세요.`;
+                      const msg = `📅 보강 예약 모드 활성화\n\n• 회원: ${r.member_name}\n• 원본 결석: ${r.date} (${isSick ? "병결" : "개인사정"})\n\n시간표에서 빈 셀을 클릭하면 상세 모달(시간·강사 지정)이 열립니다.`;
                       alert(msg);
                     }}
                     className={`text-[11px] px-2.5 py-1 rounded-lg font-semibold border-2 flex items-center gap-1 ${
@@ -1116,6 +1145,43 @@ export default function SchedulePage() {
                         : "bg-white text-orange-700 border-orange-300 hover:bg-orange-100"
                     }`}>
                     📅 {makeupMode?.member_id === r.member_id && makeupMode?.date === r.date ? "예약모드✓" : "보강예약"}
+                  </button>
+                  {/* v3.23.0: 보강 안함/이월 버튼 - 적용 시 상단 목록에서 즉시 삭제 */}
+                  <button
+                    onClick={async () => {
+                      if (!confirm(`이 ${isSick ? "병결" : "개인사정"}을 보강 없이 이월(포기) 처리하시겠습니까?\n\n• ${r.member_name} • ${r.date}\n• 상단 보강 필요 목록에서 즐시 제거됩니다.`)) return;
+                      try {
+                        // 원본 결석건을 carryover 또는 waived 플래그 처리
+                        if (r.source === "slot" && r.slot_id) {
+                          let patchTry: any = { status: "carryover", makeup_waived: true };
+                          for (let i = 0; i < 4; i++) {
+                            const { error } = await supabase.from("schedule_slots").update(patchTry).eq("id", r.slot_id);
+                            if (!error) break;
+                            const m = /'([^']+)' column|column "([^"]+)"/.exec(error.message || "");
+                            const missing = m?.[1] || m?.[2];
+                            if (missing && missing in patchTry) { const { [missing]: _d, ...rest } = patchTry; patchTry = rest; continue; }
+                            break;
+                          }
+                        } else if (r.source === "attendance" && r.id) {
+                          let patchTry: any = { is_makeup_waived: true };
+                          for (let i = 0; i < 4; i++) {
+                            const { error } = await supabase.from("attendance").update(patchTry).eq("id", r.id);
+                            if (!error) break;
+                            const m = /'([^']+)' column|column "([^"]+)"/.exec(error.message || "");
+                            const missing = m?.[1] || m?.[2];
+                            if (missing && missing in patchTry) { const { [missing]: _d, ...rest } = patchTry; patchTry = rest; continue; }
+                            break;
+                          }
+                        }
+                        await loadAll();
+                        alert(`✅ 보강 안함 처리 완료 • ${r.member_name} • ${r.date}`);
+                      } catch (e: any) {
+                        alert("이월 처리 실패: " + e.message);
+                      }
+                    }}
+                    className="text-[11px] px-2.5 py-1 rounded-lg font-semibold border-2 bg-white text-slate-600 border-slate-300 hover:bg-slate-100 flex items-center gap-1"
+                    title="보강 없이 이월 처리 (상단 목록에서 즁시 삭제)">
+                    🗑️ 보강안함
                   </button>
                 </div>
               );
@@ -1538,6 +1604,104 @@ export default function SchedulePage() {
           onClose={() => setSignatureSlot(null)}
           onSaved={async () => { setSignatureSlot(null); await loadAll(); }}
         />
+      )}
+
+      {/* v3.23.0: 보강 상세 예약 모달 (시간·강사 지정) */}
+      {makeupDetailModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setMakeupDetailModal(null)}>
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-gradient-to-r from-orange-500 to-red-500 text-white px-6 py-4 flex justify-between items-center">
+              <div>
+                <h2 className="text-lg font-bold">📅 보강 예약</h2>
+                <p className="text-xs opacity-90 mt-0.5">시간·담당강사 지정 후 등록</p>
+              </div>
+              <button onClick={() => setMakeupDetailModal(null)} className="text-white/80 hover:text-white text-2xl leading-none">✕</button>
+            </div>
+            <div className="p-5 space-y-4">
+              {/* 회원 정보 */}
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                <div className="text-xs text-orange-700 mb-1">회원</div>
+                <div className="font-bold text-slate-800">{makeupDetailModal.absent.member_name}</div>
+                <div className="text-xs text-gray-600 mt-1">
+                  원본 결석: <b>{makeupDetailModal.absent.date}</b> ({makeupDetailModal.absent.status === "sick" ? "🤒 병결" : "📝 개인사정"})
+                </div>
+              </div>
+
+              {/* 보강일 */}
+              <div>
+                <label className="text-xs font-semibold text-gray-600 mb-1 block">보강일</label>
+                <input type="date" value={makeupDetailModal.date}
+                  onChange={(e) => setMakeupDetailModal({ ...makeupDetailModal, date: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:outline-none" />
+              </div>
+
+              {/* 시/분 선택 */}
+              <div>
+                <label className="text-xs font-semibold text-gray-600 mb-1 block">시간</label>
+                <div className="flex gap-2">
+                  <select value={(makeupDetailModal.time || "10:00").split(":")[0]}
+                    onChange={(e) => {
+                      const min = (makeupDetailModal.time || "10:00").split(":")[1] || "00";
+                      setMakeupDetailModal({ ...makeupDetailModal, time: `${e.target.value}:${min}` });
+                    }}
+                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:outline-none">
+                    {Array.from({ length: 15 }, (_, i) => 8 + i).map(h => (
+                      <option key={h} value={String(h).padStart(2, "0")}>{String(h).padStart(2, "0")}시</option>
+                    ))}
+                  </select>
+                  <select value={(makeupDetailModal.time || "10:00").split(":")[1] || "00"}
+                    onChange={(e) => {
+                      const hr = (makeupDetailModal.time || "10:00").split(":")[0] || "10";
+                      setMakeupDetailModal({ ...makeupDetailModal, time: `${hr}:${e.target.value}` });
+                    }}
+                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:outline-none">
+                    {["00", "10", "20", "30", "40", "50"].map(mn => (
+                      <option key={mn} value={mn}>{mn}분</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* 담당 강사 */}
+              <div>
+                <label className="text-xs font-semibold text-gray-600 mb-1 block">담당 강사</label>
+                <div className="flex flex-wrap gap-1.5">
+                  <button onClick={() => setMakeupDetailModal({ ...makeupDetailModal, staff_id: null })}
+                    className={`text-[11px] px-2.5 py-1.5 rounded-lg border-2 font-semibold ${!makeupDetailModal.staff_id ? "bg-gray-500 text-white border-gray-500" : "bg-white text-gray-600 border-gray-200"}`}>
+                    미지정
+                  </button>
+                  {staff.filter((s: any) => !s.is_resigned).map((s: any) => {
+                    const isSel = makeupDetailModal.staff_id === s.id;
+                    const color = s.color || "#3b82f6";
+                    return (
+                      <button key={s.id} onClick={() => setMakeupDetailModal({ ...makeupDetailModal, staff_id: s.id })}
+                        style={isSel ? { backgroundColor: color, borderColor: color, color: "#fff" } : { borderColor: color, color: color }}
+                        className="text-[11px] px-2.5 py-1.5 rounded-lg border-2 font-semibold flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: isSel ? "#fff" : color }} />
+                        {s.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+            <div className="border-t px-5 py-3 flex justify-end gap-2">
+              <button onClick={() => setMakeupDetailModal(null)}
+                className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">취소</button>
+              <button onClick={async () => {
+                const abs = { ...makeupDetailModal.absent };
+                // 스태프 override
+                if (makeupDetailModal.staff_id) abs._override_staff_id = makeupDetailModal.staff_id;
+                await createMakeupForAbsent(abs, makeupDetailModal.date, makeupDetailModal.time);
+                setMakeupDetailModal(null);
+                setMakeupMode(null);
+              }}
+                className="px-4 py-2 text-sm bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-lg hover:opacity-90 font-bold">
+                📅 보강 등록
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ✅ v3.20.11: 매출 상세 팝오버 */}

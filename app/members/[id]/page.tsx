@@ -1816,6 +1816,9 @@ function MemberHistoryPanel({ memberId }: { memberId: string }) {
           sub={`취소 ${cancelSlots} · 이월 ${carryoverSlots}`} color="from-orange-500 to-red-500" />
       </div>
 
+      {/* v3.23.0: 요일별 담당 강사 매핑 */}
+      <StaffByDayEditor memberId={id} member={member} onSaved={loadAll} />
+
       {/* 회원권 목록 */}
       <div>
         <h4 className="font-bold text-slate-900 mb-2 flex items-center gap-1">🎫 회원권 이력 ({memberships.length}건)</h4>
@@ -2152,6 +2155,123 @@ function StatCard({ icon, label, val, sub, color }: any) {
       <div className="text-xs opacity-90">{icon} {label}</div>
       <div className="text-lg md:text-xl font-black mt-1">{val}</div>
       {sub && <div className="text-[10px] opacity-80 mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
+// v3.23.0: 요일별 담당 강사 매핑 편집 (members.staff_by_day JSONB)
+function StaffByDayEditor({ memberId, member, onSaved }: any) {
+  const WEEKDAYS = [
+    { key: "1", label: "월" }, { key: "2", label: "화" }, { key: "3", label: "수" },
+    { key: "4", label: "목" }, { key: "5", label: "금" }, { key: "6", label: "토" },
+  ];
+  const [staffList, setStaffList] = useState<any[]>([]);
+  const [byDay, setByDay] = useState<Record<string, string | null>>({});
+  const [saving, setSaving] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      // 재직 강사 로드 (컴럼 폴백)
+      let staff: any[] = [];
+      for (const cols of ["id, name, color, is_resigned", "id, name, color", "id, name"]) {
+        const r = await supabase.from("staff").select(cols).order("name");
+        if (!r.error) { staff = (r.data || []) as any[]; break; }
+      }
+      setStaffList(staff.filter((s: any) => !s.is_resigned));
+      // 현재 매핑 로드
+      const cur = (member as any)?.staff_by_day || {};
+      const initial: Record<string, string | null> = {};
+      WEEKDAYS.forEach(d => { initial[d.key] = cur[d.key] || null; });
+      setByDay(initial);
+    })();
+  }, [memberId]);
+
+  async function save() {
+    setSaving(true);
+    // v3.23.0: JSONB 컴럼 자동 대응 (없으면 fallback 무시)
+    let payloadTry: any = { staff_by_day: byDay };
+    // 침습적 담당강사 하나만 지정된 경우 members.staff_id에도 반영 (기존 호환)
+    const uniqueStaffIds = Array.from(new Set(Object.values(byDay).filter(Boolean))) as string[];
+    if (uniqueStaffIds.length === 1) payloadTry.staff_id = uniqueStaffIds[0];
+
+    for (let i = 0; i < 6; i++) {
+      const { error } = await supabase.from("members").update(payloadTry).eq("id", memberId);
+      if (!error) { alert("✅ 요일별 담당강사가 저장되었습니다"); onSaved && onSaved(); setSaving(false); return; }
+      const m = /'([^']+)' column|column "([^"]+)"/.exec(error.message || "");
+      const missing = m?.[1] || m?.[2];
+      if (missing && missing in payloadTry) {
+        const { [missing]: _drop, ...rest } = payloadTry;
+        payloadTry = { ...rest };
+        continue;
+      }
+      alert("저장 실패: " + error.message + "\n\n💡 members.staff_by_day JSONB 컴럼 추가 필요"); setSaving(false); return;
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div className="bg-gradient-to-br from-slate-50 to-blue-50 border border-slate-200 rounded-2xl p-4 shadow-sm">
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="font-bold text-slate-900 flex items-center gap-2 text-sm">
+          <span className="text-lg">👨‍⚕️</span> 요일별 담당 강사
+          <span className="text-[10px] text-gray-500 font-normal">• 시간표·출결장 자동 매핑에 사용</span>
+        </h4>
+        <button onClick={() => setExpanded(!expanded)}
+          className="text-xs px-2 py-1 rounded bg-white border border-slate-200 text-slate-600 hover:bg-slate-100">
+          {expanded ? "접기" : "편집"}
+        </button>
+      </div>
+      {!expanded ? (
+        <div className="flex flex-wrap gap-1.5">
+          {WEEKDAYS.map(d => {
+            const staffId = byDay[d.key];
+            const s = staffList.find(x => x.id === staffId);
+            return (
+              <div key={d.key}
+                className="text-[11px] px-2.5 py-1 rounded-lg bg-white border-2 flex items-center gap-1"
+                style={s ? { borderColor: s.color || "#3b82f6", color: s.color || "#3b82f6" } : { borderColor: "#e5e7eb", color: "#94a3b8" }}>
+                <span className="font-bold">{d.label}</span>
+                <span>{s ? s.name : "미지정"}</span>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <>
+          <div className="space-y-2">
+            {WEEKDAYS.map(d => (
+              <div key={d.key} className="flex items-center gap-2 flex-wrap">
+                <span className="w-8 text-sm font-bold text-slate-700">{d.label}</span>
+                <button onClick={() => setByDay({ ...byDay, [d.key]: null })}
+                  className={`text-[11px] px-2 py-1 rounded border-2 font-semibold ${!byDay[d.key] ? "bg-gray-500 text-white border-gray-500" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}>
+                  미지정
+                </button>
+                {staffList.map((s: any) => {
+                  const isSel = byDay[d.key] === s.id;
+                  const color = s.color || "#3b82f6";
+                  return (
+                    <button key={s.id} onClick={() => setByDay({ ...byDay, [d.key]: s.id })}
+                      style={isSel ? { backgroundColor: color, borderColor: color, color: "#fff" } : { borderColor: color, color: color }}
+                      className="text-[11px] px-2 py-1 rounded border-2 font-semibold flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: isSel ? "#fff" : color }} />
+                      {s.name}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 flex justify-end gap-2">
+            <button onClick={() => setExpanded(false)}
+              className="px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg hover:bg-slate-50">취소</button>
+            <button onClick={save} disabled={saving}
+              className="px-4 py-1.5 text-xs bg-aqu-600 text-white rounded-lg hover:bg-aqu-700 disabled:opacity-50 font-semibold">
+              {saving ? "저장 중…" : "💾 저장"}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

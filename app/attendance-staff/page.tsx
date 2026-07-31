@@ -780,14 +780,46 @@ export default function StaffAttendancePage() {
                 {doneLeaves.slice(0, 20).map(r => {
                   const s = staff.find(x => x.id === r.staff_id);
                   const type = LEAVE_TYPES.find(t => t.v === r.leave_type);
+                  const isReward = r.leave_type === "reward" || r.leave_type === "bonus" || r.leave_type === "special" || r.leave_type === "comp";
                   return (
                     <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 p-3 border border-slate-100 rounded-lg hover:bg-sky-50/50 transition-colors">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className={`inline-block px-2 py-0.5 rounded-full border text-[10px] font-semibold ${statusPill(r.status)}`}>{statusLabel(r.status)}</span>
                         <span className="text-sm font-semibold text-slate-800">{s?.name || "-"}</span>
                         <span className="text-xs text-slate-500">· {type?.label || r.leave_type} · {r.start_date}~{r.end_date}</span>
+                        {isReward && Number(r.days) !== 0 && (
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${Number(r.days) > 0 ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}>
+                            {Number(r.days) > 0 ? "+" : ""}{Number(r.days)}일
+                          </span>
+                        )}
+                        {r.reject_reason && <span className="text-xs text-rose-600">반려: {r.reject_reason}</span>}
                       </div>
-                      {r.reject_reason && <span className="text-xs text-rose-600">반려: {r.reject_reason}</span>}
+                      {/* v3.21.8: 처리 완료 항목 직접 취소/삭제 버튼 (마스터전용) */}
+                      {isDirector && (
+                        <div className="flex gap-1.5">
+                          <button
+                            onClick={async () => {
+                              const label = isReward ? "포상휴가" : (type?.label || "휴가");
+                              const days = Number(r.days) || 0;
+                              const msg = isReward
+                                ? `${s?.name || ""} 님의 ${label} 기록을 취소하시겠습니까?\n\n• ${days > 0 ? "부여" : "차감"} ${Math.abs(days)}일 기록이 삭제되며,\n• 해당 일수가 자동으로 복원됩니다.`
+                                : `${s?.name || ""} 님의 ${label} 이력을 삭제하시겠습니까?`;
+                              if (!confirm(msg)) return;
+                              const { error } = await supabase.from("leave_requests").delete().eq("id", r.id);
+                              if (error) {
+                                alert("취소 실패: " + error.message);
+                                return;
+                              }
+                              const restoreMsg = isReward ? `\n\n포상휴가 ${days > 0 ? "-" : "+"}${Math.abs(days)}일 복원` : "";
+                              alert(`✅ ${label} 기록이 취소되었습니다.` + restoreMsg);
+                              await loadAll();
+                            }}
+                            className="px-2.5 py-1 bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 rounded-lg text-[11px] font-bold flex items-center gap-1"
+                            title={isReward ? "포상휴가 부여/차감 취소 (일수 복원)" : "휴가 이력 삭제"}>
+                            <XCircle className="w-3 h-3" /> 취소
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
