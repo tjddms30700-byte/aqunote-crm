@@ -85,6 +85,8 @@ export default function StaffPage() {
 
   // ✅ v3.18.0: 강사별 세션 자동 계산용 state (상단에 선언)
   const [slots, setSlots] = useState<any[]>([]);
+  // v3.21.2: 이번달 attendance 이력 (강사별 자동 수당 계산용)
+  const [monthAttendance, setMonthAttendance] = useState<any[]>([]);
   const [slotsMonth, setSlotsMonth] = useState<string>(new Date().toISOString().slice(0, 7));
 
   useEffect(() => { loadAll(); }, [slotsMonth]);
@@ -108,15 +110,20 @@ export default function StaffPage() {
       const r2 = await supabase.from("attendance_logs").select("*");
       return r2.data || [];
     }
-    const [s, ph, al, sl] = await Promise.all([
+    const [s, ph, al, sl, att] = await Promise.all([
       supabase.from("staff").select("*").order("created_at", { ascending: false }),
       supabase.from("payroll_history").select("*").order("pay_year", { ascending: false }).order("pay_month", { ascending: false }),
       loadAttendanceLogs(),
       // ✅ v3.18.0: 이번달 시간표 슬롯 (강사별 수업·수당 계산용)
-      supabase.from("schedule_slots").select("staff_id, status, event_date, event_type")
+      // v3.21.2: 강사 자동 수당 계산 – schedule_slots + attendance 크로스 집계
+      supabase.from("schedule_slots").select("id, staff_id, status, event_date, event_type, member_id")
         .gte("event_date", slotsMonth + "-01")
         .lt("event_date", slotsMonth + "-32")
         .is("deleted_at", null),
+      // 이번달 attendance – 사인 출결까지 반영 (강사가 실제 완료한 수업 판단)
+      supabase.from("attendance").select("member_id, status, attend_date, slot_id, saved_at")
+        .gte("attend_date", slotsMonth + "-01")
+        .lt("attend_date", slotsMonth + "-32"),
     ]);
     setStaff(s.data || []);
     setPayrollHistory(ph.data || []);
@@ -128,6 +135,8 @@ export default function StaffPage() {
       memo: r.memo || r.note,
     })));
     setSlots(sl.data || []);
+    // v3.21.2: attendance 상태 저장 (강사 자동 수당 계산에 사용)
+    setMonthAttendance((att.data || []) as any[]);
     setLoading(false);
   }
 
@@ -411,11 +420,26 @@ export default function StaffPage() {
               {activeStaff.length === 0 ? (
                 <tr><td colSpan={7} className="text-center py-4 text-gray-400">재직 직원이 없습니다</td></tr>
               ) : activeStaff.map((s: any) => {
+                // v3.21.2: 강사별 수업 통계 – schedule_slots + attendance 결합
+                //   schedule_slots.status가 "scheduled" 상태로만 있어도 attendance에서 완료/노쇼/병결이 실제 발생하면 집계
                 const mySlots = slots.filter((sl: any) => sl.staff_id === s.id && (sl.event_type === "lesson" || sl.event_type === "trial" || sl.event_type === "makeup"));
                 const total = mySlots.length;
-                const done = mySlots.filter((sl: any) => ["done", "completed", "present"].includes((sl.status || "").toLowerCase())).length;
-                const noshow = mySlots.filter((sl: any) => ["noshow", "absent"].includes((sl.status || "").toLowerCase())).length;
-                const sick = mySlots.filter((sl: any) => (sl.status || "").toLowerCase() === "sick").length;
+                const mySlotIds = new Set(mySlots.map((sl: any) => sl.id).filter(Boolean));
+                // attendance에서 이 강사의 슬롯에 매핑된 것만 (slot_id 우선, 없으면 member_id 매핑 대안)
+                const myAtt = (monthAttendance || []).filter((a: any) => (a.slot_id && mySlotIds.has(a.slot_id)));
+                // 상태 카운트 – schedule_slots.status 와 attendance.status 를 병합 (중복 제거)
+                const countBy = (predicate: (status: string) => boolean) => {
+                  // schedule_slot 기준 상태
+                  const slotHits = new Set<string>(
+                    mySlots.filter((sl: any) => predicate((sl.status || "").toLowerCase())).map((sl: any) => sl.id).filter(Boolean)
+                  );
+                  // attendance 기준 상태 (schedule_slot이 scheduled여도 attendance가 present/absent/sick이면 그쪽 우선)
+                  myAtt.forEach((a: any) => { if (predicate((a.status || "").toLowerCase()) && a.slot_id) slotHits.add(a.slot_id); });
+                  return slotHits.size;
+                };
+                const done   = countBy((st) => ["done", "completed", "present"].includes(st));
+                const noshow = countBy((st) => ["noshow", "absent"].includes(st));
+                const sick   = countBy((st) => ["sick", "personal"].includes(st));
                 // ✅ v3.19.0: 세션당 단가 우선순위
                 // 1) session_rate 직접 설정값이 있으면 그 값
                 // 2) salary_type='session'이면 salary_amount
@@ -450,16 +474,36 @@ export default function StaffPage() {
                 <tr className="bg-aqu-50 font-bold">
                   <td colSpan={2} className="px-2 py-2 text-aqu-800">합계</td>
                   <td className="px-2 py-2 text-center text-emerald-700">
-                    {activeStaff.reduce((sum, s: any) => sum + slots.filter((sl: any) => sl.staff_id === s.id && ["done","completed","present"].includes((sl.status||"").toLowerCase()) && ["lesson","trial","makeup"].includes(sl.event_type)).length, 0)}
+                    {(() => {
+                      // v3.21.2: 합계 – slot + attendance 결합 완료 카운트
+                      let total = 0;
+                      activeStaff.forEach((s: any) => {
+                        const mySlots = slots.filter((sl: any) => sl.staff_id === s.id && ["lesson","trial","makeup"].includes(sl.event_type));
+                        const mySlotIds = new Set(mySlots.map((sl: any) => sl.id).filter(Boolean));
+                        const hits = new Set<string>();
+                        mySlots.forEach((sl: any) => { if (["done","completed","present"].includes((sl.status||"").toLowerCase())) hits.add(sl.id); });
+                        (monthAttendance || []).forEach((a: any) => { if (a.slot_id && mySlotIds.has(a.slot_id) && ["done","completed","present"].includes((a.status||"").toLowerCase())) hits.add(a.slot_id); });
+                        total += hits.size;
+                      });
+                      return total;
+                    })()}
                   </td>
                   <td colSpan={3}></td>
                   <td className="px-2 py-2 text-right text-aqu-900">
-                    ₩{activeStaff.reduce((sum, s: any) => {
-                      const done = slots.filter((sl: any) => sl.staff_id === s.id && ["done","completed","present"].includes((sl.status||"").toLowerCase()) && ["lesson","trial","makeup"].includes(sl.event_type)).length;
-                      const unit = (s.session_rate !== null && s.session_rate !== undefined) ? Number(s.session_rate)
-                        : (s.salary_type === "session" ? Number(s.salary_amount || 0) : 0);
-                      return sum + done * unit;
-                    }, 0).toLocaleString()}
+                    ₩{(() => {
+                      let sum = 0;
+                      activeStaff.forEach((s: any) => {
+                        const mySlots = slots.filter((sl: any) => sl.staff_id === s.id && ["lesson","trial","makeup"].includes(sl.event_type));
+                        const mySlotIds = new Set(mySlots.map((sl: any) => sl.id).filter(Boolean));
+                        const hits = new Set<string>();
+                        mySlots.forEach((sl: any) => { if (["done","completed","present"].includes((sl.status||"").toLowerCase())) hits.add(sl.id); });
+                        (monthAttendance || []).forEach((a: any) => { if (a.slot_id && mySlotIds.has(a.slot_id) && ["done","completed","present"].includes((a.status||"").toLowerCase())) hits.add(a.slot_id); });
+                        const unit = (s.session_rate !== null && s.session_rate !== undefined) ? Number(s.session_rate)
+                          : (s.salary_type === "session" ? Number(s.salary_amount || 0) : 0);
+                        sum += hits.size * unit;
+                      });
+                      return sum.toLocaleString();
+                    })()}
                   </td>
                 </tr>
               </tfoot>

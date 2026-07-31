@@ -221,8 +221,10 @@ export default function AttendancePage() {
         .sort((a: any, b: any) => (b.created_at || "").localeCompare(a.created_at || ""))[0];
 
       const prevStatus = existing?.status || null;
-      const prevCounted = prevStatus === "present" || prevStatus === "sick";
-      const newCounted = draft === "present" || draft === "sick";
+      // v3.21.2: 회원권 차감 기준 정정 – 출석(present) + 결석/노쇼(absent)만 -1 차감
+      //   병결(sick)·개인사정(personal)은 차감 대상 아님
+      const prevCounted = prevStatus === "present" || prevStatus === "absent";
+      const newCounted  = draft === "present"       || draft === "absent";
       const nowIso = new Date().toISOString();
 
       if (!draft) {
@@ -967,53 +969,97 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
         realOrgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
       }
 
+      // v3.21.2: 회원권 차감 규칙 – present/absent만 -1, sick/personal은 미차감
+      const prevStatus = existingAttendance?.status || null;
+      const prevCounted = prevStatus === "present" || prevStatus === "absent";
+      const newCounted  = status === "present"     || status === "absent";
+
+      // 활성 회원권 조회 (차감/복원 필요할 때만)
+      let activeMs: any = null;
+      if ((newCounted && !prevCounted) || (prevCounted && !newCounted)) {
+        const { data: allMs } = await supabase.from("memberships").select("*")
+          .eq("member_id", member.id)
+          .or("status.is.null,status.neq.cancelled");
+        activeMs = (allMs || [])
+          .filter((ms: any) => (!ms.start_date || ms.start_date <= date) && (!ms.end_date || ms.end_date >= date))
+          .sort((a: any, b: any) => (b.created_at || "").localeCompare(a.created_at || ""))[0];
+      }
+
       const basePayload: any = {
         status,
         signature: dataUrl,
         signer_role: signer,
         signed_at: nowIso,
+        saved_at: nowIso,
         slot_id: scheduleSlot?.id || existingAttendance?.slot_id || null,
         time_slot: scheduleSlot?.time_slot || existingAttendance?.time_slot || null,
       };
 
-      if (existingAttendance) {
-        const { error } = await supabase.from("attendance").update(basePayload).eq("id", existingAttendance.id);
-        if (error && (error.message?.includes("signature") || error.message?.includes("signer_role") || error.message?.includes("signed_at"))) {
-          // 컴럼 미존재 → 안전 재시도
-          delete basePayload.signature;
-          delete basePayload.signer_role;
-          delete basePayload.signed_at;
-          await supabase.from("attendance").update(basePayload).eq("id", existingAttendance.id);
-          alert("⚠️ DB에 signature 컴럼이 없어 출석만 저장되었습니다.\nSQL: alter table attendance add column signature text, signer_role text, signed_at timestamptz;");
-        } else if (error) {
-          throw error;
+      // v3.21.2: 차감/복원 로직
+      let deducted = false, restored = false;
+      if (!prevCounted && newCounted && activeMs) {
+        await supabase.from("memberships").update({ used_sessions: (activeMs.used_sessions || 0) + 1 }).eq("id", activeMs.id);
+        basePayload.membership_id  = activeMs.id;
+        basePayload.deducted_at    = nowIso;
+        basePayload.deduction_mode = "auto";
+        deducted = true;
+      } else if (prevCounted && !newCounted && existingAttendance?.membership_id) {
+        const msId = existingAttendance.membership_id;
+        const target = activeMs && activeMs.id === msId
+          ? activeMs
+          : (await supabase.from("memberships").select("*").eq("id", msId).single()).data;
+        if (target) {
+          await supabase.from("memberships").update({ used_sessions: Math.max(0, (target.used_sessions || 0) - 1) }).eq("id", msId);
+          restored = true;
         }
-      } else {
-        const insertPayload: any = {
-          org_id: realOrgId,
-          member_id: member.id,
-          attend_date: date,
-          ...basePayload,
-        };
-        const { error } = await supabase.from("attendance").insert(insertPayload);
-        if (error && (error.message?.includes("signature") || error.message?.includes("signer_role") || error.message?.includes("signed_at"))) {
-          delete insertPayload.signature;
-          delete insertPayload.signer_role;
-          delete insertPayload.signed_at;
-          await supabase.from("attendance").insert(insertPayload);
-          alert("⚠️ DB에 signature 컴럼이 없어 출석만 저장되었습니다.\nSQL: alter table attendance add column signature text, signer_role text, signed_at timestamptz;");
-        } else if (error) {
-          throw error;
-        }
+        basePayload.membership_id  = null;
+        basePayload.deducted_at    = null;
+        basePayload.deduction_mode = null;
       }
 
-      // 시간표 상태 동기화
+      // 안전 저장 (누락 컬럼 자동 폴백 최대 6회)
+      const isMissingCol = (msg: string) =>
+        /signature|signer_role|signed_at|saved_at|deducted_at|deduction_mode|membership_id|time_slot|column|schema cache/i.test(msg);
+
+      async function safeSave(payload: any, isUpdate: boolean, id?: string): Promise<any> {
+        let cur: any = { ...payload };
+        for (let i = 0; i < 6; i++) {
+          const r = isUpdate
+            ? await supabase.from("attendance").update(cur).eq("id", id!)
+            : await supabase.from("attendance").insert(cur);
+          if (!r.error) return null;
+          const msg = String(r.error.message || "");
+          if (!isMissingCol(msg)) return r.error;
+          const m = /'([^']+)' column|column "([^"]+)"|column ([\w_]+) of|find the '([^']+)'/.exec(msg);
+          const missing = m?.[1] || m?.[2] || m?.[3] || m?.[4];
+          if (missing && missing in cur) { const rest = { ...cur }; delete rest[missing]; cur = rest; continue; }
+          ["signature", "signer_role", "signed_at", "saved_at", "deducted_at", "deduction_mode", "membership_id", "time_slot"].forEach((k) => { if (k in cur) delete cur[k]; });
+        }
+        return null;
+      }
+
+      if (existingAttendance) {
+        const err = await safeSave(basePayload, true, existingAttendance.id);
+        if (err) throw err;
+      } else {
+        const insertPayload: any = { org_id: realOrgId, member_id: member.id, attend_date: date, ...basePayload };
+        const err = await safeSave(insertPayload, false);
+        if (err) throw err;
+      }
+
+      // v3.21.2: 시간표 상태 동기화 (personal 포함)
       if (scheduleSlot?.id) {
-        const statusMap: Record<string, string> = { present: "done", absent: "noshow", sick: "sick" };
+        const statusMap: Record<string, string> = { present: "done", absent: "noshow", sick: "sick", personal: "sick" };
         await supabase.from("schedule_slots").update({ status: statusMap[status] }).eq("id", scheduleSlot.id);
       }
 
-      onSaved && (await onSaved());
+      const parts: string[] = ["✅ 사인 저장 완료"];
+      if (deducted) parts.push("회원권 1회 차감");
+      if (restored) parts.push("회원권 1회 복원");
+      if (!deducted && !restored && (status === "sick" || status === "personal")) {
+        parts.push("(병결/개인사정 – 회원권 미차감)");
+      }
+      onSaved && (await onSaved(parts.join(" · ")));
     } catch (e: any) {
       alert("저장 실패: " + (e?.message || e));
     } finally {

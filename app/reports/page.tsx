@@ -107,7 +107,8 @@ function ReportsPage() {
           .is("promoted_member_id", null) // 이미 회원으로 변환된 리드는 제외
           .order("created_at", { ascending: false })
           .limit(200),
-        supabase.from("staff").select("id, name, role, phone").order("name"),
+        // v3.21.2: 직원용 양식에서 퇴사자 직원 자동 배제
+        supabase.from("staff").select("id, name, role, phone, status, is_active, is_resigned, resign_date").order("name"),
       ]);
 
       // 2) 회원 정규화 - status 배지 색상/라벨 계산
@@ -173,7 +174,16 @@ function ReportsPage() {
 
       setMembers(merged);
       if (merged.length > 0) setSelectedMember(merged[0].id);
-      setStaffList(staffRes.data || []);
+      // v3.21.2: 직원용 양식에서 퇴사자 자동 배제
+      const activeStaff = (staffRes.data || []).filter((s: any) => {
+        const st = String(s.status || "").toLowerCase();
+        if (["resigned", "retired", "inactive", "terminated", "quit", "leave"].includes(st)) return false;
+        if (s.is_active === false) return false;
+        if (s.is_resigned === true) return false;
+        if (s.resign_date) return false;
+        return true;
+      });
+      setStaffList(activeStaff);
     })();
   }, []);
 

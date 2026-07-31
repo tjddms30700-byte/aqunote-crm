@@ -140,12 +140,21 @@ export default function ConsultationsPage() {
     }
 
     const [staffRes, matrixRes] = await Promise.all([
-      supabase.from("staff").select("id, name, color").order("name"),
+      supabase.from("staff").select("id, name, color, status, is_active, is_resigned, resign_date").order("name"),
       supabase.from("slot_matrix").select("*"),
     ]);
 
     setMembers((memData as any) || []);
-    setStaff(staffRes.data || []);
+    // v3.21.2: 상담 매칭에서 퇴사자 자동 배제
+    const activeStaff = (staffRes.data || []).filter((s: any) => {
+      const status = String(s.status || "").toLowerCase();
+      if (["resigned", "retired", "inactive", "terminated", "quit", "leave"].includes(status)) return false;
+      if (s.is_active === false) return false;
+      if (s.is_resigned === true) return false;
+      if (s.resign_date) return false;
+      return true;
+    });
+    setStaff(activeStaff);
     setMatrix((matrixRes.data as any) || []);
     setLoading(false);
   }
@@ -342,7 +351,8 @@ export default function ConsultationsPage() {
     const byStatus: Record<string, number> = {};
     COLUMNS.forEach(c => byStatus[c.key] = 0);
     for (const m of members) {
-      const s = m.status || "waiting";
+      // v3.21.2: status 미설정 시 최좌측 [🆕 신규] 컸럼으로 자동 배치
+      const s = m.status || "new";
       byStatus[s] = (byStatus[s] || 0) + 1;
     }
 
@@ -559,7 +569,8 @@ function KanbanView({ members, stats, onMove, matrix }: any) {
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
         {COLUMNS.map(col => {
           const isCollapsed = !!collapsed[col.key];
-          const cards = members.filter((m: Member) => (m.status || "waiting") === col.key).filter(passesFilter);
+          // v3.21.2: 신규 접수 자동 승격 – status 미설정 시 "new" 컸럼으로 배치 (기존 "waiting" 폴백 수정)
+          const cards = members.filter((m: Member) => (m.status || "new") === col.key).filter(passesFilter);
           return (
             <div key={col.key}
               className={`${col.bg} border-2 border-dashed rounded-xl p-2 ${isCollapsed ? "" : "min-h-[400px]"}`}

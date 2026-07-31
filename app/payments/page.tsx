@@ -252,15 +252,24 @@ export default function PaymentsPage() {
         price: Number(f.amount),
         status: "active",
       };
+      // v3.21.2: memberships 컬럼명 자동 매핑 (amount ↔ price ↔ total_price)
       let newMembership: any = null;
       let msLastErr: any = null;
-      for (let attempt = 0; attempt < 15; attempt++) {
+      for (let attempt = 0; attempt < 20; attempt++) {
         const { data, error } = await supabase.from("memberships").insert(msPayload).select().single();
         if (!error) { newMembership = data; msLastErr = null; break; }
         msLastErr = error;
-        const m = error.message.match(/'([^']+)' column|column "([^"]+)"/);
-        const missing = m?.[1] || m?.[2];
+        const msg = String(error.message || "");
+        const m = msg.match(/'([^']+)' column|column "([^"]+)"|column ([\w_]+) of|find the '([^']+)'/);
+        const missing = m?.[1] || m?.[2] || m?.[3] || m?.[4];
+        if (missing === "amount" && "price" in msPayload) { msPayload.amount = msPayload.price; delete msPayload.price; continue; }
+        if (missing === "price" && "amount" in msPayload) { msPayload.price = msPayload.amount; delete msPayload.amount; continue; }
+        if (missing === "total_price" && ("price" in msPayload || "amount" in msPayload)) { msPayload.total_price = msPayload.price ?? msPayload.amount; delete msPayload.price; delete msPayload.amount; continue; }
         if (missing && missing in msPayload) { delete msPayload[missing]; continue; }
+        if (/schema cache/i.test(msg)) {
+          if ("price" in msPayload) { delete msPayload.price; continue; }
+          if ("amount" in msPayload) { delete msPayload.amount; continue; }
+        }
         break;
       }
       if (!newMembership) throw new Error((msLastErr?.message || "알 수 없는 오류") + "\n\n💡 AQUNOTE_V37_FIX8.sql을 Supabase에 실행해 주세요.");
@@ -364,22 +373,25 @@ export default function PaymentsPage() {
         price: payment.amount,
         status: "active",
       };
-      // 스키마에 없는 컬럼 자동 제거 및 대체 컬럼명 시도
+      // v3.21.2: 스키마 자동 매핑 확장 (amount/price/total_price 상호변환)
       let newMs: any = null;
       let lastErr: any = null;
-      for (let attempt = 0; attempt < 15; attempt++) {
+      for (let attempt = 0; attempt < 20; attempt++) {
         const { data, error } = await supabase.from("memberships").insert(msPayload).select().single();
         if (!error) { newMs = data; lastErr = null; break; }
         lastErr = error;
-        const m = error.message.match(/'([^']+)' column|column "([^"]+)"/);
-        const missing = m?.[1] || m?.[2];
+        const msg = String(error.message || "");
+        const m = msg.match(/'([^']+)' column|column "([^"]+)"|column ([\w_]+) of|find the '([^']+)'/);
+        const missing = m?.[1] || m?.[2] || m?.[3] || m?.[4];
+        if (missing === "amount" && "price" in msPayload) { msPayload.amount = msPayload.price; delete msPayload.price; continue; }
+        if (missing === "price" && "amount" in msPayload) { msPayload.price = msPayload.amount; delete msPayload.amount; continue; }
+        if (missing === "total_price" && ("price" in msPayload || "amount" in msPayload)) { msPayload.total_price = msPayload.price ?? msPayload.amount; delete msPayload.price; delete msPayload.amount; continue; }
         if (missing && missing in msPayload) { delete msPayload[missing]; continue; }
-        // end_date/start_date 대체 컬럼명 시도
-        if (/end_date/.test(error.message) && msPayload.end_date) {
-          msPayload.expires_at = msPayload.end_date; delete msPayload.end_date; continue;
-        }
-        if (/start_date/.test(error.message) && msPayload.start_date) {
-          msPayload.begin_date = msPayload.start_date; delete msPayload.start_date; continue;
+        if (/end_date/.test(msg) && msPayload.end_date) { msPayload.expires_at = msPayload.end_date; delete msPayload.end_date; continue; }
+        if (/start_date/.test(msg) && msPayload.start_date) { msPayload.begin_date = msPayload.start_date; delete msPayload.start_date; continue; }
+        if (/schema cache/i.test(msg)) {
+          if ("price" in msPayload) { delete msPayload.price; continue; }
+          if ("amount" in msPayload) { delete msPayload.amount; continue; }
         }
         break;
       }
@@ -633,7 +645,20 @@ export default function PaymentsPage() {
                 </tr>
               </thead>
               <tbody>
-                {memberships.filter(m => !nameSearch.trim() || (m.members?.name || "").toLowerCase().includes(nameSearch.trim().toLowerCase())).map(m => {
+                {/* v3.21.2: 회원권 결제일(paid_at) 순서 정렬 – 최신 결제건이 최상단 */}
+                {memberships
+                  .filter(m => !nameSearch.trim() || (m.members?.name || "").toLowerCase().includes(nameSearch.trim().toLowerCase()))
+                  .slice()
+                  .sort((a: any, b: any) => {
+                    // 1) payments 연결 결제일 다른 처리 – members.payments → payments 배열에서 해당 membership_id로 조회
+                    const aPaid = (payments || []).find((p: any) => p.membership_id === a.id)?.paid_at;
+                    const bPaid = (payments || []).find((p: any) => p.membership_id === b.id)?.paid_at;
+                    // 2) 없으면 start_date → created_at 순으로 폴백
+                    const aKey = aPaid || a.start_date || a.created_at || "";
+                    const bKey = bPaid || b.start_date || b.created_at || "";
+                    return String(bKey).localeCompare(String(aKey));
+                  })
+                  .map(m => {
                   const remaining = (m.total_sessions || 0) - (m.used_sessions || 0);
                   const expired = m.end_date && new Date(m.end_date) < new Date();
                   const isCancelled = m.status === "cancelled";
@@ -1029,13 +1054,13 @@ export default function PaymentsPage() {
                     </select>
                   </Field>
                   <Field label="할부">
+                    {/* v3.21.2: 할부 1~10개월 전체 + 12개월 */}
                     <select value={f.installment} onChange={e => setF({ ...f, installment: parseInt(e.target.value) })}
                       className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none">
                       <option value={0}>일시불</option>
-                      <option value={2}>2개월</option>
-                      <option value={3}>3개월</option>
-                      <option value={6}>6개월</option>
-                      <option value={12}>12개월</option>
+                      {[2, 3, 4, 5, 6, 7, 8, 9, 10, 12].map((m) => (
+                        <option key={m} value={m}>{m}개월</option>
+                      ))}
                     </select>
                   </Field>
                 </div>

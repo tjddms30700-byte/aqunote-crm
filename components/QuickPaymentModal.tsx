@@ -83,7 +83,8 @@ export default function QuickPaymentModal({ open, onClose, onSaved, initialDate,
       endDate.setDate(endDate.getDate() + Number(f.valid_days || 90));
       const endStr = endDate.toISOString().slice(0, 10);
 
-      const { data: ms, error: msErr } = await supabase.from("memberships").insert({
+      // v3.21.2: memberships insert – amount/price 컬럼 자동 매핑 폴백 (최대 20회)
+      let msPayload: any = {
         org_id: orgId,
         member_id: f.member_id,
         plan_name: f.plan_name,
@@ -91,11 +92,28 @@ export default function QuickPaymentModal({ open, onClose, onSaved, initialDate,
         used_sessions: 0,
         start_date: startDate,
         end_date: endStr,
-        amount: Number(f.amount),
         price: Number(f.amount),
         status: "active",
-      }).select().single();
-
+      };
+      let ms: any = null;
+      let msErr: any = null;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const r = await supabase.from("memberships").insert(msPayload).select().single();
+        if (!r.error) { ms = r.data; msErr = null; break; }
+        msErr = r.error;
+        const msg = String(r.error.message || "");
+        const m = msg.match(/'([^']+)' column|column "([^"]+)"|column ([\w_]+) of|find the '([^']+)'/);
+        const missing = m?.[1] || m?.[2] || m?.[3] || m?.[4];
+        if (missing === "amount" && "price" in msPayload) { msPayload.amount = msPayload.price; delete msPayload.price; continue; }
+        if (missing === "price" && "amount" in msPayload)  { msPayload.price = msPayload.amount; delete msPayload.amount; continue; }
+        if (missing === "total_price" && ("price" in msPayload || "amount" in msPayload)) { msPayload.total_price = msPayload.price ?? msPayload.amount; delete msPayload.price; delete msPayload.amount; continue; }
+        if (missing && missing in msPayload) { delete msPayload[missing]; continue; }
+        if (/schema cache/i.test(msg)) {
+          if ("price" in msPayload) { delete msPayload.price; continue; }
+          if ("amount" in msPayload) { delete msPayload.amount; continue; }
+        }
+        break;
+      }
       if (msErr) throw msErr;
 
       // 2) payments 자동 생성

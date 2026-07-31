@@ -58,10 +58,11 @@ export default function SignatureAttendanceHistoryPage() {
       : await mQ.order("name");
     setMembers(mData || []);
 
-    // attendance 중 signature 존재하는 것만 (컬럼 자동 감지)
-    let dateColumn = "date";
+    // v3.21.2: attendance 중 signature 존재하는 것만 (컬럼 자동 감지)
+    // 핵심: /attendance 페이지는 attend_date 컴럼을 사용하므로 최우선 조회
+    let dateColumn = "attend_date";
     let dataAll: any[] = [];
-    for (const col of ["date", "attendance_date", "session_date"]) {
+    for (const col of ["attend_date", "date", "attendance_date", "session_date", "check_date"]) {
       const { data, error } = await supabase.from("attendance")
         .select("*")
         .not("signature", "is", null)
@@ -76,8 +77,8 @@ export default function SignatureAttendanceHistoryPage() {
     if (branchId) {
       filtered = dataAll.filter((r: any) => !r.branch_id || r.branch_id === branchId);
     }
-    // 정규화 - _date 필드 통일
-    filtered = filtered.map((r: any) => ({ ...r, _date: r[dateColumn] || r.date || r.attendance_date || r.session_date }));
+    // 정규화 - _date 필드 통일 (attend_date 포함)
+    filtered = filtered.map((r: any) => ({ ...r, _date: r[dateColumn] || r.attend_date || r.date || r.attendance_date || r.session_date || r.check_date }));
     setRows(filtered);
     setLoading(false);
   }

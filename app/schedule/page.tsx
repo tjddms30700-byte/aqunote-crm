@@ -237,7 +237,16 @@ export default function SchedulePage() {
     ]);
     setSlots(sRes.data || []);
     setMembers(mRes.data || []);
-    setStaff(stRes.data || []);
+    // v3.21.2: 시간표·상담 매칭에서 퇴사자 자동 배제
+    const activeStaff = (stRes.data || []).filter((s: any) => {
+      const status = String(s.status || "").toLowerCase();
+      if (["resigned", "retired", "inactive", "terminated", "quit", "leave"].includes(status)) return false;
+      if (s.is_active === false) return false;
+      if (s.is_resigned === true) return false;
+      if (s.resign_date) return false;
+      return true;
+    });
+    setStaff(activeStaff);
     setPayments(pRes.data || []);
     setAttendance(aRes.data || []);
     setPlans(plRes.data || []);
@@ -465,14 +474,25 @@ export default function SchedulePage() {
         price: payment.amount,
         status: "active",
       };
+      // v3.21.2: memberships 컬럼명 자동 매핑 (amount ↔ price ↔ total_price)
       let lastMsErr: any = null;
-      for (let attempt = 0; attempt < 15; attempt++) {
+      for (let attempt = 0; attempt < 20; attempt++) {
         const { data, error } = await supabase.from("memberships").insert(msPayload).select().single();
         if (!error) { membershipId = data?.id || null; lastMsErr = null; break; }
         lastMsErr = error;
-        const m = error.message.match(/'([^']+)' column|column "([^"]+)"/);
-        const missing = m?.[1] || m?.[2];
+        const msg = String(error.message || "");
+        const m = msg.match(/'([^']+)' column|column "([^"]+)"|column ([\w_]+) of|find the '([^']+)'/);
+        const missing = m?.[1] || m?.[2] || m?.[3] || m?.[4];
+        // 캐시 미발견 컬럼 = 데이터 값을 다른 이름으로 적재 시도
+        if (missing === "amount" && "price" in msPayload) { msPayload.amount = msPayload.price; delete msPayload.price; continue; }
+        if (missing === "price" && "amount" in msPayload) { msPayload.price = msPayload.amount; delete msPayload.amount; continue; }
+        if (missing === "total_price" && ("price" in msPayload || "amount" in msPayload)) { msPayload.total_price = msPayload.price ?? msPayload.amount; delete msPayload.price; delete msPayload.amount; continue; }
         if (missing && missing in msPayload) { delete msPayload[missing]; continue; }
+        // 메시지에 amount/price가 보이면 미식별 컬럼도 자동 제거
+        if (/schema cache/i.test(msg)) {
+          if ("price" in msPayload) { delete msPayload.price; continue; }
+          if ("amount" in msPayload) { delete msPayload.amount; continue; }
+        }
         console.warn("membership insert 실패:", error);
         break;
       }

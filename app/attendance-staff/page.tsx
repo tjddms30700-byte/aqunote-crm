@@ -397,14 +397,30 @@ export default function StaffAttendancePage() {
       status: "approved",
       approved_at: nowIso(),
     };
-    let tryPayload = { ...payload };
-    for (let i = 0; i < 6; i++) {
+    // v3.21.2: 폴백 정규식 강화 (스키마 캐시·find the '...' 패턴 대응)
+    let tryPayload: any = { ...payload };
+    let lastErr: any = null;
+    let ok = false;
+    for (let i = 0; i < 12; i++) {
       const r = await supabase.from("leave_requests").insert(tryPayload);
-      if (!r.error) break;
-      const m = (r.error.message || "").match(/column "([^"]+)"/i);
-      if (m?.[1] && m[1] in tryPayload) { const { [m[1]]: _d, ...rest } = tryPayload; tryPayload = rest; continue; }
-      alert("포상휴가 부여 실패: " + r.error.message); return;
+      if (!r.error) { ok = true; break; }
+      lastErr = r.error;
+      const msg = String(r.error.message || "");
+      const m = msg.match(/'([^']+)' column|column "([^"]+)"|column ([\w_]+) of|find the '([^']+)'/i);
+      const missing = m?.[1] || m?.[2] || m?.[3] || m?.[4];
+      if (missing && missing in tryPayload) { const { [missing]: _d, ...rest } = tryPayload; tryPayload = rest; continue; }
+      // RLS 오류 명확화
+      if (/row-level security|policy|permission denied/i.test(msg)) {
+        alert(`포상휴가 저장 실패 (권한 오류)\n\nleave_requests 테이블 INSERT RLS 정책이 필요합니다.\n\n상세: ${msg}`);
+        return;
+      }
+      // approved_at 컬럼 없는 경우 자동 제거
+      if (/approved_at|schema cache/i.test(msg)) {
+        if ("approved_at" in tryPayload) { delete tryPayload.approved_at; continue; }
+      }
+      break;
     }
+    if (!ok) { alert("포상휴가 부여 실패: " + (lastErr?.message || "알 수 없는 오류")); return; }
     setShowRewardModal(false);
     setRewardForm({ staff_id: "", action: "grant", days: 1, reason: "" });
     alert(`✅ ${staffName}님 포상휴가 ${rewardForm.action === "deduct" ? "차감" : "부여"} 완료 (${finalDays > 0 ? "+" : ""}${finalDays}일)\n\n→ [포상휴가 사용] 카드에 즉시 반영됩니다.`);

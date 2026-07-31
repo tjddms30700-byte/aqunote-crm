@@ -2037,36 +2037,99 @@ function ContractsPage() {
                 </div>
               )}
 
-              {/* ✅ v3.20.17: 회원 계약서 전용 동의 체크박스 */}
-              {editing.subject_kind === "member" && (
-                <div className="border-2 border-emerald-100 bg-emerald-50/40 rounded-lg p-3 mt-3 space-y-1.5">
-                  <div className="text-xs font-bold text-emerald-800 mb-1">✅ 계약 동의 항목 (필수)</div>
-                  <label className="flex items-start gap-2 text-[12px] cursor-pointer">
-                    <input type="checkbox" className="mt-0.5"
-                      checked={!!editing.form_data?.agree_contract}
-                      onChange={e => setEditing({ ...editing, form_data: { ...(editing.form_data || {}), agree_contract: e.target.checked } })} />
-                    <span>본인은 위 계약 내용을 충분히 이해하였으며, <b>제8조(계약 해지·환불·위약금)</b> 조항에 대해 명확히 설명을 듣고 <b>동의합니다</b>.</span>
-                  </label>
-                  <label className="flex items-start gap-2 text-[12px] cursor-pointer">
-                    <input type="checkbox" className="mt-0.5"
-                      checked={!!editing.form_data?.agree_privacy}
-                      onChange={e => setEditing({ ...editing, form_data: { ...(editing.form_data || {}), agree_privacy: e.target.checked } })} />
-                    <span>개인정보 및 민감정보 수집·이용에 <b>동의합니다</b>.</span>
-                  </label>
-                  <label className="flex items-start gap-2 text-[12px] cursor-pointer">
-                    <input type="checkbox" className="mt-0.5"
-                      checked={!!editing.form_data?.agree_safety}
-                      onChange={e => setEditing({ ...editing, form_data: { ...(editing.form_data || {}), agree_safety: e.target.checked } })} />
-                    <span>제7조(안전 관리 및 책임 범위) 조항을 이해하고 <b>동의합니다</b>.</span>
-                  </label>
-                  <label className="flex items-start gap-2 text-[12px] cursor-pointer text-gray-600">
-                    <input type="checkbox" className="mt-0.5"
-                      checked={!!editing.form_data?.agree_photo}
-                      onChange={e => setEditing({ ...editing, form_data: { ...(editing.form_data || {}), agree_photo: e.target.checked } })} />
-                    <span>(선택) 교육·활동 기록 목적의 사진·영상 촬영에 <b>동의합니다</b>.</span>
-                  </label>
-                </div>
-              )}
+              {/* v3.21.2: 계약서 양식별 동의 체크박스 (양식마다 맞춤형) */}
+              {(() => {
+                // 양식별 동의 항목 매핑 – 각 계약서 유형에 맞는 체크박스만 표시
+                const CONTRACT_CONSENTS: Record<string, { key: string; label: string; required: boolean }[]> = {
+                  member_service: [
+                    { key: "agree_contract", label: "본인은 위 계약 내용을 충분히 이해하였으며, <b>제8조(계약 해지·환불·위약금)</b> 조항에 대해 명확히 설명을 듣고 <b>동의합니다</b>.", required: true },
+                    { key: "agree_privacy",  label: "개인정보 및 민감정보 수집·이용에 <b>동의합니다</b>.", required: true },
+                    { key: "agree_safety",   label: "<b>제7조(안전 관리 및 책임 범위)</b> 조항을 이해하고 <b>동의합니다</b>.", required: true },
+                    { key: "agree_photo",    label: "(선택) 교육·활동 기록 목적의 사진·영상 촬영에 <b>동의합니다</b>.", required: false },
+                  ],
+                  privacy: [
+                    { key: "agree_privacy",     label: "개인정보 및 민감정보 <b>수집·이용에 동의</b>합니다.", required: true },
+                    { key: "agree_third_party", label: "(선택) 제3자 정보 제공(공공기관·연구기관)에 동의합니다.", required: false },
+                    { key: "agree_retention",   label: "개인정보 보유 및 이용기간(회원 탈퇴 후 5년)에 동의합니다.", required: true },
+                  ],
+                  safety: [
+                    { key: "agree_risk",      label: "수중활동의 <b>상해 위험을 사전에 고지</b> 받았음을 확인합니다.", required: true },
+                    { key: "agree_emergency", label: "응급 상황 발생 시 센터의 <b>초기 대응 및 응급의료조치</b>에 동의합니다.", required: true },
+                    { key: "agree_health",    label: "본인/자녀의 <b>건강상태(질환·복용약 등)</b>를 사실대로 고지하였음을 확인합니다.", required: true },
+                  ],
+                  aqua_safety: [
+                    { key: "agree_water_risk", label: "수중재활 프로그램의 <b>특성과 위험요소</b>를 이해하고 참여합니다.", required: true },
+                    { key: "agree_first_aid",  label: "응급처치 및 <b>CPR·AED 사용</b>에 대해 사전 동의합니다.", required: true },
+                    { key: "agree_health_disclose", label: "심혈관 질환·경련·감염성 질환 등 <b>수중활동 금기 질환을 고지</b>하였음을 확인합니다.", required: true },
+                  ],
+                  portrait: [
+                    { key: "agree_feedback",  label: "<b>[필수]</b> 세션 피드백·상담용 사진·영상 촬영에 동의합니다.", required: true },
+                    { key: "agree_promotion", label: "(선택) 센터 <b>홍보 및 교육</b>(SNS·블로그·홈페이지) 활용에 동의합니다.", required: false },
+                    { key: "agree_research",  label: "(선택) 대학·연구기관 <b>학술 연구·발표</b> 목적 활용에 동의합니다.", required: false },
+                  ],
+                  research: [
+                    { key: "agree_participate", label: "본 연구 참여 목적과 방법을 이해하고 <b>자발적으로 참여</b>에 동의합니다.", required: true },
+                    { key: "agree_withdraw",    label: "언제든지 <b>참여 철회가 가능</b>함을 안내받았습니다.", required: true },
+                    { key: "agree_data_use",    label: "연구 데이터의 익명 처리 및 <b>학술 목적 활용</b>에 동의합니다.", required: true },
+                  ],
+                  nda: [
+                    { key: "agree_confidential", label: "센터의 <b>기밀정보(회원정보·운영정보)를 외부에 누설하지 않을 것</b>을 서약합니다.", required: true },
+                    { key: "agree_no_competing", label: "재직 중 및 <b>퇴직 후 2년간 동종업무 겸직 금지</b>에 동의합니다.", required: true },
+                    { key: "agree_return",       label: "퇴직 시 회사 자료·기기·회원정보를 <b>즉시 반납</b>할 것을 서약합니다.", required: true },
+                  ],
+                  privacy_staff: [
+                    { key: "agree_member_info", label: "회원 <b>개인정보·치료기록의 비밀유지</b>를 서약합니다.", required: true },
+                    { key: "agree_no_leak",     label: "제3자에게 회원정보를 <b>제공·유출하지 않을 것</b>을 서약합니다.", required: true },
+                  ],
+                  employment: [
+                    { key: "agree_terms",   label: "본 근로계약의 <b>임금·근로시간·업무내용</b>을 이해하고 동의합니다.", required: true },
+                    { key: "agree_privacy", label: "인사·급여 목적의 <b>개인정보 처리</b>에 동의합니다.", required: true },
+                  ],
+                  employment_fixed: [
+                    { key: "agree_terms",     label: "본 <b>기간제 근로계약</b>의 조건을 이해하고 동의합니다.", required: true },
+                    { key: "agree_end_date",  label: "계약 종료일과 <b>재계약 여부는 별도 협의</b>임을 확인합니다.", required: true },
+                  ],
+                  employment_daily: [
+                    { key: "agree_hourly", label: "<b>시급·일급 근로조건</b>을 이해하고 동의합니다.", required: true },
+                  ],
+                  apology: [
+                    { key: "agree_facts",   label: "본 시말서에 기재된 <b>사실관계를 인정</b>합니다.", required: true },
+                    { key: "agree_measure", label: "향후 <b>재발 방지 및 회사 방침 준수</b>를 서약합니다.", required: true },
+                  ],
+                  resignation: [
+                    { key: "agree_voluntary", label: "본 사직서는 <b>본인의 자유의사</b>로 작성되었음을 확인합니다.", required: true },
+                    { key: "agree_handover",  label: "잔여 업무 인수인계 및 <b>자료 반납</b>을 성실히 이행하겠습니다.", required: true },
+                  ],
+                  summary: [
+                    { key: "agree_summary", label: "본 요약서 내용을 이해하였으며, 상세 조항은 <b>본 계약서 원본을 참조</b>합니다.", required: true },
+                  ],
+                  other: [
+                    { key: "agree_general", label: "본 계약(서약) 내용을 충분히 이해하고 <b>동의합니다</b>.", required: true },
+                  ],
+                };
+                const consents = CONTRACT_CONSENTS[editing.contract_type] || null;
+                if (!consents || consents.length === 0) return null;
+                const isMember = editing.subject_kind === "member";
+                const toneCls  = isMember
+                  ? "border-emerald-100 bg-emerald-50/40"
+                  : "border-blue-100 bg-blue-50/40";
+                const headerCls = isMember ? "text-emerald-800" : "text-blue-800";
+                return (
+                  <div className={`border-2 ${toneCls} rounded-lg p-3 mt-3 space-y-1.5`}>
+                    <div className={`text-xs font-bold ${headerCls} mb-1`}>
+                      ✅ {typeLabel(editing.contract_type).replace(/^[^ ]+ /, "")} 동의 항목
+                    </div>
+                    {consents.map((c) => (
+                      <label key={c.key} className={`flex items-start gap-2 text-[12px] cursor-pointer ${c.required ? "" : "text-gray-600"}`}>
+                        <input type="checkbox" className="mt-0.5"
+                          checked={!!editing.form_data?.[c.key]}
+                          onChange={e => setEditing({ ...editing, form_data: { ...(editing.form_data || {}), [c.key]: e.target.checked } })} />
+                        <span dangerouslySetInnerHTML={{ __html: (c.required ? "<b class='text-rose-600'>[필수]</b> " : "") + c.label }} />
+                      </label>
+                    ))}
+                  </div>
+                );
+              })()}
 
               <div className="no-print">
                 <label className="text-xs">
