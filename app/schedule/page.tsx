@@ -940,8 +940,94 @@ export default function SchedulePage() {
     return `${ms.plan_name || "회원권"} (${remaining}/${total})`;
   }
 
+  // v3.21.6: 보강 필요 회원 자동 집계 (병결·개인사정 결석 + 보강 수업으로 상쇄되지 않은 건)
+  const makeupNeededList = useMemo(() => {
+    const makeupDoneKey = new Set<string>();
+    // 이미 보강한 건 집계 (event_type=makeup && status=done/scheduled)
+    slots.forEach((sl: any) => {
+      if (sl.event_type === "makeup" && sl.member_id) {
+        makeupDoneKey.add(sl.member_id);
+      }
+    });
+    // 병결/개인사정 출결 이별 수집
+    const absentList: any[] = [];
+    slots.forEach((sl: any) => {
+      const st = (sl.status || "").toLowerCase();
+      if (st === "sick" || st === "personal") {
+        if (sl.member_id) {
+          absentList.push({
+            member_id: sl.member_id,
+            date: sl.event_date,
+            status: st,
+            source: "slot",
+            slot_id: sl.id,
+            staff_id: sl.staff_id,
+          });
+        }
+      }
+    });
+    attendance.forEach((a: any) => {
+      const st = (a.status || "").toLowerCase();
+      if (st === "sick" || st === "personal") {
+        if (a.member_id) {
+          absentList.push({
+            member_id: a.member_id,
+            date: a.attend_date || a.date || a.attendance_date || a.session_date,
+            status: st,
+            source: "attendance",
+            slot_id: a.slot_id,
+          });
+        }
+      }
+    });
+    // 회원별 그룹화
+    const grouped = new Map<string, any>();
+    absentList.forEach((rec: any) => {
+      const key = `${rec.member_id}__${rec.date}`;
+      if (!grouped.has(key)) grouped.set(key, rec);
+    });
+    // 보강 유무를 회원별로 집계 (단순 매칭: 병결/개인사정 회원 중 보강 기록이 없는 사람)
+    const arr = Array.from(grouped.values()).map((rec: any) => {
+      const m = members.find((mm: any) => mm.id === rec.member_id);
+      const hasMakeup = makeupDoneKey.has(rec.member_id);
+      return { ...rec, member_name: m?.name || "알 수 없음", phone: m?.phone, hasMakeup };
+    }).filter((r: any) => !r.hasMakeup);
+    // 날짜 내림차순 정렬
+    arr.sort((a: any, b: any) => (b.date || "").localeCompare(a.date || ""));
+    return arr;
+  }, [slots, attendance, members]);
+
   return (
     <main className="max-w-7xl mx-auto px-3 md:px-6 py-4 md:py-8">
+      {/* v3.21.6: 보강 필요 회원 알림 배너 */}
+      {makeupNeededList.length > 0 && (
+        <div className="mb-4 bg-gradient-to-r from-orange-50 to-red-50 border-2 border-orange-300 rounded-xl p-3 shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2 text-orange-800 font-bold text-sm">
+              <span className="text-lg">🔔</span>
+              보강 필요 회원 ({makeupNeededList.length}명)
+              <span className="text-[10px] text-orange-600 font-normal">• 병결/개인사정 결석, 보강 미진행</span>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+            {makeupNeededList.slice(0, 20).map((r: any, i: number) => (
+              <button key={`${r.member_id}_${r.date}_${i}`}
+                onClick={() => { window.location.href = `/members/${r.member_id}`; }}
+                className="text-[11px] px-2 py-1 bg-white border border-orange-300 rounded-lg hover:bg-orange-100 flex items-center gap-1">
+                <span className={r.status === "sick" ? "text-orange-700" : "text-purple-700"}>
+                  {r.status === "sick" ? "🤒" : "📝"}
+                </span>
+                <span className="font-semibold text-slate-800">{r.member_name}</span>
+                <span className="text-gray-500">{r.date}</span>
+              </button>
+            ))}
+            {makeupNeededList.length > 20 && (
+              <span className="text-[11px] text-orange-600 self-center">+{makeupNeededList.length - 20}명</span>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
         <div className="flex items-center gap-2">

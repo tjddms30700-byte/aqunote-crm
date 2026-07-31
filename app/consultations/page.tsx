@@ -468,25 +468,39 @@ export default function ConsultationsPage() {
           cell={getCell(selectedCell.day, selectedCell.time)}
           matchedWaiters={getMatchedWaiters(selectedCell.day, selectedCell.time)}
           searchableMembers={members}
+          staffList={(staff || []).filter((s: any) => !s.is_resigned)}
           searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
           saving={saving}
           onClose={() => { setSelectedCell(null); setSearchQuery(""); }}
           onSetStatus={(s: any) => saveCell(selectedCell.day, selectedCell.time, { status: s, fixed_name: s === "fixed" ? "" : null, member_id: null })}
-          onAssign={async (m: Member) => {
-            // ✅ 신기능 B: 대기자 → 정규회원 자동 전환 + 셀 고정
-            await saveCell(selectedCell.day, selectedCell.time, {
-              status: "fixed", fixed_name: m.name, member_id: m.id,
-            });
+          onAssign={async (m: Member, staffId?: string | null) => {
+            // v3.21.6: 회원 배정 + 담당강사 동시 저장
+            const patch: any = { status: "fixed", fixed_name: m.name, member_id: m.id };
+            if (staffId !== undefined) patch.staff_id = staffId;
+            await saveCell(selectedCell.day, selectedCell.time, patch);
             if (m.status !== "regular") {
               await supabase.from("members").update({ status: "regular" }).eq("id", m.id);
+            }
+            // v3.21.6: 회원의 담당강사(members.staff_id)도 갱신 - 시간표·수당·출결 연동 일관성
+            if (staffId !== undefined && staffId !== null) {
+              await supabase.from("members").update({ staff_id: staffId }).eq("id", m.id);
             }
             setSelectedCell(null); setSearchQuery("");
             await loadAll();
           }}
+          onSetStaff={async (staffId: string | null) => {
+            // v3.21.6: 기존 셀에 담당 선생님만 변경 (회원 유지)
+            await saveCell(selectedCell.day, selectedCell.time, { staff_id: staffId });
+            const cur = getCell(selectedCell.day, selectedCell.time);
+            if (cur?.member_id && staffId) {
+              await supabase.from("members").update({ staff_id: staffId }).eq("id", cur.member_id);
+            }
+            await loadAll();
+          }}
           onUnlock={async () => {
             if (!confirm("고정 배정을 해제합니다. 계속?")) return;
-            await saveCell(selectedCell.day, selectedCell.time, { status: "open", fixed_name: null, member_id: null });
+            await saveCell(selectedCell.day, selectedCell.time, { status: "open", fixed_name: null, member_id: null, staff_id: null });
           }}
         />
       )}
@@ -1049,9 +1063,12 @@ function DashboardView({ members, stats, onMove }: any) {
 /* ─────────────── 하위 컴포넌트: 셀 편집 모달 ─────────────── */
 
 function CellEditor(props: any) {
-  const { day, time, cell, matchedWaiters, searchableMembers, searchQuery, setSearchQuery, saving, onClose, onSetStatus, onAssign, onUnlock } = props;
+  const { day, time, cell, matchedWaiters, searchableMembers, staffList, searchQuery, setSearchQuery, saving, onClose, onSetStatus, onAssign, onUnlock, onSetStaff } = props;
   const status = cell?.status || "closed";
   const dayName = DAYS[day - 1];
+  // v3.21.6: 담당 선생님 지정용 state (원클릭 배정 시 이 값이 함께 저장됨)
+  const [pendingStaffId, setPendingStaffId] = useState<string | null>(cell?.staff_id || null);
+  useEffect(() => { setPendingStaffId(cell?.staff_id || null); }, [cell?.id]);
 
   const filteredMembers = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -1098,6 +1115,45 @@ function CellEditor(props: any) {
             </div>
           </section>
 
+          {/* v3.21.6: 담당 선생님 지정 UI - 닫힌 추가 */}
+          {status !== "closed" && (
+            <section>
+              <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                👨‍⚕️ 담당 선생님 지정
+                {pendingStaffId && (
+                  <span className="text-[10px] text-gray-500">(회원 배정 시 함께 저장)</span>
+                )}
+              </h3>
+              <div className="flex gap-1.5 flex-wrap">
+                <button
+                  onClick={() => { setPendingStaffId(null); if (status === "fixed" && onSetStaff) onSetStaff(null); }}
+                  className={`px-2.5 py-1.5 text-xs rounded-lg border-2 font-semibold ${!pendingStaffId ? "bg-gray-500 text-white border-gray-500" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}>
+                  미지정
+                </button>
+                {(staffList || []).map((s: any) => {
+                  const isSel = pendingStaffId === s.id;
+                  const color = s.color || "#3b82f6";
+                  return (
+                    <button key={s.id}
+                      onClick={() => {
+                        setPendingStaffId(s.id);
+                        // 이미 fixed 상태면 담당강사 즉시 변경
+                        if (status === "fixed" && onSetStaff) onSetStaff(s.id);
+                      }}
+                      style={isSel ? { backgroundColor: color, borderColor: color, color: "#fff" } : { borderColor: color, color: color }}
+                      className="px-2.5 py-1.5 text-xs rounded-lg border-2 font-semibold hover:shadow flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: isSel ? "#fff" : color }} />
+                      {s.name}
+                    </button>
+                  );
+                })}
+              </div>
+              {(staffList || []).length === 0 && (
+                <div className="text-[11px] text-gray-400 mt-1">등록된 재직 강사가 없습니다 → /staff 에서 먼저 등록하세요</div>
+              )}
+            </section>
+          )}
+
           {/* 대기자 순위 */}
           {status === "open" && (
             <section>
@@ -1118,7 +1174,7 @@ function CellEditor(props: any) {
                         <span className="text-sm font-medium">{w.name}</span>
                         <span className="text-[10px] text-gray-500">{w.member_type === "child" ? "🧒 아동" : "👤 성인"}</span>
                       </div>
-                      <button onClick={() => onAssign(w)} disabled={saving}
+                      <button onClick={() => onAssign(w, pendingStaffId)} disabled={saving}
                         className="px-3 py-1 text-xs bg-emerald-500 text-white rounded hover:bg-emerald-600 disabled:opacity-50">
                         🔒 이 회원으로 고정 (정규 등록)
                       </button>
@@ -1144,7 +1200,7 @@ function CellEditor(props: any) {
                   <div className="p-3 text-xs text-gray-500 text-center">검색 결과 없음</div>
                 )}
                 {filteredMembers.map((m: any) => (
-                  <button key={m.id} onClick={() => onAssign(m)} disabled={saving}
+                  <button key={m.id} onClick={() => onAssign(m, pendingStaffId)} disabled={saving}
                     className="w-full px-3 py-2 text-left hover:bg-emerald-50 flex items-center justify-between disabled:opacity-50">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="text-xs">{m.member_type === "child" ? "🧒" : "👤"}</span>

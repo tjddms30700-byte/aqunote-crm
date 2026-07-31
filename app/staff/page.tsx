@@ -89,6 +89,8 @@ export default function StaffPage() {
   const [monthAttendance, setMonthAttendance] = useState<any[]>([]);
   // v3.21.5: 회원 담당강사 역매핑용 - members.staff_id 로 attendance 귀속 직원 판별
   const [membersLite, setMembersLite] = useState<any[]>([]);
+  // v3.21.6: 상담·매칭 페이지에서 지정한 고정 셀도 예약으로 인식 (주간 반복 수업 파이프라인)
+  const [slotMatrix, setSlotMatrix] = useState<any[]>([]);
   const [slotsMonth, setSlotsMonth] = useState<string>(new Date().toISOString().slice(0, 7));
 
   useEffect(() => { loadAll(); }, [slotsMonth]);
@@ -141,7 +143,13 @@ export default function StaffPage() {
       return { data: [], error: null } as any;
     }
 
-    const [s, ph, al, sl, att, mm] = await Promise.all([
+    // v3.21.6: slot_matrix에서 담당강사 지정된 고정 셀도 로드 → 모든 예약으로 인식
+    async function loadSlotMatrix() {
+      const r = await supabase.from("slot_matrix").select("id, day_of_week, time_slot, status, staff_id, member_id, fixed_name");
+      return r.error ? { data: [] } : r;
+    }
+
+    const [s, ph, al, sl, att, mm, mtx] = await Promise.all([
       supabase.from("staff").select("*").order("created_at", { ascending: false }),
       supabase.from("payroll_history").select("*").order("pay_year", { ascending: false }).order("pay_month", { ascending: false }),
       loadAttendanceLogs(),
@@ -151,8 +159,10 @@ export default function StaffPage() {
         .is("deleted_at", null),
       loadMonthAttendance(),
       loadMembersLite(),
+      loadSlotMatrix(),
     ]);
     setStaff(s.data || []);
+    setSlotMatrix(((mtx as any).data || []) as any[]);
     setMembersLite(((mm as any).data || []) as any[]);
     setPayrollHistory(ph.data || []);
     // ✅ v3.20.14: work_date 또는 log_date 중 있는 것을 사용 (유연 표시)
@@ -448,13 +458,44 @@ export default function StaffPage() {
               {activeStaff.length === 0 ? (
                 <tr><td colSpan={7} className="text-center py-4 text-gray-400">재직 직원이 없습니다</td></tr>
               ) : activeStaff.map((s: any) => {
-                // v3.21.5: 강사별 통계 3중 매핑 – (1) slot.staff_id (2) attendance.slot_id (3) member.staff_id 역매핑
-                // 담당 회원 id 집합 (member.staff_id 기준)
-                const myMemberIds = new Set(
-                  (membersLite || []).filter((mm: any) => mm.staff_id === s.id).map((mm: any) => mm.id)
-                );
-                // 1) schedule_slots (직접 staff_id 배정된 것)
-                const mySlots = slots.filter((sl: any) => sl.staff_id === s.id && (sl.event_type === "lesson" || sl.event_type === "trial" || sl.event_type === "makeup"));
+                // v3.21.6: 강사별 통계 4중 매핑 – (1) slot.staff_id (2) attendance.slot_id (3) member.staff_id (4) slot_matrix 고정 예약
+                // 담당 회원 id 집합 (member.staff_id + slot_matrix.staff_id 통합)
+                const memberSetFromDirect = (membersLite || []).filter((mm: any) => mm.staff_id === s.id).map((mm: any) => mm.id);
+                const memberSetFromMatrix = (slotMatrix || []).filter((c: any) => c.staff_id === s.id && c.member_id).map((c: any) => c.member_id);
+                const myMemberIds = new Set([...memberSetFromDirect, ...memberSetFromMatrix]);
+
+                // v3.21.6: slot_matrix의 고정 예약을 해당 월의 실제 수업일로 확장 (주간 반복 예약)
+                // day_of_week (1=월, 2=화 ... 6=토) → 해당 월의 모든 해당 요일 수업일 생성
+                const myMatrixCells = (slotMatrix || []).filter((c: any) => c.staff_id === s.id && c.status === "fixed" && c.member_id);
+                const virtualSlotsFromMatrix: any[] = [];
+                if (myMatrixCells.length > 0 && slotsMonth) {
+                  const [yr, mo] = slotsMonth.split("-").map(Number);
+                  const daysInMonth = new Date(yr, mo, 0).getDate();
+                  for (let d = 1; d <= daysInMonth; d++) {
+                    const dt = new Date(yr, mo - 1, d);
+                    const dow = dt.getDay() === 0 ? 7 : dt.getDay(); // JS: 0=일 → 7로 통일
+                    if (dow > 6) continue; // 일요일 제외
+                    const dateStr = `${yr}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+                    myMatrixCells.filter((c: any) => c.day_of_week === dow).forEach((c: any) => {
+                      virtualSlotsFromMatrix.push({
+                        id: `matrix_${c.id}_${dateStr}`,
+                        staff_id: s.id,
+                        member_id: c.member_id,
+                        event_date: dateStr,
+                        event_type: "lesson",
+                        status: "scheduled",
+                        __virtual: true,
+                      });
+                    });
+                  }
+                }
+
+                // 1) schedule_slots (직접 staff_id 배정된 것) + slot_matrix 가상 예약
+                const realSlots = slots.filter((sl: any) => sl.staff_id === s.id && (sl.event_type === "lesson" || sl.event_type === "trial" || sl.event_type === "makeup"));
+                // 실제 schedule_slots와 중복되는 가상 예약은 제거 (같은 member+date이면 실제를 우선)
+                const realKey = new Set(realSlots.map((sl: any) => `${sl.member_id}__${sl.event_date}`));
+                const dedupedVirtual = virtualSlotsFromMatrix.filter((v: any) => !realKey.has(`${v.member_id}__${v.event_date}`));
+                const mySlots = [...realSlots, ...dedupedVirtual];
                 const mySlotIds = new Set(mySlots.map((sl: any) => sl.id).filter(Boolean));
                 const slotByMemberDate = new Map<string, any>();
                 mySlots.forEach((sl: any) => {

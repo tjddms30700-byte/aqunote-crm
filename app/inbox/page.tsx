@@ -305,9 +305,9 @@ export default function InboxPage() {
     else { alert(`✅ ${selectedIds.size}건 아카이브 완료`); await loadAll(); }
   }
 
-  // v3.21.5: 아카이브 리드 → 회원DB 재승격 (member_id가 실제 members에 없으면 자동 재생성)
+  // v3.21.6: 전체 leads 스캔 → members에 없는 항목 자동 재생성 (archived + processed + pending 모두 포함)
   async function restoreArchivedToMembers() {
-    if (!confirm("아카이브된 유입 중 회원DB에 없는 항목들을 자동으로 재승격합니다.\n\n계속하시겠습니까?")) return;
+    if (!confirm("전체 유입 중 회원DB에 없는 항목들을 자동으로 재생성합니다.\n\n• 아카이브 뿐 아니라 승격완료·대기 상태도 전수 스캔\n• 이메일·이름+전화 매칭으로 중복 제거\n• branch_id 자동 매핑\n\n계속하시겠습니까?")) return;
     setProcessing(true);
     try {
       const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
@@ -318,10 +318,13 @@ export default function InboxPage() {
         defaultBranchId = br.data?.id || null;
       } catch (_e) {}
 
-      const archivedLeads = leads.filter((l: any) => l.archived === true);
+      // v3.21.6: 전체 leads_inbox 항목을 대상으로 다시 로드 (삭제된 것 제외)
+      const { data: allLeads } = await supabase.from("leads_inbox")
+        .select("*").order("created_at", { ascending: false });
+      const targetLeads = (allLeads || []).filter((l: any) => l.name && l.phone);
       let restored = 0, skipped = 0, failed = 0;
 
-      for (const lead of archivedLeads) {
+      for (const lead of targetLeads) {
         // 실제 members 테이블에 존재하는지 확인 (동일 이름+전화)
         const { data: exists } = await supabase.from("members")
           .select("id").eq("phone", lead.phone || "").is("deleted_at", null).limit(1);
@@ -358,7 +361,7 @@ export default function InboxPage() {
         if (!ok) failed++;
       }
 
-      alert(`✅ 회원DB 복구 완료\n\n• 신규 재승격: ${restored}건\n• 이미 존재(branch 매핑 갱신): ${skipped}건\n• 실패: ${failed}건`);
+      alert(`✅ 회원DB 전수 스캔 복구 완료\n\n• 스캔 대상: ${targetLeads.length}건\n• 신규 재생성: ${restored}건\n• 이미 존재(branch 매핑 갱신): ${skipped}건\n• 실패: ${failed}건\n\n회원DB(/members)에서 확인하세요`);
       await loadAll();
     } catch (e: any) {
       alert("복구 실패: " + e.message);

@@ -87,25 +87,36 @@ export default function MembersPage() {
   async function loadMembers() {
     setLoading(true);
     const branchId = getActiveBranchId();
-    // v3.21.5: branch_id 필터 완화 - 지점이 지정되어 있어도 branch_id가 null인 회원(신규 유입자 포함)은 함께 노출
-    let query = supabase
-      .from("members")
-      .select("*")
-      .is("deleted_at", null);
-    if (branchId) query = query.or(`branch_id.eq.${branchId},branch_id.is.null`);
-    query = query.order("name", { ascending: true });
-    const { data, error } = await query;
-    // branch_id 컴럼 미존재 시 네트워크 에러 가능 → 폴백
-    if (error && (error.message?.includes("branch_id") || error.code === "42703")) {
-      const fb = await supabase.from("members").select("*").is("deleted_at", null).order("name");
-      if (fb.data) setMembers(fb.data as Member[]);
-    } else if (!error && data) {
-      setMembers(data as Member[]);
-    } else if (error) {
-      // v3.21.5: 기타 에러(RLS 등)도 폴백 시도
-      const fb = await supabase.from("members").select("*").is("deleted_at", null).order("name");
-      if (fb.data) setMembers(fb.data as Member[]);
+    // v3.21.6: 무조건 모든 members 로드 → branch_id 동기화 → 겁거한 노출
+    const { data: allData, error: allErr } = await supabase
+      .from("members").select("*").is("deleted_at", null).order("name");
+    if (allErr) {
+      console.error("members 로드 실패:", allErr);
+      setLoading(false);
+      return;
     }
+    let list = allData || [];
+
+    // v3.21.6: branch_id가 null인 members 자동 보정 (지점 지정 시, 첫 지점으로 할당)
+    if (branchId) {
+      const nullBranchMembers = list.filter((m: any) => !m.branch_id);
+      if (nullBranchMembers.length > 0) {
+        try {
+          await supabase.from("members")
+            .update({ branch_id: branchId })
+            .in("id", nullBranchMembers.map((m: any) => m.id));
+          list = list.map((m: any) => !m.branch_id ? { ...m, branch_id: branchId } : m);
+        } catch (e) {
+          console.warn("branch_id 자동 보정 실패(무시):", e);
+        }
+      }
+    }
+
+    // 지점 필터 적용 (branch_id가 지정되었거나 null인 것도 포함)
+    if (branchId) {
+      list = list.filter((m: any) => !m.branch_id || m.branch_id === branchId);
+    }
+    setMembers(list as Member[]);
     setLoading(false);
   }
 

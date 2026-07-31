@@ -160,17 +160,25 @@ export async function POST(req: Request) {
           },
         };
 
-        // 누락 컬럼 자동 폴백 (최대 6회)
+        // v3.21.6: 누락 컬럼 자동 폴백 (최대 12회) + 실패 로깅 + leads_inbox 연결 강화
         let payloadTry: any = { ...memberPayload };
-        for (let i = 0; i < 6; i++) {
+        let lastError: any = null;
+        let inserted = false;
+        for (let i = 0; i < 12; i++) {
           const { data: newMem, error: memErr } = await supabase.from("members").insert(payloadTry).select().single();
           if (!memErr) {
-            // leads_inbox에 promoted_member_id 연결
+            // v3.21.6: leads_inbox의 promoted_member_id + member_id + processed 동시 갱신 (연결 안전성 강화)
             if (newMem?.id && data?.id) {
-              await supabase.from("leads_inbox").update({ promoted_member_id: newMem.id }).eq("id", data.id);
+              await supabase.from("leads_inbox").update({
+                promoted_member_id: newMem.id,
+                member_id: newMem.id,
+                processed: true,
+              }).eq("id", data.id);
             }
+            inserted = true;
             break;
           }
+          lastError = memErr;
           const m = /'([^']+)' column|column "([^"]+)"/.exec(memErr.message || "");
           const missing = m?.[1] || m?.[2];
           if (missing && missing in payloadTry) {
@@ -180,6 +188,13 @@ export async function POST(req: Request) {
           }
           console.warn("member auto-create fallback stopped:", memErr.message);
           break;
+        }
+        // v3.21.6: 실패 시 leads_inbox에 오류 메시지 기록 (/inbox에서 수동 재승격 가능)
+        if (!inserted && lastError && data?.id) {
+          const existingMemo = (payload as any).memo || "";
+          await supabase.from("leads_inbox").update({
+            memo: existingMemo + `\n\n⚠️ 자동등록실패: ${lastError.message}`,
+          }).eq("id", data.id);
         }
       }
     } catch (autoErr: any) {
