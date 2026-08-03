@@ -258,7 +258,8 @@ export default function AttendancePage() {
       if (!draft) {
         // 해제 → 삭제 + (이전이 차감되었다면) 회원권 복원
         if (existing) {
-          let { error } = await supabase.from("attendance").update({ deleted_at: new Date().toISOString() }).eq("id", existing.id);
+          // ✅ v3.25.0: Hard Delete (트리거가 회원권 되돌림 자동 처리)
+          let { error } = await supabase.from("attendance").delete().eq("id", existing.id);
           if (error && (error as any).code === "42703") {
             const hd = await supabase.from("attendance").delete().eq("id", existing.id);
             error = hd.error as any;

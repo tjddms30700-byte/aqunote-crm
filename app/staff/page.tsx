@@ -1272,7 +1272,8 @@ function StaffDocumentsModal({ staff, orgId, onClose }: any) {
     if (d.file_path) {
       try { await supabase.storage.from("documents").remove([d.file_path]); } catch {}
     }
-    await supabase.from("staff_documents").update({ deleted_at: new Date().toISOString() }).eq("id", d.id);
+    // ✅ v3.25.0: Hard Delete
+    await supabase.from("staff_documents").delete().eq("id", d.id);
     loadDocs();
   }
 

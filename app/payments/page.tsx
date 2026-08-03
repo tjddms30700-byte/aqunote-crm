@@ -413,7 +413,8 @@ export default function PaymentsPage() {
 
   async function deleteMembership(id: string) {
     if (!confirm("회원권을 삭제할까요?")) return;
-    const _msDel = await supabase.from("memberships").update({ status: "cancelled", deleted_at: new Date().toISOString() }).eq("id", id);
+    // ✅ v3.25.0: Hard Delete—DB에서 완전 삭제 (시간표/출결의 membership_id 참조는 CASCADE 트리거가 자동 정리)
+    const _msDel = await supabase.from("memberships").delete().eq("id", id);
     if (_msDel.error && _msDel.error.code === "42703") { await supabase.from("memberships").update({ status: "cancelled" }).eq("id", id); }
     loadAll();
   }
@@ -498,11 +499,13 @@ export default function PaymentsPage() {
     // 연결 회원권도 하드 삭제
     if (pay.membership_id) {
       try { await supabase.from("schedule_slots").update({ membership_id: null }).eq("membership_id", pay.membership_id); } catch {}
-      await supabase.from("memberships").update({ status: "cancelled", deleted_at: new Date().toISOString() }).eq("id", pay.membership_id);
+      // ✅ v3.25.0: Hard Delete
+      await supabase.from("memberships").delete().eq("id", pay.membership_id);
     }
     // 결제 연결된 refunds/session_adjustments 도 정리
     try { await supabase.from("refunds").delete().eq("payment_id", id); } catch {}
-    const { error } = await supabase.from("payments").update({ status: "cancelled", deleted_at: new Date().toISOString() }).eq("id", id);
+    // ✅ v3.25.0: Hard Delete—payments 삭제 시 CASCADE 트리거가 memberships/schedule/attendance 자동 정리
+    const { error } = await supabase.from("payments").delete().eq("id", id);
     if (error) { alert("삭제 실패: " + error.message); return; }
     alert("🗑️ 이력이 완전히 삭제되었습니다");
     loadAll();

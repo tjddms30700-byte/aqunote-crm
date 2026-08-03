@@ -273,7 +273,8 @@ export default function SettingsPage() {
   async function deleteBranch(b: any) {
     if (b.is_main) { alert("본점은 삭제할 수 없습니다. 먼저 다른 지점을 본점으로 지정하세요"); return; }
     if (!confirm(`"${b.name}" 지점을 삭제할까요?`)) return;
-    await supabase.from("branches").update({ deleted_at: new Date().toISOString() }).eq("id", b.id);
+    // ✅ v3.25.0: Hard Delete
+    await supabase.from("branches").delete().eq("id", b.id);
     loadAll();
   }
 
@@ -336,7 +337,8 @@ export default function SettingsPage() {
   }
   async function deleteAccount(a: any) {
     if (!confirm(`"${a.login_id}" 계정을 삭제할까요?`)) return;
-    await supabase.from("staff_accounts").update({ deleted_at: new Date().toISOString() }).eq("id", a.id);
+    // ✅ v3.25.0: Hard Delete
+    await supabase.from("staff_accounts").delete().eq("id", a.id);
     loadAll();
   }
   async function togglePermission(a: any) {
