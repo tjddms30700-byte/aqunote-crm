@@ -962,11 +962,13 @@ export default function SchedulePage() {
   }
 
   // ✅ v3.20.4: mode - 'single' | 'series_all' | 'series_after'
-  async function deleteSlot(id: string, opts?: { mode?: "single" | "series_all" | "series_after", series?: boolean, recurring_id?: string, from_date?: string }) {
+  async function deleteSlot(id: string, opts?: { mode?: "single" | "series_all" | "series_after", series?: boolean, recurring_id?: string, from_date?: string, hard?: boolean }) {
     const recurringId = opts?.recurring_id;
     // 하위 호환: series=true → series_all
     const mode: "single" | "series_all" | "series_after" =
       opts?.mode || (opts?.series ? "series_all" : "single");
+    // ✅ v3.24.6: 완전 삭제 모드 (DB에서 레코드 완전 DELETE, 복구 불가)
+    const isHardDelete = opts?.hard === true;
 
     // ✅ v3.24.3: 시간표 삭제 시 연동된 attendance도 함께 소프트 삭제 (출결장 동기화 강화)
     // slot_id 매칭 실패 대비 - member_id + event_date + time_slot 3중 매칭 병행
@@ -1006,53 +1008,95 @@ export default function SchedulePage() {
     };
 
     if (mode === "series_all" && recurringId) {
-      if (!confirm("반복 시리즈 전체를 삭제할까요?\n\n⚠️ 소프트 삭제(deleted_at)로 처리되어 DB에서 복구 가능합니다.\n\n📝 연결된 출결(attendance) 기록도 함께 삭제됩니다.")) return;
+      const confirmMsg = isHardDelete
+        ? "🚫 반복 시리즈 전체를 완전 삭제할까요?\n\n⚠️ 이 작업은 DB에서 레코드를 완전 삭제하며 복구할 수 없습니다!\n\n📝 연결된 출결(attendance) 기록도 완전 삭제됩니다."
+        : "반복 시리즈 전체를 삭제할까요?\n\n⚠️ 소프트 삭제(deleted_at)로 처리되어 DB에서 복구 가능합니다.\n\n📝 연결된 출결(attendance) 기록도 함께 삭제됩니다.";
+      if (!confirm(confirmMsg)) return;
       // ✅ v3.24.3: 삭제할 slot 상세 정보 (member_id, event_date, time_slot) 함께 조회
       const { data: targetSlots } = await supabase.from("schedule_slots")
         .select("id, member_id, event_date, time_slot").eq("recurring_id", recurringId);
       const slotIds = (targetSlots || []).map((s: any) => s.id);
-      // v3.23.3: 하드 삭제 대신 소프트 삭제(deleted_at) 사용 - 데이터 손실 방지
-      const { error: delSeriesErr } = await supabase.from("schedule_slots")
-        .update({ deleted_at: new Date().toISOString() })
-        .eq("recurring_id", recurringId);
-      if (delSeriesErr) {
-        // deleted_at 컬럼이 없는 경우 하드 삭제로 폴백
+      if (isHardDelete) {
+        // ✅ v3.24.6: 완전 삭제 - attendance 먼저 하드 삭제 후 schedule_slots 하드 삭제
+        if (slotIds.length > 0) {
+          await supabase.from("attendance").delete().in("slot_id", slotIds);
+        }
         await supabase.from("schedule_slots").delete().eq("recurring_id", recurringId);
+      } else {
+        // v3.23.3: 하드 삭제 대신 소프트 삭제(deleted_at) 사용 - 데이터 손실 방지
+        const { error: delSeriesErr } = await supabase.from("schedule_slots")
+          .update({ deleted_at: new Date().toISOString() })
+          .eq("recurring_id", recurringId);
+        if (delSeriesErr) {
+          await supabase.from("schedule_slots").delete().eq("recurring_id", recurringId);
+        }
+        // ✅ v3.24.3: attendance 동기화 (강화)
+        await softDeleteAttendance(slotIds, targetSlots || []);
       }
-      // ✅ v3.24.3: attendance 동기화 (강화)
-      await softDeleteAttendance(slotIds, targetSlots || []);
     } else if (mode === "series_after" && recurringId && opts?.from_date) {
-      if (!confirm(`🗓️ ${opts.from_date} 이후(해당일 포함) 반복 예약만 삭제할까요?\n\n• 이전 수업은 그대로 유지\n• 소프트 삭제(deleted_at) - 복구 가능\n\n📝 연결된 출결(attendance) 기록도 함께 삭제됩니다.`)) return;
+      const confirmMsg = isHardDelete
+        ? `🚫 ${opts.from_date} 이후 반복 예약을 완전 삭제할까요?\n\n⚠️ DB에서 레코드 완전 DELETE (복구불가)\n📝 연결된 출결 기록도 완전 삭제`
+        : `🗓️ ${opts.from_date} 이후(해당일 포함) 반복 예약만 삭제할까요?\n\n• 이전 수업은 그대로 유지\n• 소프트 삭제(deleted_at) - 복구 가능\n\n📝 연결된 출결(attendance) 기록도 함께 삭제됩니다.`;
+      if (!confirm(confirmMsg)) return;
       // ✅ v3.24.3: 삭제할 slot 상세 정보 함께 조회
       const { data: targetSlots } = await supabase.from("schedule_slots")
         .select("id, member_id, event_date, time_slot").eq("recurring_id", recurringId).gte("event_date", opts.from_date);
       const slotIds = (targetSlots || []).map((s: any) => s.id);
-      // v3.23.3: 소프트 삭제
-      const { error: delAfterErr } = await supabase.from("schedule_slots")
-        .update({ deleted_at: new Date().toISOString() })
-        .eq("recurring_id", recurringId)
-        .gte("event_date", opts.from_date);
-      if (delAfterErr) {
+      if (isHardDelete) {
+        // ✅ v3.24.6: 완전 삭제
+        if (slotIds.length > 0) {
+          await supabase.from("attendance").delete().in("slot_id", slotIds);
+        }
         await supabase.from("schedule_slots").delete()
           .eq("recurring_id", recurringId)
           .gte("event_date", opts.from_date);
+      } else {
+        // v3.23.3: 소프트 삭제
+        const { error: delAfterErr } = await supabase.from("schedule_slots")
+          .update({ deleted_at: new Date().toISOString() })
+          .eq("recurring_id", recurringId)
+          .gte("event_date", opts.from_date);
+        if (delAfterErr) {
+          await supabase.from("schedule_slots").delete()
+            .eq("recurring_id", recurringId)
+            .gte("event_date", opts.from_date);
+        }
+        await softDeleteAttendance(slotIds, targetSlots || []);
       }
-      // ✅ v3.24.3: attendance 동기화 (강화)
-      await softDeleteAttendance(slotIds, targetSlots || []);
     } else {
-      if (!confirm("이 일정을 삭제할까요?\n\n💡 소프트 삭제되어 DB에서 복구 가능합니다.\n\n📝 연결된 출결(attendance) 기록도 함께 삭제됩니다.")) return;
+      const confirmMsg = isHardDelete
+        ? "🚫 이 일정을 완전 삭제할까요?\n\n⚠️ DB에서 레코드 완전 DELETE (복구불가)\n📝 연결된 출결 기록도 완전 삭제"
+        : "이 일정을 삭제할까요?\n\n💡 소프트 삭제되어 DB에서 복구 가능합니다.\n\n📝 연결된 출결(attendance) 기록도 함께 삭제됩니다.";
+      if (!confirm(confirmMsg)) return;
       // ✅ v3.24.3: 삭제 전 slot 상세 정보 조회
       const { data: slotInfo } = await supabase.from("schedule_slots")
         .select("id, member_id, event_date, time_slot").eq("id", id).maybeSingle();
-      // v3.23.3: 소프트 삭제
-      const { error: delOneErr } = await supabase.from("schedule_slots")
-        .update({ deleted_at: new Date().toISOString() })
-        .eq("id", id);
-      if (delOneErr) {
+      if (isHardDelete) {
+        // ✅ v3.24.6: 완전 삭제
+        await supabase.from("attendance").delete().eq("slot_id", id);
+        if (slotInfo?.member_id && slotInfo?.event_date) {
+          const dateStr = typeof slotInfo.event_date === "string" ? slotInfo.event_date.substring(0, 10) : new Date(slotInfo.event_date).toISOString().substring(0, 10);
+          for (const dateCol of ["attend_date", "date", "attendance_date", "session_date"]) {
+            try {
+              let q = supabase.from("attendance").delete()
+                .eq("member_id", slotInfo.member_id).eq(dateCol, dateStr);
+              if (slotInfo.time_slot) q = q.eq("time_slot", slotInfo.time_slot);
+              const r = await q;
+              if (!r.error) break;
+            } catch {}
+          }
+        }
         await supabase.from("schedule_slots").delete().eq("id", id);
+      } else {
+        // v3.23.3: 소프트 삭제
+        const { error: delOneErr } = await supabase.from("schedule_slots")
+          .update({ deleted_at: new Date().toISOString() })
+          .eq("id", id);
+        if (delOneErr) {
+          await supabase.from("schedule_slots").delete().eq("id", id);
+        }
+        await softDeleteAttendance([id], slotInfo ? [slotInfo] : []);
       }
-      // ✅ v3.24.3: attendance 동기화 (강화)
-      await softDeleteAttendance([id], slotInfo ? [slotInfo] : []);
     }
     await loadAll();
   }
@@ -2134,8 +2178,13 @@ function SelectedDayPanel({ date, slots, members, staff, staffName, onAdd, onEdi
                     ✎
                   </button>
                   <button onClick={() => onDelete(s.id)}
-                    className="text-[9px] px-1 py-0.5 rounded bg-red-100 text-red-600 hover:bg-red-200" title="삭제">
+                    className="text-[9px] px-1 py-0.5 rounded bg-red-100 text-red-600 hover:bg-red-200" title="소프트 삭제 (복구가능)">
                     🗑
+                  </button>
+                  {/* ✅ v3.24.6: 완전 삭제 버튼 (DB에서 레코드 완전 DELETE, 복구 불가) */}
+                  <button onClick={() => onDelete(s.id, { hard: true })}
+                    className="text-[9px] px-1 py-0.5 rounded bg-red-600 text-white hover:bg-red-800 font-bold" title="완전 삭제 (복구불가)">
+                    🚫
                   </button>
                 </div>
               </div>
