@@ -634,8 +634,12 @@ export default function SchedulePage() {
     const map: Record<string, any[]> = {};
     slots.forEach(s => {
       if (!s.event_date) return;
-      if (!map[s.event_date]) map[s.event_date] = [];
-      map[s.event_date].push(s);
+      // ✅ v3.24.0: event_date가 timestamp 형식(2026-08-03T00:00:00+00:00)이어도 YYYY-MM-DD로 정규화
+      const key = typeof s.event_date === "string"
+        ? s.event_date.substring(0, 10)
+        : new Date(s.event_date).toISOString().substring(0, 10);
+      if (!map[key]) map[key] = [];
+      map[key].push(s);
     });
     Object.keys(map).forEach(k => {
       map[k].sort((a, b) => (a.time_slot || "").localeCompare(b.time_slot || ""));
@@ -648,7 +652,13 @@ export default function SchedulePage() {
   /* 이번 달 상태별 통계 */
   const monthStats = useMemo(() => {
     const prefix = `${year}-${String(month0+1).padStart(2,"0")}`;
-    const monthSlots = slots.filter(s => (s.event_date || "").startsWith(prefix));
+    // ✅ v3.24.0: event_date 정규화 후 매칭
+    const monthSlots = slots.filter(s => {
+      const ed = s.event_date;
+      if (!ed) return false;
+      const key = typeof ed === "string" ? ed.substring(0, 10) : new Date(ed).toISOString().substring(0, 10);
+      return key.startsWith(prefix);
+    });
     const byStatus: Record<string, number> = {};
     STATUS_OPTIONS.forEach(o => byStatus[o.value] = 0);
     monthSlots.forEach(s => {
