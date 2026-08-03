@@ -638,6 +638,7 @@ export default function AttendancePage() {
                 <th className="p-3 text-center font-semibold text-aqu-800" colSpan={3}>{date} 출결</th>
                 <th className="p-3 text-center font-semibold text-aqu-800">저장/차감</th>
                 <th className="p-3 text-center font-semibold text-aqu-800">30일 출석률</th>
+                <th className="p-3 text-center font-semibold text-aqu-800">관리</th>
               </tr>
             </thead>
             <tbody>
@@ -717,6 +718,49 @@ export default function AttendancePage() {
                         <span className="text-xs font-bold text-gray-700 w-8">{m.rate}%</span>
                       </div>
                       <div className="text-[10px] text-gray-400">{m.present}/{m.total}회</div>
+                    </td>
+                    {/* ✅ v3.24.5: 출결 삭제 버튼 (개별 항목 제거) */}
+                    <td className="p-2 text-center">
+                      <button
+                        onClick={async () => {
+                          const msg = sl.time_slot
+                            ? `⚠️ 이 출결 항목을 삭제할까요?\n\n회원: ${m.name}\n날짜: ${date}\n시간: ${sl.time_slot}\n\n💡 attendance 레코드가 소프트 삭제됩니다 (복구 가능)`
+                            : `⚠️ 이 회원의 ${date} 출결 항목을 삭제할까요?\n\n회원: ${m.name}\n\n💡 attendance 레코드가 소프트 삭제됩니다 (복구 가능)`;
+                          if (!confirm(msg)) return;
+                          const nowIso = new Date().toISOString();
+                          // 1) slot_id 매칭 삭제
+                          if (sl.id) {
+                            try {
+                              const r = await supabase.from("attendance")
+                                .update({ deleted_at: nowIso })
+                                .eq("slot_id", sl.id);
+                              if (r.error) await supabase.from("attendance").delete().eq("slot_id", sl.id);
+                            } catch {
+                              await supabase.from("attendance").delete().eq("slot_id", sl.id);
+                            }
+                          }
+                          // 2) member_id + date + time_slot 매칭 삭제 (slot_id 없는 유령 데이터)
+                          for (const dateCol of ["attend_date", "date", "attendance_date", "session_date"]) {
+                            try {
+                              let q = supabase.from("attendance")
+                                .update({ deleted_at: nowIso })
+                                .eq("member_id", m.id)
+                                .eq(dateCol, date)
+                                .is("deleted_at", null);
+                              if (sl.time_slot) q = q.eq("time_slot", sl.time_slot);
+                              const r = await q;
+                              if (!r.error) break;
+                            } catch {}
+                          }
+                          alert("✅ 출결 항목이 삭제되었습니다.");
+                          if (typeof loadAll === "function") await loadAll();
+                          else location.reload();
+                        }}
+                        className="text-red-500 hover:text-red-700 hover:bg-red-50 rounded p-1.5 transition"
+                        title="이 출결 항목 삭제"
+                      >
+                        🗑️
+                      </button>
                     </td>
                   </tr>
                   );
