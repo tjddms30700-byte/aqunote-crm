@@ -1522,11 +1522,7 @@ export default function SchedulePage() {
                           +{daySlots.length - 3} 더보기
                         </div>
                       )}
-                      {dayRevenue > 0 && (
-                        <div className="text-[9px] md:text-[10px] text-pink-600 font-bold text-right">
-                          ₩{dayRevenue.toLocaleString()}
-                        </div>
-                      )}
+                      {/* v3.23.5: 셀 우상단 dayPaymentsSum과 중복되던 하단 매출 표시 제거 */}
                     </div>
                   </div>
                 );
