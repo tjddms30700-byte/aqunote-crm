@@ -940,27 +940,48 @@ export default function SchedulePage() {
     const mode: "single" | "series_all" | "series_after" =
       opts?.mode || (opts?.series ? "series_all" : "single");
 
-    // ✅ v3.24.2: 시간표 삭제 시 연동된 attendance도 함께 소프트 삭제 (출결장 동기화)
-    const softDeleteAttendance = async (slotIds: string[]) => {
+    // ✅ v3.24.3: 시간표 삭제 시 연동된 attendance도 함께 소프트 삭제 (출결장 동기화 강화)
+    // slot_id 매칭 실패 대비 - member_id + event_date + time_slot 3중 매칭 병행
+    const softDeleteAttendance = async (slotIds: string[], slotsInfo: any[] = []) => {
       if (!slotIds || slotIds.length === 0) return;
+      const nowIso = new Date().toISOString();
+
+      // 1) slot_id 기반 삭제 (기본)
       try {
         const r = await supabase.from("attendance")
-          .update({ deleted_at: new Date().toISOString() })
+          .update({ deleted_at: nowIso })
           .in("slot_id", slotIds);
         if (r.error) {
-          // deleted_at 컬럼이 없는 경우 하드 삭제로 폴백
           await supabase.from("attendance").delete().in("slot_id", slotIds);
         }
       } catch {
         try { await supabase.from("attendance").delete().in("slot_id", slotIds); } catch {}
       }
+
+      // 2) slot_id가 NULL이거나 매칭 실패한 attendance는 member_id + 날짜 + time_slot으로 재삭제
+      for (const s of slotsInfo) {
+        if (!s.member_id || !s.event_date) continue;
+        const dateStr = typeof s.event_date === "string" ? s.event_date.substring(0, 10) : new Date(s.event_date).toISOString().substring(0, 10);
+        for (const dateCol of ["attend_date", "date", "attendance_date", "session_date"]) {
+          try {
+            let q = supabase.from("attendance")
+              .update({ deleted_at: nowIso })
+              .eq("member_id", s.member_id)
+              .eq(dateCol, dateStr)
+              .is("deleted_at", null);
+            if (s.time_slot) q = q.eq("time_slot", s.time_slot);
+            const r = await q;
+            if (!r.error) break;
+          } catch {}
+        }
+      }
     };
 
     if (mode === "series_all" && recurringId) {
       if (!confirm("반복 시리즈 전체를 삭제할까요?\n\n⚠️ 소프트 삭제(deleted_at)로 처리되어 DB에서 복구 가능합니다.\n\n📝 연결된 출결(attendance) 기록도 함께 삭제됩니다.")) return;
-      // 삭제할 slot_id 목록 먼저 조회
+      // ✅ v3.24.3: 삭제할 slot 상세 정보 (member_id, event_date, time_slot) 함께 조회
       const { data: targetSlots } = await supabase.from("schedule_slots")
-        .select("id").eq("recurring_id", recurringId);
+        .select("id, member_id, event_date, time_slot").eq("recurring_id", recurringId);
       const slotIds = (targetSlots || []).map((s: any) => s.id);
       // v3.23.3: 하드 삭제 대신 소프트 삭제(deleted_at) 사용 - 데이터 손실 방지
       const { error: delSeriesErr } = await supabase.from("schedule_slots")
@@ -970,12 +991,13 @@ export default function SchedulePage() {
         // deleted_at 컬럼이 없는 경우 하드 삭제로 폴백
         await supabase.from("schedule_slots").delete().eq("recurring_id", recurringId);
       }
-      // ✅ v3.24.2: attendance 동기화
-      await softDeleteAttendance(slotIds);
+      // ✅ v3.24.3: attendance 동기화 (강화)
+      await softDeleteAttendance(slotIds, targetSlots || []);
     } else if (mode === "series_after" && recurringId && opts?.from_date) {
       if (!confirm(`🗓️ ${opts.from_date} 이후(해당일 포함) 반복 예약만 삭제할까요?\n\n• 이전 수업은 그대로 유지\n• 소프트 삭제(deleted_at) - 복구 가능\n\n📝 연결된 출결(attendance) 기록도 함께 삭제됩니다.`)) return;
+      // ✅ v3.24.3: 삭제할 slot 상세 정보 함께 조회
       const { data: targetSlots } = await supabase.from("schedule_slots")
-        .select("id").eq("recurring_id", recurringId).gte("event_date", opts.from_date);
+        .select("id, member_id, event_date, time_slot").eq("recurring_id", recurringId).gte("event_date", opts.from_date);
       const slotIds = (targetSlots || []).map((s: any) => s.id);
       // v3.23.3: 소프트 삭제
       const { error: delAfterErr } = await supabase.from("schedule_slots")
@@ -987,10 +1009,13 @@ export default function SchedulePage() {
           .eq("recurring_id", recurringId)
           .gte("event_date", opts.from_date);
       }
-      // ✅ v3.24.2: attendance 동기화
-      await softDeleteAttendance(slotIds);
+      // ✅ v3.24.3: attendance 동기화 (강화)
+      await softDeleteAttendance(slotIds, targetSlots || []);
     } else {
       if (!confirm("이 일정을 삭제할까요?\n\n💡 소프트 삭제되어 DB에서 복구 가능합니다.\n\n📝 연결된 출결(attendance) 기록도 함께 삭제됩니다.")) return;
+      // ✅ v3.24.3: 삭제 전 slot 상세 정보 조회
+      const { data: slotInfo } = await supabase.from("schedule_slots")
+        .select("id, member_id, event_date, time_slot").eq("id", id).maybeSingle();
       // v3.23.3: 소프트 삭제
       const { error: delOneErr } = await supabase.from("schedule_slots")
         .update({ deleted_at: new Date().toISOString() })
@@ -998,8 +1023,8 @@ export default function SchedulePage() {
       if (delOneErr) {
         await supabase.from("schedule_slots").delete().eq("id", id);
       }
-      // ✅ v3.24.2: attendance 동기화
-      await softDeleteAttendance([id]);
+      // ✅ v3.24.3: attendance 동기화 (강화)
+      await softDeleteAttendance([id], slotInfo ? [slotInfo] : []);
     }
     await loadAll();
   }

@@ -158,12 +158,42 @@ export default function ConsultationsPage() {
       return { data: [], error: null } as any;
     }
 
-    const [staffRes, matrixRes] = await Promise.all([
+    const [staffRes, matrixRes, leadsRes] = await Promise.all([
       loadStaffSafe(),
       supabase.from("slot_matrix").select("*"),
+      // ✅ v3.24.3: leads_inbox의 미처리 신규 유입을 자동으로 상담 리드 신규 탭에 표시
+      supabase.from("leads_inbox").select("*").eq("processed", false).order("created_at", { ascending: false }),
     ]);
 
-    setMembers((memData as any) || []);
+    // ✅ v3.24.3: leads_inbox의 미처리 유입을 members 목록에 신규 가상 항목으로 합치기
+    const rawLeads = (leadsRes.data || []) as any[];
+    const existingPhones = new Set(((memData as any) || []).map((m: any) => (m.phone || "").replace(/\D/g, "")).filter(Boolean));
+    const virtualLeads = rawLeads
+      .filter((l: any) => {
+        // 이미 members에 승격된 건은 제외 (전화번호 중복)
+        if (l.member_id) return false;
+        const digits = String(l.phone || "").replace(/\D/g, "");
+        if (digits && existingPhones.has(digits)) return false;
+        return true;
+      })
+      .map((l: any) => ({
+        id: `lead_${l.id}`,
+        _leadId: l.id,
+        _isLead: true,
+        org_id: orgId,
+        name: l.name || "(미입력)",
+        phone: l.phone,
+        member_type: l.member_type || "adult",
+        wish_days: l.wish_days,
+        wish_time_slots: l.wish_time_slots,
+        memo: l.memo,
+        source: l.source || "신규유입",
+        status: "new",
+        created_at: l.created_at,
+        extra: l.raw_payload || {},
+      }));
+    const mergedMembers = [...virtualLeads, ...((memData as any) || [])];
+    setMembers(mergedMembers);
     // v3.21.7: 퇴사자 자동 배제 - 모든 필드에 대해 optional 처리
     const activeStaff = ((staffRes as any).data || []).filter((s: any) => {
       const status = String(s.status || "").toLowerCase();
