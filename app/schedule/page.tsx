@@ -940,8 +940,28 @@ export default function SchedulePage() {
     const mode: "single" | "series_all" | "series_after" =
       opts?.mode || (opts?.series ? "series_all" : "single");
 
+    // ✅ v3.24.2: 시간표 삭제 시 연동된 attendance도 함께 소프트 삭제 (출결장 동기화)
+    const softDeleteAttendance = async (slotIds: string[]) => {
+      if (!slotIds || slotIds.length === 0) return;
+      try {
+        const r = await supabase.from("attendance")
+          .update({ deleted_at: new Date().toISOString() })
+          .in("slot_id", slotIds);
+        if (r.error) {
+          // deleted_at 컬럼이 없는 경우 하드 삭제로 폴백
+          await supabase.from("attendance").delete().in("slot_id", slotIds);
+        }
+      } catch {
+        try { await supabase.from("attendance").delete().in("slot_id", slotIds); } catch {}
+      }
+    };
+
     if (mode === "series_all" && recurringId) {
-      if (!confirm("반복 시리즈 전체를 삭제할까요?\n\n⚠️ 소프트 삭제(deleted_at)로 처리되어 DB에서 복구 가능합니다.")) return;
+      if (!confirm("반복 시리즈 전체를 삭제할까요?\n\n⚠️ 소프트 삭제(deleted_at)로 처리되어 DB에서 복구 가능합니다.\n\n📝 연결된 출결(attendance) 기록도 함께 삭제됩니다.")) return;
+      // 삭제할 slot_id 목록 먼저 조회
+      const { data: targetSlots } = await supabase.from("schedule_slots")
+        .select("id").eq("recurring_id", recurringId);
+      const slotIds = (targetSlots || []).map((s: any) => s.id);
       // v3.23.3: 하드 삭제 대신 소프트 삭제(deleted_at) 사용 - 데이터 손실 방지
       const { error: delSeriesErr } = await supabase.from("schedule_slots")
         .update({ deleted_at: new Date().toISOString() })
@@ -950,8 +970,13 @@ export default function SchedulePage() {
         // deleted_at 컬럼이 없는 경우 하드 삭제로 폴백
         await supabase.from("schedule_slots").delete().eq("recurring_id", recurringId);
       }
+      // ✅ v3.24.2: attendance 동기화
+      await softDeleteAttendance(slotIds);
     } else if (mode === "series_after" && recurringId && opts?.from_date) {
-      if (!confirm(`🗓️ ${opts.from_date} 이후(해당일 포함) 반복 예약만 삭제할까요?\n\n• 이전 수업은 그대로 유지\n• 소프트 삭제(deleted_at) - 복구 가능`)) return;
+      if (!confirm(`🗓️ ${opts.from_date} 이후(해당일 포함) 반복 예약만 삭제할까요?\n\n• 이전 수업은 그대로 유지\n• 소프트 삭제(deleted_at) - 복구 가능\n\n📝 연결된 출결(attendance) 기록도 함께 삭제됩니다.`)) return;
+      const { data: targetSlots } = await supabase.from("schedule_slots")
+        .select("id").eq("recurring_id", recurringId).gte("event_date", opts.from_date);
+      const slotIds = (targetSlots || []).map((s: any) => s.id);
       // v3.23.3: 소프트 삭제
       const { error: delAfterErr } = await supabase.from("schedule_slots")
         .update({ deleted_at: new Date().toISOString() })
@@ -962,8 +987,10 @@ export default function SchedulePage() {
           .eq("recurring_id", recurringId)
           .gte("event_date", opts.from_date);
       }
+      // ✅ v3.24.2: attendance 동기화
+      await softDeleteAttendance(slotIds);
     } else {
-      if (!confirm("이 일정을 삭제할까요?\n\n💡 소프트 삭제되어 DB에서 복구 가능합니다.")) return;
+      if (!confirm("이 일정을 삭제할까요?\n\n💡 소프트 삭제되어 DB에서 복구 가능합니다.\n\n📝 연결된 출결(attendance) 기록도 함께 삭제됩니다.")) return;
       // v3.23.3: 소프트 삭제
       const { error: delOneErr } = await supabase.from("schedule_slots")
         .update({ deleted_at: new Date().toISOString() })
@@ -971,6 +998,8 @@ export default function SchedulePage() {
       if (delOneErr) {
         await supabase.from("schedule_slots").delete().eq("id", id);
       }
+      // ✅ v3.24.2: attendance 동기화
+      await softDeleteAttendance([id]);
     }
     await loadAll();
   }
