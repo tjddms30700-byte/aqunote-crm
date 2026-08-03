@@ -864,12 +864,22 @@ function DedupeModal({ members, onClose, onDone }: { members: any[]; onClose: ()
     for (let i = 0; i < ids.length; i += BATCH) {
       const batch = ids.slice(i, i + BATCH);
 
-      // ✅ v3.13.7: 연관 데이터 전체 hard delete
-      await supabase.from("schedule_slots").delete().in("member_id", batch);
+      // v3.23.4: 데이터 손실 방지 - 모두 소프트 삭제(deleted_at)로 전환
+      const softDelTs = new Date().toISOString();
+      // schedule_slots: deleted_at 소프트 삭제
+      const sd1 = await supabase.from("schedule_slots").update({ deleted_at: softDelTs }).in("member_id", batch);
+      if (sd1.error) { console.warn("schedule_slots soft delete 실패, 건너뜀:", sd1.error.message); }
+      // slot_matrix: OPEN 복원 (유지)
       await supabase.from("slot_matrix").update({ status: "open", fixed_name: null, member_id: null }).in("member_id", batch);
-      await supabase.from("attendance").delete().in("member_id", batch);
-      await supabase.from("payments").delete().in("member_id", batch);
-      await supabase.from("memberships").delete().in("member_id", batch);
+      // attendance: deleted_at 소프트 삭제
+      const sd2 = await supabase.from("attendance").update({ deleted_at: softDelTs }).in("member_id", batch);
+      if (sd2.error) { console.warn("attendance soft delete 실패, 건너뜀:", sd2.error.message); }
+      // payments: status='cancelled' 소프트 처리
+      const sd3 = await supabase.from("payments").update({ status: "cancelled", deleted_at: softDelTs }).in("member_id", batch);
+      if (sd3.error) { await supabase.from("payments").update({ status: "cancelled" }).in("member_id", batch); }
+      // memberships: status='cancelled' 소프트 처리
+      const sd4 = await supabase.from("memberships").update({ status: "cancelled", deleted_at: softDelTs }).in("member_id", batch);
+      if (sd4.error) { await supabase.from("memberships").update({ status: "cancelled" }).in("member_id", batch); }
       // 선택 테이블들 (없을 수 있으니 에러 무시)
       for (const tbl of ["consultation_charts", "iep_goals", "behavior_records", "documents", "leads_inbox"]) {
         await supabase.from(tbl).delete().in("member_id", batch);

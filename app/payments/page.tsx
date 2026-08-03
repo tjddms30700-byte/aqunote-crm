@@ -413,7 +413,8 @@ export default function PaymentsPage() {
 
   async function deleteMembership(id: string) {
     if (!confirm("회원권을 삭제할까요?")) return;
-    await supabase.from("memberships").delete().eq("id", id);
+    const _msDel = await supabase.from("memberships").update({ status: "cancelled", deleted_at: new Date().toISOString() }).eq("id", id);
+    if (_msDel.error && _msDel.error.code === "42703") { await supabase.from("memberships").update({ status: "cancelled" }).eq("id", id); }
     loadAll();
   }
 
@@ -497,11 +498,11 @@ export default function PaymentsPage() {
     // 연결 회원권도 하드 삭제
     if (pay.membership_id) {
       try { await supabase.from("schedule_slots").update({ membership_id: null }).eq("membership_id", pay.membership_id); } catch {}
-      await supabase.from("memberships").delete().eq("id", pay.membership_id);
+      await supabase.from("memberships").update({ status: "cancelled", deleted_at: new Date().toISOString() }).eq("id", pay.membership_id);
     }
     // 결제 연결된 refunds/session_adjustments 도 정리
     try { await supabase.from("refunds").delete().eq("payment_id", id); } catch {}
-    const { error } = await supabase.from("payments").delete().eq("id", id);
+    const { error } = await supabase.from("payments").update({ status: "cancelled", deleted_at: new Date().toISOString() }).eq("id", id);
     if (error) { alert("삭제 실패: " + error.message); return; }
     alert("🗑️ 이력이 완전히 삭제되었습니다");
     loadAll();

@@ -258,7 +258,11 @@ export default function AttendancePage() {
       if (!draft) {
         // 해제 → 삭제 + (이전이 차감되었다면) 회원권 복원
         if (existing) {
-          const { error } = await supabase.from("attendance").delete().eq("id", existing.id);
+          let { error } = await supabase.from("attendance").update({ deleted_at: new Date().toISOString() }).eq("id", existing.id);
+          if (error && (error as any).code === "42703") {
+            const hd = await supabase.from("attendance").delete().eq("id", existing.id);
+            error = hd.error as any;
+          }
           if (error) errors.push(memberId + ": " + error.message);
           else if (prevCounted && existing.membership_id) {
             const ms = (allMs || []).find((x: any) => x.id === existing.membership_id);

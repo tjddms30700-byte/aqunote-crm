@@ -424,9 +424,10 @@ export default function MemberDetail() {
     const memberId = member.id;
     const errors: string[] = [];
 
-    // ✅ v3.13.7: 연관 데이터 전체 하드 삭제 (삭제된 회원이 다른 페이지에 남지 않도록)
-    // 1) 시간표 예약/수업 (member_id 참조)
-    const r1 = await supabase.from("schedule_slots").delete().eq("member_id", memberId);
+    // v3.23.4: 데이터 손실 방지 - 소프트 삭제(deleted_at)로 전환
+    const softDelTs = new Date().toISOString();
+    // 1) 시간표 예약/수업: 소프트 삭제
+    const r1 = await supabase.from("schedule_slots").update({ deleted_at: softDelTs }).eq("member_id", memberId);
     if (r1.error) errors.push("시간표: " + r1.error.message);
 
     // 2) 고정시간표 배정 (slot_matrix.member_id 참조 → OPEN으로 복원)
@@ -435,16 +436,21 @@ export default function MemberDetail() {
     }).eq("member_id", memberId);
     if (r2.error && r2.error.code !== "42703") errors.push("고정시간표: " + r2.error.message);
 
-    // 3) 출결 기록
-    const r3 = await supabase.from("attendance").delete().eq("member_id", memberId);
-    if (r3.error) errors.push("출결: " + r3.error.message);
+    // 3) 출결 기록: 소프트 삭제
+    const r3 = await supabase.from("attendance").update({ deleted_at: softDelTs }).eq("member_id", memberId);
+    if (r3.error && r3.error.code !== "42703") errors.push("출결: " + r3.error.message);
 
-    // 4) 결제 내역
-    const r4 = await supabase.from("payments").delete().eq("member_id", memberId);
-    if (r4.error) errors.push("결제: " + r4.error.message);
+    // 4) 결제 내역: cancelled로 소프트 처리
+    const r4 = await supabase.from("payments").update({ status: "cancelled", deleted_at: softDelTs }).eq("member_id", memberId);
+    if (r4.error && r4.error.code !== "42703") {
+      const r4b = await supabase.from("payments").update({ status: "cancelled" }).eq("member_id", memberId);
+      if (r4b.error) errors.push("결제: " + r4b.error.message);
+    }
 
     // 5) 회원권
-    const r5 = await supabase.from("memberships").delete().eq("member_id", memberId);
+    const r5 = await supabase.from("memberships").update({ status: "cancelled", deleted_at: softDelTs }).eq("member_id", memberId);
+    if (r5.error && r5.error.code === "42703") { await supabase.from("memberships").update({ status: "cancelled" }).eq("member_id", memberId); }
+    const r5b = { error: null } as any; // (dummy for compat)
     if (r5.error) errors.push("회원권: " + r5.error.message);
 
     // 6) 상담차트 / IEP / 행동기록 / 문서 등 (있는 경우에만 시도 - 테이블/컴럼 없으면 조용히 스킵)

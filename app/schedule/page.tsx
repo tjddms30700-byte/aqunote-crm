@@ -272,7 +272,8 @@ export default function SchedulePage() {
     if (status === "scheduled") {
       const existing = attendance.find((a: any) => a.member_id === slot.member_id && (a.date === slot.event_date || a.attendance_date === slot.event_date || a.session_date === slot.event_date));
       if (existing) {
-        await supabase.from("attendance").delete().eq("id", existing.id);
+        const _attDel = await supabase.from("attendance").update({ deleted_at: new Date().toISOString() }).eq("id", existing.id);
+        if (_attDel.error && _attDel.error.code === "42703") { await supabase.from("attendance").delete().eq("id", existing.id); }
       }
     }
     // attendance 기록은 done/cancel이 명확한 경우에만 저장 (선택적 보조 로그)
