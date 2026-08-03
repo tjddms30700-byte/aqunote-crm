@@ -543,11 +543,12 @@ export default function PaymentsPage() {
     loadAll();
   }
 
-  // 유효 결제만 매출에 포함 (취소된 것 제외)
-  const totalRevenue = payments.filter(p => p.status !== "cancelled").reduce((sum, p) => sum + (p.amount || 0), 0);
+  // v3.23.2: 실제 매출 = amount - discount_amount - refunded_amount (할인·환불 차감)
+  const netAmount = (p: any) => Math.max(0, (p.amount || 0) - (p.discount_amount || 0) - (p.refunded_amount || 0));
+  const totalRevenue = payments.filter(p => p.status !== "cancelled").reduce((sum, p) => sum + netAmount(p), 0);
   const thisMonthRevenue = payments
     .filter((p) => p.status !== "cancelled" && (p.paid_at || "").startsWith(new Date().toISOString().slice(0, 7)))
-    .reduce((sum, p) => sum + (p.amount || 0), 0);
+    .reduce((sum, p) => sum + netAmount(p), 0);
   // 활성 회원권: 취소되지 않고, end_date가 없거나 미래인 것 (end_date null이어도 확인 가능)
   const activeMemberships = memberships.filter((m) => m.status !== "cancelled" && (!m.end_date || new Date(m.end_date) > new Date())).length;
 
@@ -759,7 +760,7 @@ export default function PaymentsPage() {
                 const filtered = payments
                   .filter((p: any) => !filterMonth || (p.paid_at || "").startsWith(filterMonth))
                   .filter((p: any) => !nameSearch.trim() || (p.members?.name || "").toLowerCase().includes(nameSearch.trim().toLowerCase()));
-                const revenue = filtered.filter((p: any) => p.status !== "cancelled").reduce((s: number, p: any) => s + (p.amount || 0), 0);
+                const revenue = filtered.filter((p: any) => p.status !== "cancelled").reduce((s: number, p: any) => s + Math.max(0, (p.amount || 0) - (p.discount_amount || 0) - (p.refunded_amount || 0)), 0);
                 return (
                   <div className="flex-1 flex items-center justify-end gap-3 text-xs">
                     <span className="text-gray-500">조회 결과: <b className="text-aqu-700">{filtered.length}건</b></span>
@@ -840,7 +841,14 @@ export default function PaymentsPage() {
                       {p.memo && <div className="text-gray-400">{p.memo}</div>}
                     </td>
                     <td className={`p-2 md:p-3 text-right font-bold ${isCancelled ? "text-gray-400 line-through" : "text-aqu-900"}`}>
-                      ₩{(p.amount || 0).toLocaleString()}
+                      {/* v3.23.2: 실제매출 = amount - discount - refunded */}
+                      ₩{Math.max(0, (p.amount || 0) - (p.discount_amount || 0) - (p.refunded_amount || 0)).toLocaleString()}
+                      {(p.discount_amount || 0) > 0 && (
+                        <div className="text-[10px] text-gray-400 font-normal line-through">₩{(p.amount || 0).toLocaleString()}</div>
+                      )}
+                      {(p.discount_amount || 0) > 0 && (
+                        <div className="text-[10px] text-emerald-600 font-normal">🎁 -₩{(p.discount_amount || 0).toLocaleString()} 할인</div>
+                      )}
                       {p.refunded_amount > 0 && (
                         <div className="text-[10px] text-orange-600 font-normal">-₩{p.refunded_amount.toLocaleString()} 환불</div>
                       )}

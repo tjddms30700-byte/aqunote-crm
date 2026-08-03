@@ -255,7 +255,7 @@ function FinancePage() {
       // 1) 수입 CSV
       const incomeRows = [["날짜", "카테고리", "지급기관", "금액", "메모"]];
       monthIncomes.forEach((i: any) => incomeRows.push([i.received_at || "", i.category || "", i.source || "", String(i.amount || 0), i.description || ""]));
-      monthPayments.forEach((p: any) => incomeRows.push([p.paid_at || "", "회원 결제", p.member_name || "", String(p.amount || 0), p.method || ""]));
+      monthPayments.forEach((p: any) => incomeRows.push([p.paid_at || "", "회원 결제", p.member_name || "", String(Math.max(0, (p.amount || 0) - (p.discount_amount || 0) - (p.refunded_amount || 0))), p.method || ""]));
       zip.file(`01_수입_${monthLabel}.csv`, BOM + incomeRows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n"));
 
       // 2) 지출 CSV (결제 수단 포함)
@@ -270,7 +270,7 @@ function FinancePage() {
       zip.file(`03_급여_${monthLabel}.csv`, BOM + payRows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n"));
 
       // 4) 요약 리포트 (텍스트)
-      const totalIncome = monthIncomes.reduce((s: number, i: any) => s + Number(i.amount || 0), 0) + monthPayments.reduce((s: number, p: any) => s + Number(p.amount || 0), 0);
+      const totalIncome = monthIncomes.reduce((s: number, i: any) => s + Number(i.amount || 0), 0) + monthPayments.reduce((s: number, p: any) => s + Math.max(0, Number(p.amount || 0) - Number(p.discount_amount || 0) - Number(p.refunded_amount || 0)), 0);
       const totalExpense = monthExpenses.reduce((s: number, e: any) => s + Number(e.amount || 0), 0);
       const totalPayroll = monthPayroll.reduce((s: number, p: any) => s + Number(p.net_pay || p.amount || 0), 0);
       const corpCardExp = monthExpenses.filter((e: any) => e.payment_method === "CORPORATE_CARD").reduce((s: number, e: any) => s + Number(e.amount || 0), 0);
@@ -333,7 +333,7 @@ function FinancePage() {
   const monthIncomes = incomes.filter((i: any) => i.received_at?.startsWith(selectedMonth));
 
   // 결제 매출
-  const paymentRevenue = monthPayments.reduce((s, p) => s + Math.max(0, (p.amount || 0) - (p.refunded_amount || 0)), 0);
+  const paymentRevenue = monthPayments.reduce((s, p) => s + Math.max(0, (p.amount || 0) - (p.discount_amount || 0) - (p.refunded_amount || 0)), 0);
   // 기타 수입 (지원금·대출 등)
   const otherIncome = monthIncomes.reduce((s, i: any) => s + Number(i.amount || 0), 0);
   // 총 수입 = 결제 매출 + 기타 수입

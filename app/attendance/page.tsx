@@ -300,14 +300,20 @@ export default function AttendancePage() {
           patch.deducted_at = null;
           patch.deduction_mode = null;
         }
-        // ✅ v3.13.6: 신규 컴럼 4개가 DB에 없어도 이전 스키마로 재시도 (자동 fallback)
-        let up = await supabase.from("attendance").update(patch).eq("id", existing.id);
-        if (up.error && (up.error.code === "42703" || up.error.code === "PGRST204" ||
-            up.error.message?.includes("column") || up.error.message?.includes("saved_at") ||
-            up.error.message?.includes("deducted_at") || up.error.message?.includes("deduction_mode") ||
-            up.error.message?.includes("membership_id"))) {
-          const legacyPatch: any = { status: draft, slot_id: patch.slot_id };
-          up = await supabase.from("attendance").update(legacyPatch).eq("id", existing.id);
+        // v3.23.2: 정규식 기반 자동 컴럼 drop 폴백 (최대 10회) - 어떤 컴럼이 없어도 저장 성공
+        let patchTry: any = { ...patch };
+        let up: any = { error: null };
+        for (let i = 0; i < 10; i++) {
+          up = await supabase.from("attendance").update(patchTry).eq("id", existing.id);
+          if (!up.error) break;
+          const m = /'([^']+)' column|column "([^"]+)"|Could not find the '([^']+)'/i.exec(up.error.message || "");
+          const missing = m?.[1] || m?.[2] || m?.[3];
+          if (missing && missing in patchTry) {
+            const { [missing]: _drop, ...rest } = patchTry;
+            patchTry = { ...rest };
+            continue;
+          }
+          break;
         }
         if (up.error) errors.push(memberId + ": " + up.error.message);
       } else {
@@ -331,21 +337,20 @@ export default function AttendancePage() {
           insertPayload.deduction_mode = "auto";
           deductedCount++;
         }
-        // ✅ v3.13.6: 신규 컴럼 4개가 DB에 없어도 이전 스키마로 재시도 (자동 fallback)
-        let ins = await supabase.from("attendance").insert(insertPayload);
-        if (ins.error && (ins.error.code === "42703" || ins.error.code === "PGRST204" ||
-            ins.error.message?.includes("column") || ins.error.message?.includes("saved_at") ||
-            ins.error.message?.includes("deducted_at") || ins.error.message?.includes("deduction_mode") ||
-            ins.error.message?.includes("membership_id"))) {
-          const legacyPayload: any = {
-            org_id: orgId,
-            member_id: memberId,
-            attend_date: date,
-            status: draft,
-            slot_id: slot?.id || null,
-            time_slot: slot?.time_slot || null,
-          };
-          ins = await supabase.from("attendance").insert(legacyPayload);
+        // v3.23.2: INSERT 자동 컴럼 drop 폴백 (최대 10회) - time_slot/saved_at/deducted_at 등 어떤 컴럼이 없어도 저장 성공
+        let payloadTry: any = { ...insertPayload };
+        let ins: any = { error: null };
+        for (let i = 0; i < 10; i++) {
+          ins = await supabase.from("attendance").insert(payloadTry);
+          if (!ins.error) break;
+          const m = /'([^']+)' column|column "([^"]+)"|Could not find the '([^']+)'/i.exec(ins.error.message || "");
+          const missing = m?.[1] || m?.[2] || m?.[3];
+          if (missing && missing in payloadTry) {
+            const { [missing]: _drop, ...rest } = payloadTry;
+            payloadTry = { ...rest };
+            continue;
+          }
+          break;
         }
         if (ins.error) errors.push(memberId + ": " + ins.error.message);
       }
@@ -964,7 +969,7 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [drawing, setDrawing] = useState(false);
   const [hasStroke, setHasStroke] = useState(false);
-  const [status, setStatus] = useState<"present" | "absent" | "sick">(existingAttendance?.status || "present");
+  const [status, setStatus] = useState<"present" | "absent" | "sick" | "personal">(existingAttendance?.status || "present");
   const [signer, setSigner] = useState<"parent" | "self" | "staff">(member?.member_type === "child" ? "parent" : "self");
   const [saving, setSaving] = useState(false);
 

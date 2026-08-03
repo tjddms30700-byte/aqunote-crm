@@ -2678,7 +2678,7 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
                   <select value={f.recurring_weeks}
                     onChange={e => setF({ ...f, recurring_weeks: parseInt(e.target.value) })}
                     className="px-2 py-1 border border-purple-200 rounded text-sm bg-white focus:ring-2 focus:ring-purple-400 focus:outline-none">
-                    {[2,4,6,8,10,12,16,20,24].map(n => (
+                    {[1,2,3,4,5,6,7,8,9,10].map(n => (
                       <option key={n} value={n}>{n}주 동안</option>
                     ))}
                   </select>
