@@ -213,8 +213,8 @@ export default function SchedulePage() {
     };
     const [sRes, mRes, stRes, pRes, aRes, plRes, msRes] = await Promise.all([
       safeBranchQuery(
-        () => supabase.from("schedule_slots").select("*").is("deleted_at", null).order("event_date").order("time_slot").range(0, 9999),
-        (q: any) => q.or(`branch_id.eq.${branchId},branch_id.is.null`).is("deleted_at", null).order("event_date").order("time_slot").range(0, 9999)
+        () => supabase.from("schedule_slots").select("*").is("deleted_at", null).order("event_date", { ascending: false }).order("time_slot").range(0, 49999),
+        (q: any) => q.or(`branch_id.eq.${branchId},branch_id.is.null`).is("deleted_at", null).order("event_date", { ascending: false }).order("time_slot").range(0, 49999)
       ),
       safeBranchQuery(
         () => supabase.from("members").select("id, name, member_type, status, phone").is("deleted_at", null).order("name"),
