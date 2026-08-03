@@ -284,16 +284,44 @@ export default function SchedulePage() {
         : attendance[0]?.session_date !== undefined ? "session_date"
         : "date";
       const attStatus = status === "done" ? "present" : status === "noshow" ? "absent" : status === "sick" ? "sick" : "personal";
-      const existing = attendance.find((a: any) => a.member_id === slot.member_id && (a.date === slot.event_date || a.attendance_date === slot.event_date || a.session_date === slot.event_date));
+      // ✅ v3.24.4: 중복 삽입 원천 차단 - slot_id 우선, 없으면 member_id + 날짜 + time_slot 조합으로 매칭
+      const slotDateStr = typeof slot.event_date === "string" ? slot.event_date.substring(0, 10) : new Date(slot.event_date).toISOString().substring(0, 10);
+      const existing = attendance.find((a: any) => {
+        if (a.deleted_at) return false;
+        if (a.slot_id && a.slot_id === slot.id) return true;
+        if (a.member_id !== slot.member_id) return false;
+        const aDate = a.attend_date || a.date || a.attendance_date || a.session_date;
+        if (!aDate) return false;
+        const aDateStr = typeof aDate === "string" ? aDate.substring(0, 10) : new Date(aDate).toISOString().substring(0, 10);
+        if (aDateStr !== slotDateStr) return false;
+        // time_slot이 있으면 일치해야 중복으로 간주 (연타임 구분)
+        if (slot.time_slot && a.time_slot && a.time_slot !== slot.time_slot) return false;
+        return true;
+      });
       if (existing) {
         await supabase.from("attendance").update({ status: attStatus, slot_id: slot.id }).eq("id", existing.id);
       } else {
+        // ✅ v3.24.4: DB에서 다시 한 번 실시간 중복 체크 (attendance state가 오래된 경우 대비)
+        for (const dateCheck of ["attend_date", "date", "attendance_date", "session_date"]) {
+          try {
+            const dupCheck = await supabase.from("attendance")
+              .select("id").eq("member_id", slot.member_id).eq(dateCheck, slotDateStr)
+              .is("deleted_at", null).limit(1);
+            if (!dupCheck.error && dupCheck.data && dupCheck.data.length > 0) {
+              // 이미 DB에 있으면 삽입 안하고 업데이트
+              await supabase.from("attendance").update({ status: attStatus, slot_id: slot.id }).eq("id", dupCheck.data[0].id);
+              return;
+            }
+          } catch {}
+        }
         const payload: any = { org_id: orgId, member_id: slot.member_id, status: attStatus, slot_id: slot.id };
+        if (slot.time_slot) payload.time_slot = slot.time_slot;
         payload[dateCol] = slot.event_date;
         let { error } = await supabase.from("attendance").insert(payload);
         if (error && /Could not find the '(date|attendance_date|session_date)' column/.test(error.message)) {
           for (const alt of ["date", "attendance_date", "session_date"]) {
             const p: any = { org_id: orgId, member_id: slot.member_id, status: attStatus, slot_id: slot.id };
+            if (slot.time_slot) p.time_slot = slot.time_slot;
             p[alt] = slot.event_date;
             const res = await supabase.from("attendance").insert(p);
             if (!res.error) break;
