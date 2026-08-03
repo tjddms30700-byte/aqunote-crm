@@ -213,8 +213,8 @@ export default function SchedulePage() {
     };
     const [sRes, mRes, stRes, pRes, aRes, plRes, msRes] = await Promise.all([
       safeBranchQuery(
-        () => supabase.from("schedule_slots").select("*").order("event_date").order("time_slot"),
-        (q: any) => q.eq("branch_id", branchId).order("event_date").order("time_slot")
+        () => supabase.from("schedule_slots").select("*").is("deleted_at", null).order("event_date").order("time_slot").range(0, 9999),
+        (q: any) => q.or(`branch_id.eq.${branchId},branch_id.is.null`).is("deleted_at", null).order("event_date").order("time_slot").range(0, 9999)
       ),
       safeBranchQuery(
         () => supabase.from("members").select("id, name, member_type, status, phone").is("deleted_at", null).order("name"),
@@ -655,9 +655,11 @@ export default function SchedulePage() {
       byStatus[st] = (byStatus[st] || 0) + 1;
     });
     const total = monthSlots.length;
-    const revenue = monthSlots.filter(s => s.event_type === "revenue").reduce((a,b) => a + (b.amount || 0), 0);
+    // v3.23.3: 월 매출 = payments 테이블 기준 (할인·환불 차감된 실매출)
+    const monthPayments = (payments || []).filter((p: any) => (p.paid_at || "").startsWith(prefix) && p.status !== "cancelled");
+    const revenue = monthPayments.reduce((sum: number, p: any) => sum + Math.max(0, (p.amount || 0) - (p.discount_amount || 0) - (p.refunded_amount || 0)), 0);
     return { total, byStatus, revenue };
-  }, [slots, year, month0]);
+  }, [slots, payments, year, month0]);
 
   /* 모달 열기 - 항상 액션 시트 우선 (time이 있어도 3가지 선택지 제공) */
   function openDateActionSheet(date: string, time?: string) {
@@ -821,9 +823,47 @@ export default function SchedulePage() {
       }
     }
 
+    // v3.23.3: 자동 컴럼 감지 폴백 helper - 어떤 컴럼이 없어도 저장 성공
+    async function safeInsert(payload: any): Promise<any> {
+      let cur: any = { ...payload };
+      let lastErr: any = null;
+      for (let i = 0; i < 15; i++) {
+        const r = await supabase.from("schedule_slots").insert(cur);
+        if (!r.error) return null;
+        lastErr = r.error;
+        const m = /'([^']+)' column|column "([^"]+)"|Could not find the '([^']+)'|column ([\w_]+) of/i.exec(r.error.message || "");
+        const missing = m?.[1] || m?.[2] || m?.[3] || m?.[4];
+        if (missing && missing in cur) {
+          const { [missing]: _drop, ...rest } = cur;
+          cur = { ...rest };
+          continue;
+        }
+        break;
+      }
+      return lastErr;
+    }
+    async function safeUpdate(payload: any, id: string): Promise<any> {
+      let cur: any = { ...payload };
+      let lastErr: any = null;
+      for (let i = 0; i < 15; i++) {
+        const r = await supabase.from("schedule_slots").update(cur).eq("id", id);
+        if (!r.error) return null;
+        lastErr = r.error;
+        const m = /'([^']+)' column|column "([^"]+)"|Could not find the '([^']+)'|column ([\w_]+) of/i.exec(r.error.message || "");
+        const missing = m?.[1] || m?.[2] || m?.[3] || m?.[4];
+        if (missing && missing in cur) {
+          const { [missing]: _drop, ...rest } = cur;
+          cur = { ...rest };
+          continue;
+        }
+        break;
+      }
+      return lastErr;
+    }
+
     try {
       if (f.id) {
-        // 수정
+        // 수정 - v3.23.3: safeUpdate 사용
         const payload = {
           ...basePayload,
           event_date: f.event_date,
@@ -832,44 +872,51 @@ export default function SchedulePage() {
         // ✅ v3.16.0: 이전 상태 확인 (done으로 바뀌는 경우에만 차감)
         const { data: prev } = await supabase.from("schedule_slots")
           .select("status, membership_id").eq("id", f.id).maybeSingle();
-        const { error } = await supabase.from("schedule_slots").update(payload).eq("id", f.id);
-        if (error) throw error;
+        const err = await safeUpdate(payload, f.id);
+        if (err) throw err;
         if (prev && prev.status !== "done" && effectiveStatus === "done") await autoDeductMembership();
       } else if (f.recurring_enabled && f.recurring_weeks > 1) {
-        // 반복예약 등록: 오늘 포함 N주 동안 매주 같은 요일에 등록
+        // v3.23.3: 반복예약도 개별 INSERT + 폴백 (하나라도 실패해도 나머지 저장)
         const recurringId = uuid();
         const startDate = new Date(f.event_date);
-        const rows: any[] = [];
+        let successCount = 0;
+        let failCount = 0;
+        let lastError: any = null;
         for (let i = 0; i < f.recurring_weeks; i++) {
           const d = new Date(startDate);
           d.setDate(startDate.getDate() + i * 7);
           const dateStr = ymd(d);
-          rows.push({
+          const row = {
             ...basePayload,
             event_date: dateStr,
             day_of_week: buildDow(dateStr),
             recurring_id: recurringId,
             recurring_weeks: f.recurring_weeks,
-          });
+          };
+          const err = await safeInsert(row);
+          if (err) { failCount++; lastError = err; }
+          else successCount++;
         }
-        const { error } = await supabase.from("schedule_slots").insert(rows);
-        if (error) throw error;
+        if (successCount === 0 && lastError) throw lastError;
+        if (failCount > 0 && lastError) {
+          alert(`⚠️ 부분 저장: 성공 ${successCount}건, 실패 ${failCount}건\n\n에러: ${lastError.message}`);
+        }
       } else {
-        // 단일 등록
+        // 단일 등록 - v3.23.3: safeInsert 사용
         const payload = {
           ...basePayload,
           event_date: f.event_date,
           day_of_week: buildDow(f.event_date),
         };
-        const { error } = await supabase.from("schedule_slots").insert(payload);
-        if (error) throw error;
+        const err = await safeInsert(payload);
+        if (err) throw err;
         // ✅ v3.16.0: 처음부터 done으로 등록되는 경우에도 차감
         if (effectiveStatus === "done") await autoDeductMembership();
       }
       setModal(null);
       await loadAll();
     } catch (err: any) {
-      alert("저장 실패: " + err.message);
+      alert("저장 실패: " + err.message + "\n\n💡 필수 필드가 누락되었거나 DB 컴럼이 없을 수 있습니다.");
     } finally {
       setSaving(false);
     }
@@ -883,16 +930,36 @@ export default function SchedulePage() {
       opts?.mode || (opts?.series ? "series_all" : "single");
 
     if (mode === "series_all" && recurringId) {
-      if (!confirm("반복 시리즈 전체를 삭제할까요?\n\n⚠️ 과거 수업분까지 모두 삭제됩니다.")) return;
-      await supabase.from("schedule_slots").delete().eq("recurring_id", recurringId);
+      if (!confirm("반복 시리즈 전체를 삭제할까요?\n\n⚠️ 소프트 삭제(deleted_at)로 처리되어 DB에서 복구 가능합니다.")) return;
+      // v3.23.3: 하드 삭제 대신 소프트 삭제(deleted_at) 사용 - 데이터 손실 방지
+      const { error: delSeriesErr } = await supabase.from("schedule_slots")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("recurring_id", recurringId);
+      if (delSeriesErr) {
+        // deleted_at 컬럼이 없는 경우 하드 삭제로 폴백
+        await supabase.from("schedule_slots").delete().eq("recurring_id", recurringId);
+      }
     } else if (mode === "series_after" && recurringId && opts?.from_date) {
-      if (!confirm(`🗓️ ${opts.from_date} 이후(해당일 포함) 반복 예약만 삭제할까요?\n\n• 이전 수업은 그대로 유지\n• ${opts.from_date}부터의 반복 예약만 제거`)) return;
-      await supabase.from("schedule_slots").delete()
+      if (!confirm(`🗓️ ${opts.from_date} 이후(해당일 포함) 반복 예약만 삭제할까요?\n\n• 이전 수업은 그대로 유지\n• 소프트 삭제(deleted_at) - 복구 가능`)) return;
+      // v3.23.3: 소프트 삭제
+      const { error: delAfterErr } = await supabase.from("schedule_slots")
+        .update({ deleted_at: new Date().toISOString() })
         .eq("recurring_id", recurringId)
         .gte("event_date", opts.from_date);
+      if (delAfterErr) {
+        await supabase.from("schedule_slots").delete()
+          .eq("recurring_id", recurringId)
+          .gte("event_date", opts.from_date);
+      }
     } else {
-      if (!confirm("이 일정을 삭제할까요?")) return;
-      await supabase.from("schedule_slots").delete().eq("id", id);
+      if (!confirm("이 일정을 삭제할까요?\n\n💡 소프트 삭제되어 DB에서 복구 가능합니다.")) return;
+      // v3.23.3: 소프트 삭제
+      const { error: delOneErr } = await supabase.from("schedule_slots")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("id", id);
+      if (delOneErr) {
+        await supabase.from("schedule_slots").delete().eq("id", id);
+      }
     }
     await loadAll();
   }
@@ -1319,11 +1386,11 @@ export default function SchedulePage() {
                 const isDragOver = dragOverDate === cellStr;
                 const daySlots = slotsByDate[cellStr] || [];
                 const dow = cell.getDay();
-                const dayRevenue = daySlots.filter(s => s.event_type === "revenue").reduce((a,b) => a + (b.amount || 0), 0);
-                // ✅ v3.20.10: 그날 payments 테이블 결제 금액 합계 (취소 제외, 부분 환불 차감)
+                // v3.23.3: 일 매출 = payments 테이블 기준 (할인·환불 완전 차감)
                 const dayPaymentsSum = payments
                   .filter((p: any) => p.paid_at === cellStr && p.status !== "cancelled")
-                  .reduce((sum: number, p: any) => sum + Math.max(0, (p.amount || 0) - (p.refunded_amount || 0)), 0);
+                  .reduce((sum: number, p: any) => sum + Math.max(0, (p.amount || 0) - (p.discount_amount || 0) - (p.refunded_amount || 0)), 0);
+                const dayRevenue = dayPaymentsSum; // 캘린더 표시용 통일 (할인 반영 실매출)
 
                 return (
                   <div key={idx}
@@ -1725,18 +1792,28 @@ function RevenueDetailPopover({ date, payments, members, staff, memberships, onC
   const active = dayPayments.filter((p: any) => p.status !== "cancelled");
   const refunded = dayPayments.filter((p: any) => p.status === "cancelled" || Number(p.refunded_amount || 0) > 0);
 
-  const totalIncome = active.reduce((s: number, p: any) => s + Math.max(0, (p.amount || 0) - (p.refunded_amount || 0)), 0);
+  // v3.23.3: 실제 매출 = amount - discount_amount - refunded_amount (할인 차감)
+  const netAmt = (p: any) => Math.max(0, (p.amount || 0) - (p.discount_amount || 0) - (p.refunded_amount || 0));
+  const totalIncome = active.reduce((s: number, p: any) => s + netAmt(p), 0);
   const totalRefund = refunded.reduce((s: number, p: any) => s + Number(p.refunded_amount || p.amount || 0), 0);
-  const cardTotal = active.reduce((s: number, p: any) => s + Number(p.pay_card || (p.method === "card" ? p.amount : 0) || 0), 0);
-  const cashTotal = active.reduce((s: number, p: any) => s + Number(p.pay_cash || (p.method === "cash" ? p.amount : 0) || 0), 0);
-  const transferTotal = active.reduce((s: number, p: any) => s + Number(p.pay_transfer || (p.method === "transfer" ? p.amount : 0) || 0), 0);
+  const totalDiscount = active.reduce((s: number, p: any) => s + Number(p.discount_amount || 0), 0);
 
-  // 회원권 유형별 매출
+  // v3.23.3: 결제방식별도 할인 비율 반영 (amount 대비 net 비율만큼 차감)
+  const netRatio = (p: any) => {
+    const gross = Number(p.amount || 0);
+    if (gross <= 0) return 0;
+    return netAmt(p) / gross;
+  };
+  const cardTotal = active.reduce((s: number, p: any) => s + Number(p.pay_card || (p.method === "card" ? p.amount : 0) || 0) * netRatio(p), 0);
+  const cashTotal = active.reduce((s: number, p: any) => s + Number(p.pay_cash || (p.method === "cash" ? p.amount : 0) || 0) * netRatio(p), 0);
+  const transferTotal = active.reduce((s: number, p: any) => s + Number(p.pay_transfer || (p.method === "transfer" ? p.amount : 0) || 0) * netRatio(p), 0);
+
+  // 회원권 유형별 매출 (할인 반영)
   const msTypeTotals: Record<string, number> = {};
   active.forEach((p: any) => {
     const ms = (memberships || []).find((m: any) => m.id === p.membership_id);
     const key = ms?.plan_name?.includes("정액") ? "정액권" : (ms?.total_sessions ? "횟수권" : (p.description || "기타"));
-    msTypeTotals[key] = (msTypeTotals[key] || 0) + Math.max(0, (p.amount || 0) - (p.refunded_amount || 0));
+    msTypeTotals[key] = (msTypeTotals[key] || 0) + netAmt(p);
   });
 
   function timeFmt(t: string | null | undefined) {
@@ -1784,7 +1861,9 @@ function RevenueDetailPopover({ date, payments, members, staff, memberships, onC
                 const staffP = p.staff_id ? staff.find((s: any) => s.id === p.staff_id) : null;
                 const ms = memberships.find((m: any) => m.id === p.membership_id);
                 const label = ms?.plan_name || p.description || "결제";
-                const net = Math.max(0, (p.amount || 0) - (p.refunded_amount || 0));
+                // v3.23.3: 실제 매출 = amount - discount - refunded
+                const net = Math.max(0, (p.amount || 0) - (p.discount_amount || 0) - (p.refunded_amount || 0));
+                const discountAmt = Number(p.discount_amount || 0);
                 return (
                   <div key={p.id} className="p-2 border-b border-gray-100 flex items-start justify-between hover:bg-gray-50">
                     <div className="flex-1 min-w-0">
@@ -1793,9 +1872,17 @@ function RevenueDetailPopover({ date, payments, members, staff, memberships, onC
                         {timeFmt(p.paid_time)}{mem ? ` · ${mem.name}` : ""}
                       </div>
                       {staffP && <div className="text-[11px] text-gray-500">{staffP.name}</div>}
+                      {discountAmt > 0 && (
+                        <div className="text-[10px] text-emerald-600 mt-0.5">🎁 할인 -₩{discountAmt.toLocaleString()}</div>
+                      )}
                     </div>
-                    <div className={`text-sm font-semibold ${net === 0 ? "text-gray-400" : "text-slate-900"}`}>
-                      {net.toLocaleString()}
+                    <div className="text-right">
+                      <div className={`text-sm font-semibold ${net === 0 ? "text-gray-400" : "text-slate-900"}`}>
+                        {net.toLocaleString()}
+                      </div>
+                      {discountAmt > 0 && (
+                        <div className="text-[10px] text-gray-400 line-through">{(p.amount || 0).toLocaleString()}</div>
+                      )}
                     </div>
                   </div>
                 );
