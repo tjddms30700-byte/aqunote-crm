@@ -129,7 +129,7 @@ export default function Home() {
             .select("id, status", { count: "exact" })
             .in("status", ["sick", "personal"])
             .gte(col, thisMonth + "-01")
-            .lt(col, thisMonth + "-32");
+            .lte(col, thisMonth + "-31");
           if (!r.error) { makeupCount = r.count || (r.data || []).length; break; }
         }
       } catch {}

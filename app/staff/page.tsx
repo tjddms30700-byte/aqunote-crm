@@ -120,7 +120,7 @@ export default function StaffPage() {
         const r = await supabase.from("attendance")
           .select("*")
           .gte(col, slotsMonth + "-01")
-          .lt(col, slotsMonth + "-32");
+          .lte(col, slotsMonth + "-31");
         if (!r.error) {
           // _date 필드 통일
           return { data: (r.data || []).map((a: any) => ({ ...a, _date: a[col] || a.attend_date || a.date || a.attendance_date || a.session_date || a.check_date })), error: null };
@@ -155,7 +155,7 @@ export default function StaffPage() {
       loadAttendanceLogs(),
       supabase.from("schedule_slots").select("id, staff_id, status, event_date, event_type, member_id")
         .gte("event_date", slotsMonth + "-01")
-        .lt("event_date", slotsMonth + "-32")
+        .lte("event_date", slotsMonth + "-31")
         .is("deleted_at", null),
       loadMonthAttendance(),
       loadMembersLite(),

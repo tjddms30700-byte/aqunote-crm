@@ -32,7 +32,7 @@ function PayrollConfigInner() {
       supabase.from("staff").select("*").is("resign_date", null).order("name"),
       supabase.from("schedule_slots").select("staff_id, status, event_date, event_type")
         .gte("event_date", slotsMonth + "-01")
-        .lt("event_date", slotsMonth + "-32")
+        .lte("event_date", slotsMonth + "-31")
         .is("deleted_at", null),
       supabase.from("payroll_history").select("*").order("pay_year", { ascending: false }).order("pay_month", { ascending: false }).limit(50),
     ]);
