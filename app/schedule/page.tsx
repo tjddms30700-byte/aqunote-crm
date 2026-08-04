@@ -147,7 +147,11 @@ export default function SchedulePage() {
   });
   const [scheduleConfigLoaded, setScheduleConfigLoaded] = useState(false);
 
-  useEffect(() => { loadAll(); loadScheduleConfig(); }, []);
+  // ✅ v3.28.3: 초기 로드 + 연/월 변경 시 자동 재조회 (year/month0이 설정된 이후에만)
+  useEffect(() => { loadScheduleConfig(); }, []);
+  useEffect(() => {
+    if (year > 0) loadAll();
+  }, [year, month0]);
 
   // ✅ v3.20.4: 시간표 설정 저장 시 즉시 재로드 + 지점 전환 이벤트 수신
   useEffect(() => {
@@ -219,24 +223,37 @@ export default function SchedulePage() {
       }
       return r;
     };
-    // ✅ v3.28.1: 시간표 맨통 복구 - 3단계 fallback (branch_id와 order 오류 모두 대응)
+    // ✅ v3.28.3: 선택된 연/월 기준 범위 조회 (미리~다음달까지 여유 3개월 범위)
+    const startY = year || new Date().getFullYear();
+    const startM = (month0 || 0);
+    // 이전달 1일 ~ 다음달 마지막일 (3개월 범위 - 이월/보강 파이프라인 고려)
+    const rangeStart = `${startY}-${String(startM).padStart(2, "0")}-01`;
+    const endD = new Date(startY, startM + 2, 0); // 다음달 마지막일
+    const rangeEnd = `${endD.getFullYear()}-${String(endD.getMonth()+1).padStart(2,"0")}-${String(endD.getDate()).padStart(2,"0")}`;
+    console.log(`[v3.28.3] fetch range: ${rangeStart} ~ ${rangeEnd}`);
+
     const fetchSchedule = async () => {
       const attempts = [
-        // 1) 정상: branch_id 필터 + 정렬
+        // 1) 날짜 범위 + branch_id 필터
         () => branchId
-          ? supabase.from("schedule_slots").select("*").or(`branch_id.eq.${branchId},branch_id.is.null`).order("event_date", { ascending: false }).order("time_slot").range(0, 99999)
-          : supabase.from("schedule_slots").select("*").order("event_date", { ascending: false }).order("time_slot").range(0, 99999),
-        // 2) branch_id 컴럼 없음: 정렬만
-        () => supabase.from("schedule_slots").select("*").order("event_date", { ascending: false }).order("time_slot").range(0, 99999),
-        // 3) 정렬도 안됨: 순수 SELECT
-        () => supabase.from("schedule_slots").select("*").range(0, 99999),
+          ? supabase.from("schedule_slots").select("*").or(`branch_id.eq.${branchId},branch_id.is.null`).gte("event_date", rangeStart).lte("event_date", rangeEnd).order("event_date").order("time_slot").range(0, 99999)
+          : supabase.from("schedule_slots").select("*").gte("event_date", rangeStart).lte("event_date", rangeEnd).order("event_date").order("time_slot").range(0, 99999),
+        // 2) branch_id 없이 날짜 범위만
+        () => supabase.from("schedule_slots").select("*").gte("event_date", rangeStart).lte("event_date", rangeEnd).order("event_date").order("time_slot").range(0, 99999),
+        // 3) 날짜 범위만 (정렬 없이)
+        () => supabase.from("schedule_slots").select("*").gte("event_date", rangeStart).lte("event_date", rangeEnd).range(0, 99999),
+        // 4) 최종 fallback: 전체 (과거 히스토리 수식 모드)
+        () => supabase.from("schedule_slots").select("*").order("event_date", { ascending: false }).range(0, 99999),
       ];
-      for (const fn of attempts) {
+      for (let i = 0; i < attempts.length; i++) {
         try {
-          const r = await fn();
-          if (!r.error) return r;
-          console.warn("[v3.28.1] schedule_slots fetch fallback:", r.error.message);
-        } catch (e) { console.warn("[v3.28.1] schedule_slots exception:", e); }
+          const r = await attempts[i]();
+          if (!r.error) {
+            console.log(`[v3.28.3] fetchSchedule attempt ${i+1} 성공: ${r.data?.length || 0}건`);
+            return r;
+          }
+          console.warn(`[v3.28.3] attempt ${i+1} 실패:`, r.error.message);
+        } catch (e) { console.warn(`[v3.28.3] attempt ${i+1} exception:`, e); }
       }
       return { data: [], error: null };
     };
