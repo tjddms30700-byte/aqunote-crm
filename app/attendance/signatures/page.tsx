@@ -37,15 +37,24 @@ export default function SignatureAttendanceHistoryPage() {
   const [rows, setRows] = useState<any[]>([]);
   const [members, setMembers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [fromDate, setFromDate] = useState(firstOfMonth());
-  const [toDate, setToDate] = useState(todayStr());
+  // ✅ v3.26.6: hydration mismatch 방지 - 초기값은 빈 문자열, 마운트 후 useEffect에서 설정
+  const [fromDate, setFromDate] = useState<string>("");
+  const [toDate, setToDate] = useState<string>("");
   const [filterMember, setFilterMember] = useState("");
   const [filterSigner, setFilterSigner] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [search, setSearch] = useState("");
 
-  useEffect(() => { loadAll(); }, [fromDate, toDate]);
-  useBranchWatch(() => loadAll());
+  // ✅ v3.26.6: 클라이언트 마운트 후에만 날짜 설정 (서버 렌더링 시에는 빈 값)
+  useEffect(() => {
+    setFromDate(firstOfMonth());
+    setToDate(todayStr());
+  }, []);
+
+  useEffect(() => {
+    if (fromDate && toDate) loadAll();
+  }, [fromDate, toDate]);
+  useBranchWatch(() => { if (fromDate && toDate) loadAll(); });
 
   async function loadAll() {
     setLoading(true);
