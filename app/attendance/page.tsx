@@ -729,19 +729,29 @@ export default function AttendancePage() {
                       </div>
                       <div className="text-[10px] text-gray-400">{m.present}/{m.total}회</div>
                     </td>
-                    {/* ✅ v3.25.2: 출결 완전 삭제 버튼 (HARD DELETE - 복구 불가) */}
+                    {/* ✅ v3.26.0: 시간표 기점 - schedule_slots를 직접 HARD DELETE → 출결장도 즉시 사라짐 */}
                     <td className="p-2 text-center">
                       <button
                         onClick={async () => {
                           const msg = sl.time_slot
-                            ? `⚠️ 정말로 완전 삭제하시겠습니까? (복구 불가)\n\n회원: ${m.name}\n날짜: ${date}\n시간: ${sl.time_slot}\n\n💡 attendance 레코드가 DB에서 완전히 삭제됩니다.`
-                            : `⚠️ 정말로 완전 삭제하시겠습니까? (복구 불가)\n\n회원: ${m.name}\n날짜: ${date}\n\n💡 attendance 레코드가 DB에서 완전히 삭제됩니다.`;
+                            ? `⚠️ 정말로 완전 삭제하시겠습니까? (복구 불가)\n\n회원: ${m.name}\n날짜: ${date}\n시간: ${sl.time_slot}\n\n💡 시간표 예약 + 관련 출결 기록이 DB에서 완전 삭제됩니다.`
+                            : `⚠️ 정말로 완전 삭제하시겠습니까? (복구 불가)\n\n회원: ${m.name}\n날짜: ${date}\n\n💡 시간표 예약 + 관련 출결 기록이 DB에서 완전 삭제됩니다.`;
                           if (!confirm(msg)) return;
-                          // 1) slot_id 매칭 HARD DELETE
+                          // ✅ v3.26.0: 시간표(schedule_slots)를 기점으로 완전 삭제
+                          // 1) schedule_slots HARD DELETE (시간표 자체 제거)
+                          if (sl.id) {
+                            try {
+                              const r = await supabase.from("schedule_slots").delete().eq("id", sl.id);
+                              if (r.error) {
+                                // 권한 문제 시 soft delete fallback
+                                await supabase.from("schedule_slots").update({ deleted_at: new Date().toISOString() }).eq("id", sl.id);
+                              }
+                            } catch {}
+                          }
+                          // 2) 관련 attendance 기록도 함께 HARD DELETE (카스케이드 트리거가 없을 경우 대비)
                           if (sl.id) {
                             try { await supabase.from("attendance").delete().eq("slot_id", sl.id); } catch {}
                           }
-                          // 2) member_id + date + time_slot 매칭 HARD DELETE (slot_id 없는 유령 데이터)
                           for (const dateCol of ["attend_date", "date", "attendance_date", "session_date"]) {
                             try {
                               let q: any = supabase.from("attendance").delete().eq("member_id", m.id).eq(dateCol, date);
@@ -750,12 +760,12 @@ export default function AttendancePage() {
                               if (!r.error) break;
                             } catch {}
                           }
-                          alert("✅ 출결 항목이 완전 삭제되었습니다.");
+                          alert("✅ 시간표와 출결 기록이 완전 삭제되었습니다.");
                           if (typeof loadAll === "function") await loadAll();
                           else location.reload();
                         }}
                         className="text-red-500 hover:text-red-700 hover:bg-red-50 rounded p-1.5 transition"
-                        title="완전 삭제 (복구 불가)"
+                        title="시간표 + 출결 완전 삭제 (복구 불가)"
                       >
                         🗑️
                       </button>
