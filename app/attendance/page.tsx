@@ -1120,6 +1120,7 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
   };
   const end = () => setDrawing(false);
 
+  // ✅ v3.26.5: "다시 그리기" = 캔버스만 지움 (새로 그려서 저장하면 기존 사인이 덮어쓰임)
   const clear = () => {
     const c = canvasRef.current;
     if (!c) return;
@@ -1129,6 +1130,68 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
     ctx.fillRect(0, 0, c.width, c.height);
     setHasStroke(false);
   };
+
+  // ✅ v3.26.5: 사인 완전 삭제 (DB에서 attendance 기록까지 지우고 시간표를 scheduled로 복원)
+  async function deleteSignature() {
+    if (!confirm(`⚠️ ${member?.name || ""} · ${date} 사인을 완전 삭제할까요?\n\n• attendance 기록 삭제 (서명 이미지 포함)\n• 시간표 예약 상태 → scheduled 복원\n• 회원권 차감되었다면 복원`)) return;
+    setSaving(true);
+    try {
+      // 1) 회원권 복원 (기존이 present/absent이었고 차감되었던 경우)
+      if (existingAttendance?.membership_id && (existingAttendance.status === "present" || existingAttendance.status === "absent")) {
+        try {
+          const { data: ms } = await supabase.from("memberships").select("*").eq("id", existingAttendance.membership_id).single();
+          if (ms) {
+            await supabase.from("memberships").update({ used_sessions: Math.max(0, (ms.used_sessions || 0) - 1) }).eq("id", ms.id);
+          }
+        } catch {}
+      }
+      // 2) attendance HARD DELETE (여러 방식으로)
+      let deleted = false;
+      if (existingAttendance?.id) {
+        const r = await supabase.from("attendance").delete().eq("id", existingAttendance.id);
+        if (!r.error) deleted = true;
+      }
+      if (!deleted) {
+        for (const dateCol of ["attend_date", "date", "attendance_date", "session_date"]) {
+          try {
+            let q: any = supabase.from("attendance").delete().eq("member_id", member.id).eq(dateCol, date);
+            const timeSlot = scheduleSlot?.time_slot || existingAttendance?.time_slot;
+            if (timeSlot) q = q.eq("time_slot", timeSlot);
+            const rr = await q;
+            if (!rr.error) { deleted = true; break; }
+          } catch {}
+        }
+      }
+      // 3) 시간표 상태를 scheduled로 복원
+      const slotId = scheduleSlot?.id || existingAttendance?.slot_id;
+      if (slotId) {
+        try { await supabase.from("schedule_slots").update({ status: "scheduled" }).eq("id", slotId); } catch {}
+      } else {
+        // fallback: member_id + date + time_slot 으로 찾아서 복원
+        try {
+          const nextD = (() => {
+            const d = new Date(date + "T00:00:00Z");
+            d.setUTCDate(d.getUTCDate() + 1);
+            return d.toISOString().slice(0, 10);
+          })();
+          const timeSlot = scheduleSlot?.time_slot || existingAttendance?.time_slot;
+          let q: any = supabase.from("schedule_slots").update({ status: "scheduled" })
+            .eq("member_id", member.id)
+            .gte("event_date", date)
+            .lt("event_date", nextD)
+            .is("deleted_at", null);
+          if (timeSlot) q = q.eq("time_slot", timeSlot);
+          await q;
+        } catch {}
+      }
+      alert(deleted ? "✅ 사인이 완전 삭제되고 시간표가 예약상태로 복원되었습니다." : "⚠️ 삭제를 시도했으나 일부 실패. 새로고침 후 다시 확인하세요.");
+      onSaved && (await onSaved("사인 삭제 완료"));
+    } catch (e: any) {
+      alert("삭제 오류: " + (e?.message || e));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function save() {
     if (!hasStroke) { alert("사인을 입력해주세요"); return; }
@@ -1319,6 +1382,9 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
             <div className="flex items-center justify-between mb-1">
               <div className="text-xs font-semibold text-gray-700">사인 입력</div>
               <button onClick={clear} className="text-[11px] px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded text-gray-700">다시 그리기</button>
+              {existingAttendance?.signature && (
+                <button onClick={deleteSignature} disabled={saving} className="text-[11px] px-2 py-1 bg-red-100 hover:bg-red-200 rounded text-red-700 font-bold ml-1">🗑️ 사인 삭제</button>
+              )}
             </div>
             <canvas
               ref={canvasRef}
