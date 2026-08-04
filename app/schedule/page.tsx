@@ -209,6 +209,7 @@ export default function SchedulePage() {
   async function loadAll() {
     setLoading(true);
     const branchId = getActiveBranchId();
+    console.log(`[v3.28.2] loadAll 시작 - branch_id=${branchId || "(없음)"}`);
     // ✅ branch_id 필터 (컴럼 미존재 시 폴백)
     const safeBranchQuery = async (baseFn: () => any, filterFn: (q: any) => any) => {
       if (!branchId) return await baseFn();
@@ -258,7 +259,14 @@ export default function SchedulePage() {
       // ✅ v3.20.9: memberships 자동 로드 → 시간표 셀에 회원권 이름 + 잔여/총회수 자동 표시
       supabase.from("memberships").select("id, member_id, plan_name, total_sessions, used_sessions, adjustment, end_date, status"),
     ]);
-    setSlots(sRes.data || []);
+    // ✅ v3.28.2: State 실시간 sync 강화 - 로그 + 단순 배열 교체
+    const rawSlots = Array.isArray(sRes?.data) ? sRes.data : [];
+    console.log(`[v3.28.2] schedule_slots 로드 완료: ${rawSlots.length}건`);
+    if (rawSlots.length > 0 && rawSlots[0]) {
+      console.log(`[v3.28.2] 샘플 row keys:`, Object.keys(rawSlots[0]));
+    }
+    // ✅ v3.28.2: 클라이언트 측 branch_id 2차 필터링 제거 → 서버에서 이미 필터 완료
+    setSlots(rawSlots);
     setMembers(mRes.data || []);
     // v3.21.2: 시간표·상담 매칭에서 퇴사자 자동 배제
     const activeStaff = (stRes.data || []).filter((s: any) => {
@@ -686,18 +694,39 @@ export default function SchedulePage() {
 
   const slotsByDate = useMemo(() => {
     const map: Record<string, any[]> = {};
-    slots.forEach(s => {
-      if (!s.event_date) return;
-      // ✅ v3.24.0: event_date가 timestamp 형식(2026-08-03T00:00:00+00:00)이어도 YYYY-MM-DD로 정규화
-      const key = typeof s.event_date === "string"
-        ? s.event_date.substring(0, 10)
-        : new Date(s.event_date).toISOString().substring(0, 10);
+    // ✅ v3.28.2: 데이터 로드 진단 로그 (문제 진단용)
+    console.log(`[v3.28.2] slotsByDate 매핑 시작: slots.length=${slots.length}`);
+    if (slots.length > 0) {
+      console.log("[v3.28.2] 처음 3건 event_date 샘플:", slots.slice(0, 3).map(s => ({ id: s.id, event_date: s.event_date, type: typeof s.event_date, member_id: s.member_id, branch_id: s.branch_id, deleted_at: s.deleted_at })));
+    }
+    let skipped = 0;
+    slots.forEach((s: any) => {
+      if (!s || !s.event_date) { skipped++; return; }
+      // ✅ v3.28.2: KST/UTC 타임존 안전 매핑 - Date 객체 경유 안함
+      let key: string;
+      if (typeof s.event_date === "string") {
+        // "2024-08-10" 또는 "2024-08-10T00:00:00+00:00" 모두 substring(0,10)으로 안전하게 추출
+        key = s.event_date.substring(0, 10);
+      } else {
+        // Date 객체인 경우 - toISOString은 UTC로 바꾸므로 하루 오차 가능
+        // 로컬 시간 기준 YYYY-MM-DD 로 변환
+        try {
+          const d = new Date(s.event_date);
+          key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+        } catch { skipped++; return; }
+      }
       if (!map[key]) map[key] = [];
       map[key].push(s);
     });
     Object.keys(map).forEach(k => {
       map[k].sort((a, b) => (a.time_slot || "").localeCompare(b.time_slot || ""));
     });
+    // ✅ v3.28.2: 매핑 결과 로그
+    const keys = Object.keys(map).sort();
+    console.log(`[v3.28.2] slotsByDate 매핑 완료: 총 ${keys.length}개 날짜, 스킵 ${skipped}건`);
+    if (keys.length > 0) {
+      console.log(`[v3.28.2] 매핑된 날짜 범위: ${keys[0]} ~ ${keys[keys.length-1]}`);
+    }
     return map;
   }, [slots]);
 
