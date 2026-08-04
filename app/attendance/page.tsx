@@ -70,13 +70,17 @@ export default function AttendancePage() {
       if (r.error && (r.error.code === "42703" || r.error.message?.includes("branch_id"))) return await baseFn();
       return r;
     };
-    // ✅ v3.26.2: event_date가 timestamp 형식이어도 잡도록 date 범위 필터로 변경
-    const dayStart = date;
-    const dayEnd = date;
+    // ✅ v3.26.4: event_date는 DATE 타입이므로 순수 date 문자열만 사용 (T23:59:59 붙이면 400 에러)
+    // 다음 날을 구해서 gte(오늘) + lt(내일) 범위로 안전하게 필터
+    const nextDate = (() => {
+      const d = new Date(date + "T00:00:00Z");
+      d.setUTCDate(d.getUTCDate() + 1);
+      return d.toISOString().slice(0, 10);
+    })();
     const [sRes, mRes, stRes, aRes] = await Promise.all([
       safeQ(
-        () => supabase.from("schedule_slots").select("*").gte("event_date", dayStart).lte("event_date", dayEnd + "T23:59:59").is("deleted_at", null).order("time_slot"),
-        (q: any) => q.eq("branch_id", branchId).gte("event_date", dayStart).lte("event_date", dayEnd + "T23:59:59").is("deleted_at", null).order("time_slot")
+        () => supabase.from("schedule_slots").select("*").gte("event_date", date).lt("event_date", nextDate).is("deleted_at", null).order("time_slot"),
+        (q: any) => q.eq("branch_id", branchId).gte("event_date", date).lt("event_date", nextDate).is("deleted_at", null).order("time_slot")
       ),
       safeQ(
         () => supabase.from("members").select("id, name, member_type").is("deleted_at", null).order("name"),
@@ -1226,11 +1230,17 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
       } else {
         // fallback: scheduleSlot이 없으면 DB에서 직접 찾아서 업데이트
         try {
+          // ✅ v3.26.4: DATE 타입 안전 범위 - T23:59:59 제거
+          const nextD = (() => {
+            const d = new Date(date + "T00:00:00Z");
+            d.setUTCDate(d.getUTCDate() + 1);
+            return d.toISOString().slice(0, 10);
+          })();
           const timeSlot = basePayload.time_slot;
           let q: any = supabase.from("schedule_slots").update({ status: newSlotStatus })
             .eq("member_id", member.id)
             .gte("event_date", date)
-            .lte("event_date", date + "T23:59:59")
+            .lt("event_date", nextD)
             .is("deleted_at", null);
           if (timeSlot) q = q.eq("time_slot", timeSlot);
           await q;
