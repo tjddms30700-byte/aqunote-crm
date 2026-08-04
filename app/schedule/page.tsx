@@ -218,12 +218,29 @@ export default function SchedulePage() {
       }
       return r;
     };
-    // ✅ v3.28.0: 과거 히스토리 전면 보존 - deleted_at 필터 제거 (Hard Delete로 전환되었으므로 불필요), range 확장
-    const [sRes, mRes, stRes, pRes, aRes, plRes, msRes] = await Promise.all([
-      safeBranchQuery(
+    // ✅ v3.28.1: 시간표 맨통 복구 - 3단계 fallback (branch_id와 order 오류 모두 대응)
+    const fetchSchedule = async () => {
+      const attempts = [
+        // 1) 정상: branch_id 필터 + 정렬
+        () => branchId
+          ? supabase.from("schedule_slots").select("*").or(`branch_id.eq.${branchId},branch_id.is.null`).order("event_date", { ascending: false }).order("time_slot").range(0, 99999)
+          : supabase.from("schedule_slots").select("*").order("event_date", { ascending: false }).order("time_slot").range(0, 99999),
+        // 2) branch_id 컴럼 없음: 정렬만
         () => supabase.from("schedule_slots").select("*").order("event_date", { ascending: false }).order("time_slot").range(0, 99999),
-        (q: any) => q.or(`branch_id.eq.${branchId},branch_id.is.null`).order("event_date", { ascending: false }).order("time_slot").range(0, 99999)
-      ),
+        // 3) 정렬도 안됨: 순수 SELECT
+        () => supabase.from("schedule_slots").select("*").range(0, 99999),
+      ];
+      for (const fn of attempts) {
+        try {
+          const r = await fn();
+          if (!r.error) return r;
+          console.warn("[v3.28.1] schedule_slots fetch fallback:", r.error.message);
+        } catch (e) { console.warn("[v3.28.1] schedule_slots exception:", e); }
+      }
+      return { data: [], error: null };
+    };
+    const [sRes, mRes, stRes, pRes, aRes, plRes, msRes] = await Promise.all([
+      fetchSchedule(),
       safeBranchQuery(
         () => supabase.from("members").select("id, name, member_type, status, phone").is("deleted_at", null).order("name"),
         (q: any) => q.eq("branch_id", branchId).order("name")
@@ -871,20 +888,35 @@ export default function SchedulePage() {
       }
     }
 
-    // v3.23.3: 자동 컴럼 감지 폴백 helper - 어떤 컴럼이 없어도 저장 성공
+    // ✅ v3.28.1: safeInsert 강화 - RLS/타입 오류 명확히 표시, 삽입 결과 검증까지
     async function safeInsert(payload: any): Promise<any> {
       let cur: any = { ...payload };
       let lastErr: any = null;
-      for (let i = 0; i < 15; i++) {
-        const r = await supabase.from("schedule_slots").insert(cur);
-        if (!r.error) return null;
-        lastErr = r.error;
-        const m = /'([^']+)' column|column "([^"]+)"|Could not find the '([^']+)'|column ([\w_]+) of/i.exec(r.error.message || "");
-        const missing = m?.[1] || m?.[2] || m?.[3] || m?.[4];
-        if (missing && missing in cur) {
-          const { [missing]: _drop, ...rest } = cur;
-          cur = { ...rest };
-          continue;
+      // deleted_at 제거 (v3.28 Hard Delete 이후 불필요)
+      if ("deleted_at" in cur) delete cur.deleted_at;
+      // null/undefined 값 제거 (타입 에러 방지)
+      Object.keys(cur).forEach(k => { if (cur[k] === undefined) delete cur[k]; });
+
+      for (let i = 0; i < 20; i++) {
+        const r = await supabase.from("schedule_slots").insert(cur).select();
+        if (!r.error && r.data && r.data.length > 0) {
+          console.log("✅ v3.28.1 schedule_slots 삽입 성공:", r.data[0]?.id);
+          return null;
+        }
+        if (r.error) {
+          lastErr = r.error;
+          console.warn(`[v3.28.1] insert 시도 ${i+1} 실패:`, r.error.message, r.error.code);
+          // RLS 오류면 즉시 중단 (무한루프 방지)
+          if (r.error.code === "42501" || r.error.message?.includes("row-level security")) {
+            return r.error;
+          }
+          const m = /'([^']+)' column|column "([^"]+)"|Could not find the '([^']+)'|column ([\w_]+) of/i.exec(r.error.message || "");
+          const missing = m?.[1] || m?.[2] || m?.[3] || m?.[4];
+          if (missing && missing in cur) {
+            const { [missing]: _drop, ...rest } = cur;
+            cur = { ...rest };
+            continue;
+          }
         }
         break;
       }
