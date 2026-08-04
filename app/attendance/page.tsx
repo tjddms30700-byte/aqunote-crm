@@ -36,7 +36,9 @@ function todayStr() {
 }
 
 export default function AttendancePage() {
-  const [date, setDate]           = useState(todayStr());
+  // ✅ v3.26.8: hydration mismatch 방지 - 초기값은 빈 문자열, 마운트 후 useEffect에서 설정
+  const [date, setDate]           = useState<string>("");
+  const [mounted, setMounted]     = useState(false);
   const [scheduleSlots, setSlots] = useState<any[]>([]); // 그날의 시간표 슬롯
   const [members, setMembers]     = useState<any[]>([]);
   const [staff, setStaff]         = useState<any[]>([]);
@@ -54,7 +56,13 @@ export default function AttendancePage() {
   const [view, setView] = useState<"list" | "sign">("list");
   const [signTarget, setSignTarget] = useState<any | null>(null);
 
-  useEffect(() => { loadAll(); }, [date]);
+  // ✅ v3.26.8: 클라이언트 마운트 후에만 오늘 날짜 설정 (SSR hydration 안전)
+  useEffect(() => {
+    setDate(todayStr());
+    setMounted(true);
+  }, []);
+
+  useEffect(() => { if (date) loadAll(); }, [date]);
 
   async function loadAll() {
     setLoading(true);
@@ -822,8 +830,13 @@ function SignInBoard({ date, members, attendance, onOpenSign }: any) {
   // ✅ v3.16.1: 사인 이력 표 프린트용 필터
   const [showHistory, setShowHistory] = useState(false);
   const [histMemberId, setHistMemberId] = useState("");
-  const [histFrom, setHistFrom] = useState(new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10));
-  const [histTo, setHistTo] = useState(new Date().toISOString().slice(0, 10));
+  // ✅ v3.26.8: hydration mismatch 방지
+  const [histFrom, setHistFrom] = useState<string>("");
+  const [histTo, setHistTo] = useState<string>("");
+  useEffect(() => {
+    setHistFrom(new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10));
+    setHistTo(new Date().toISOString().slice(0, 10));
+  }, []);
 
   // ✅ v3.25.2: attend_date가 timestamp일 때 substring(0,10) 정규화 - 사인입장 크래시 방지
   const todayRecs = (attendance || []).filter((a: any) => {
