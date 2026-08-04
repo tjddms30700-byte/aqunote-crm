@@ -21,6 +21,15 @@ const STATUS_OPTIONS = [
 ];
 function statusMeta(s: string) { return STATUS_OPTIONS.find(x => x.value === s); }
 
+// ✅ v3.25.4: attend_date 정규화 - timestamp/date 모두 YYYY-MM-DD로 변환 (모든 컴포넌트에서 공유)
+function normDate(v: any): string {
+  if (!v) return "";
+  try {
+    if (typeof v === "string") return v.substring(0, 10);
+    return new Date(v).toISOString().substring(0, 10);
+  } catch { return ""; }
+}
+
 function todayStr() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
