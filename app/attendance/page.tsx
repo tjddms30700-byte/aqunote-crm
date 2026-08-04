@@ -81,7 +81,7 @@ export default function AttendancePage() {
     setStaff(stRes.data || []);
     setAttendance(aRes.data || []);
     // v3.23.0: slot 단위 drafts 초기화 (slotKey = memberId__timeSlot)
-    const today = (aRes.data || []).filter((a: any) => a.attend_date === date);
+    const today = (aRes.data || []).filter((a: any) => normDate(a.attend_date) === date);
     const dr: Record<string, string> = {};
     today.forEach((a: any) => {
       // time_slot이 있으면 slotKey, 없으면 회원 단일 키로 폴백
@@ -155,7 +155,7 @@ export default function AttendancePage() {
     cutoff.setDate(cutoff.getDate() - 30);
     const cutoffStr = cutoff.toISOString().slice(0,10);
     return todayMembers.map(m => {
-      const recs = attendance.filter((a: any) => a.member_id === m.id && a.attend_date >= cutoffStr);
+      const recs = attendance.filter((a: any) => a.member_id === m.id && normDate(a.attend_date) >= cutoffStr);
       const total = recs.length;
       const present = recs.filter(a => a.status === "present").length;
       const absent = recs.filter(a => a.status === "absent").length;
@@ -170,7 +170,7 @@ export default function AttendancePage() {
     const slotKey = timeSlot ? `${memberId}__${timeSlot}` : memberId;
     setDrafts(prev => {
       const currentSaved = attendance.find((a: any) =>
-        a.member_id === memberId && a.attend_date === date &&
+        a.member_id === memberId && normDate(a.attend_date) === date &&
         (timeSlot ? a.time_slot === timeSlot : true)
       );
       const newDrafts = { ...prev };
@@ -193,7 +193,7 @@ export default function AttendancePage() {
 
   function resetChanges() {
     if (!confirm("변경사항을 초기화합니다")) return;
-    const today = attendance.filter((a: any) => a.attend_date === date);
+    const today = attendance.filter((a: any) => normDate(a.attend_date) === date);
     const dr: Record<string, string> = {};
     today.forEach((a: any) => {
       const key = a.time_slot ? `${a.member_id}__${a.time_slot}` : a.member_id;
@@ -234,7 +234,7 @@ export default function AttendancePage() {
       const draft = drafts[slotKey];
       // slot 단위 기존 레코드 - time_slot 매칭
       const existing = attendance.find((a: any) =>
-        a.member_id === memberId && a.attend_date === date &&
+        a.member_id === memberId && normDate(a.attend_date) === date &&
         (timeSlot ? a.time_slot === timeSlot : !a.time_slot)
       );
       // slot 매칭
@@ -510,7 +510,7 @@ export default function AttendancePage() {
           member={signTarget}
           date={date}
           orgId={null}
-          existingAttendance={attendance.find((a: any) => a.member_id === signTarget.id && a.attend_date === date) || null}
+          existingAttendance={attendance.find((a: any) => a.member_id === signTarget.id && normDate(a.attend_date) === date) || null}
           scheduleSlot={scheduleSlots.find((s: any) => s.member_id === signTarget.id) || null}
           onClose={() => setSignTarget(null)}
           onSaved={async () => { setSignTarget(null); await loadAll(); }}
@@ -688,7 +688,7 @@ export default function AttendancePage() {
                     {/* ✅ v3.13.5: 저장일 / 차감일 / 수동·자동 배지 */}
                     <td className="p-2 text-center text-[10px]">
                       {(() => {
-                        const rec = attendance.find((a: any) => a.member_id === m.id && a.attend_date === date);
+                        const rec = attendance.find((a: any) => a.member_id === m.id && normDate(a.attend_date) === date);
                         if (!rec) return <span className="text-gray-300">-</span>;
                         const savedAt  = rec.saved_at    ? String(rec.saved_at).slice(5, 16).replace("T", " ")  : (rec.created_at ? String(rec.created_at).slice(5, 16).replace("T", " ") : null);
                         const deducted = rec.deducted_at ? String(rec.deducted_at).slice(5, 16).replace("T", " ") : null;
@@ -720,45 +720,33 @@ export default function AttendancePage() {
                       </div>
                       <div className="text-[10px] text-gray-400">{m.present}/{m.total}회</div>
                     </td>
-                    {/* ✅ v3.24.5: 출결 삭제 버튼 (개별 항목 제거) */}
+                    {/* ✅ v3.25.2: 출결 완전 삭제 버튼 (HARD DELETE - 복구 불가) */}
                     <td className="p-2 text-center">
                       <button
                         onClick={async () => {
                           const msg = sl.time_slot
-                            ? `⚠️ 이 출결 항목을 삭제할까요?\n\n회원: ${m.name}\n날짜: ${date}\n시간: ${sl.time_slot}\n\n💡 attendance 레코드가 소프트 삭제됩니다 (복구 가능)`
-                            : `⚠️ 이 회원의 ${date} 출결 항목을 삭제할까요?\n\n회원: ${m.name}\n\n💡 attendance 레코드가 소프트 삭제됩니다 (복구 가능)`;
+                            ? `⚠️ 정말로 완전 삭제하시겠습니까? (복구 불가)\n\n회원: ${m.name}\n날짜: ${date}\n시간: ${sl.time_slot}\n\n💡 attendance 레코드가 DB에서 완전히 삭제됩니다.`
+                            : `⚠️ 정말로 완전 삭제하시겠습니까? (복구 불가)\n\n회원: ${m.name}\n날짜: ${date}\n\n💡 attendance 레코드가 DB에서 완전히 삭제됩니다.`;
                           if (!confirm(msg)) return;
-                          const nowIso = new Date().toISOString();
-                          // 1) slot_id 매칭 삭제
+                          // 1) slot_id 매칭 HARD DELETE
                           if (sl.id) {
-                            try {
-                              const r = await supabase.from("attendance")
-                                .update({ deleted_at: nowIso })
-                                .eq("slot_id", sl.id);
-                              if (r.error) await supabase.from("attendance").delete().eq("slot_id", sl.id);
-                            } catch {
-                              await supabase.from("attendance").delete().eq("slot_id", sl.id);
-                            }
+                            try { await supabase.from("attendance").delete().eq("slot_id", sl.id); } catch {}
                           }
-                          // 2) member_id + date + time_slot 매칭 삭제 (slot_id 없는 유령 데이터)
+                          // 2) member_id + date + time_slot 매칭 HARD DELETE (slot_id 없는 유령 데이터)
                           for (const dateCol of ["attend_date", "date", "attendance_date", "session_date"]) {
                             try {
-                              let q = supabase.from("attendance")
-                                .update({ deleted_at: nowIso })
-                                .eq("member_id", m.id)
-                                .eq(dateCol, date)
-                                .is("deleted_at", null);
+                              let q: any = supabase.from("attendance").delete().eq("member_id", m.id).eq(dateCol, date);
                               if (sl.time_slot) q = q.eq("time_slot", sl.time_slot);
                               const r = await q;
                               if (!r.error) break;
                             } catch {}
                           }
-                          alert("✅ 출결 항목이 삭제되었습니다.");
+                          alert("✅ 출결 항목이 완전 삭제되었습니다.");
                           if (typeof loadAll === "function") await loadAll();
                           else location.reload();
                         }}
                         className="text-red-500 hover:text-red-700 hover:bg-red-50 rounded p-1.5 transition"
-                        title="이 출결 항목 삭제"
+                        title="완전 삭제 (복구 불가)"
                       >
                         🗑️
                       </button>
@@ -810,12 +798,19 @@ function SignInBoard({ date, members, attendance, onOpenSign }: any) {
   const [histFrom, setHistFrom] = useState(new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10));
   const [histTo, setHistTo] = useState(new Date().toISOString().slice(0, 10));
 
-  const todayRecs = (attendance || []).filter((a: any) => a.attend_date === date);
+  // ✅ v3.25.2: attend_date가 timestamp일 때 substring(0,10) 정규화 - 사인입장 크래시 방지
+  const todayRecs = (attendance || []).filter((a: any) => {
+    if (!a || !a.attend_date) return false;
+    const ad = typeof a.attend_date === "string"
+      ? a.attend_date.substring(0, 10)
+      : new Date(a.attend_date).toISOString().substring(0, 10);
+    return ad === date;
+  });
   const recMap = new Map<string, any>();
-  todayRecs.forEach((r: any) => recMap.set(r.member_id, r));
+  todayRecs.forEach((r: any) => { if (r?.member_id) recMap.set(r.member_id, r); });
 
   const filtered = (members || []).filter((m: any) =>
-    !search.trim() || (m.name || "").toLowerCase().includes(search.trim().toLowerCase())
+    m && (!search.trim() || (m.name || "").toLowerCase().includes(search.trim().toLowerCase()))
   );
 
   // ✅ v3.16.1: 사인 이력 프린트 함수
@@ -826,8 +821,8 @@ function SignInBoard({ date, members, attendance, onOpenSign }: any) {
     const signedRecs = (attendance || [])
       .filter((a: any) => !!a.signature)
       .filter((a: any) => (!histMemberId || a.member_id === histMemberId))
-      .filter((a: any) => (!histFrom || a.attend_date >= histFrom))
-      .filter((a: any) => (!histTo || a.attend_date <= histTo))
+      .filter((a: any) => (!histFrom || normDate(a.attend_date) >= histFrom))
+      .filter((a: any) => (!histTo || normDate(a.attend_date) <= histTo))
       .sort((a: any, b: any) => (b.attend_date || "").localeCompare(a.attend_date || "") || (b.signed_at || "").localeCompare(a.signed_at || ""));
 
     if (signedRecs.length === 0) {
@@ -1015,6 +1010,19 @@ td.sig-cell img { max-width: 130px; max-height: 55px; object-fit: contain; }
 
 /* ✅ v3.14.1: 사인패드 모달 (Canvas 기반) */
 function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSlot, onClose, onSaved }: any) {
+  // ✅ v3.25.2: member/date null 방어 - 태블릿 사인입장 런타임 크래시 방지
+  if (!member || !member.id || !date) {
+    return (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+        <div className="bg-white rounded-2xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+          <div className="text-center">
+            <p className="text-gray-700 mb-4">⚠️ 회원 정보가 없어 서명을 진행할 수 없습니다.</p>
+            <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg">닫기</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [drawing, setDrawing] = useState(false);
   const [hasStroke, setHasStroke] = useState(false);
