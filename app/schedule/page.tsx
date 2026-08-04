@@ -99,9 +99,16 @@ function monthGrid(year: number, month0: number) {
 /* ═════ 메인 컴포넌트 ═════ */
 export default function SchedulePage() {
   const [view, setView] = useState<"month" | "week" | "day">("month");
-  const [year, setYear]     = useState(new Date().getFullYear());
-  const [month0, setMonth0] = useState(new Date().getMonth());
-  const [selectedDate, setSelectedDate] = useState(todayStr());
+  // ✅ v3.26.9: hydration mismatch 방지 - 초기값 0 / 빈문자열, 마운트 후 useEffect에서 설정
+  const [year, setYear]     = useState<number>(0);
+  const [month0, setMonth0] = useState<number>(0);
+  const [selectedDate, setSelectedDate] = useState<string>("");
+  useEffect(() => {
+    const now = new Date();
+    setYear(now.getFullYear());
+    setMonth0(now.getMonth());
+    setSelectedDate(todayStr());
+  }, []);
 
   const [slots, setSlots]     = useState<any[]>([]);
   const [members, setMembers] = useState<any[]>([]);

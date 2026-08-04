@@ -15,13 +15,13 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ko">
+    <html lang="ko" suppressHydrationWarning>
       <head>
         <link rel="icon" href="/logo-whale.png" type="image/png" />
         <link rel="shortcut icon" href="/logo-whale.png" type="image/png" />
         <link rel="apple-touch-icon" href="/logo-whale.png" />
       </head>
-      <body className="bg-gradient-to-br from-aqu-50 to-white min-h-screen">
+      <body className="bg-gradient-to-br from-aqu-50 to-white min-h-screen" suppressHydrationWarning>
         {children}
       </body>
     </html>
