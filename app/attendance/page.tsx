@@ -993,21 +993,27 @@ td.sig-cell img { max-width: 130px; max-height: 55px; object-fit: contain; }
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
           {filtered.filter((m: any) => m && m.id).map((m: any) => {
-            // ✅ v3.25.5: null 방어 강화 - undefined 멤버/status 크래시 방지
+            // ✅ v3.26.3: null 방어 + 사인 완료 시 status 표시 강화
             const rec = recMap.get(m.id);
             const signed = !!rec?.signature;
             const status = rec?.status;
             const bgClass = signed
-              ? "bg-purple-50 border-purple-400"
-              : status === "present"
-              ? "bg-green-50 border-green-300"
-              : status === "absent"
-              ? "bg-red-50 border-red-300"
-              : status === "sick"
-              ? "bg-orange-50 border-orange-300"
+              ? (status === "present" ? "bg-green-100 border-green-400"
+                : status === "absent" ? "bg-red-100 border-red-400"
+                : status === "sick" ? "bg-orange-100 border-orange-400"
+                : status === "personal" ? "bg-blue-100 border-blue-400"
+                : "bg-purple-50 border-purple-400")
+              : status === "present" ? "bg-green-50 border-green-300"
+              : status === "absent" ? "bg-red-50 border-red-300"
+              : status === "sick" ? "bg-orange-50 border-orange-300"
               : "bg-white border-gray-200 hover:bg-purple-50";
-            // ✅ v3.25.5: statusMeta 리턴값이 undefined일 때 .label 접근 방지
-            const statusLabel = status ? (statusMeta(status)?.label || "상태") : "터치해서 사인";
+            // ✅ v3.26.3: 사인 완료 시 상태 라벨 정확히 표시 (예: "✓ 출석")
+            const statusInfo = status ? statusMeta(status) : null;
+            const statusLabel = signed
+              ? (statusInfo?.label ? `✓ ${statusInfo.label}` : "✓ 사인 완료")
+              : status
+                ? (statusInfo?.label || "상태")
+                : "터치해서 사인";
             return (
               <button
                 key={m.id}
@@ -1210,10 +1216,25 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
         if (err) throw err;
       }
 
-      // v3.21.2: 시간표 상태 동기화 (personal 포함)
+      // ✅ v3.26.3: 시간표 상태 동기화 강화 (scheduleSlot이 없으면 member_id+date+time_slot으로 슬롯 직접 검색)
+      const statusMap: Record<string, string> = { present: "done", absent: "noshow", sick: "sick", personal: "sick" };
+      const newSlotStatus = statusMap[status] || "done";
       if (scheduleSlot?.id) {
-        const statusMap: Record<string, string> = { present: "done", absent: "noshow", sick: "sick", personal: "sick" };
-        await supabase.from("schedule_slots").update({ status: statusMap[status] }).eq("id", scheduleSlot.id);
+        try {
+          await supabase.from("schedule_slots").update({ status: newSlotStatus }).eq("id", scheduleSlot.id);
+        } catch (e) { console.warn("시간표 상태 동기화 실패:", e); }
+      } else {
+        // fallback: scheduleSlot이 없으면 DB에서 직접 찾아서 업데이트
+        try {
+          const timeSlot = basePayload.time_slot;
+          let q: any = supabase.from("schedule_slots").update({ status: newSlotStatus })
+            .eq("member_id", member.id)
+            .gte("event_date", date)
+            .lte("event_date", date + "T23:59:59")
+            .is("deleted_at", null);
+          if (timeSlot) q = q.eq("time_slot", timeSlot);
+          await q;
+        } catch (e) { console.warn("시간표 fallback 동기화 실패:", e); }
       }
 
       const parts: string[] = ["✅ 사인 저장 완료"];

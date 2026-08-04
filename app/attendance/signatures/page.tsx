@@ -311,14 +311,49 @@ export default function SignatureAttendanceHistoryPage() {
                     </td>
                     <td className="px-3 py-2 text-center no-print">
                       <button onClick={async () => {
-                        if (!confirm(`${m.name || "회원"}\u002d\u002d${r._date} 서명을 취소할까요?\n\n• 서명 이미지 삭제\n• attendance 기록 삭제\n• 연결된 시간표 예약 상태 → scheduled로 복원`)) return;
-                        const { error } = await supabase.from("attendance").delete().eq("id", r.id);
-                        if (error) return alert("취소 실패: " + error.message);
-                        if (r.slot_id) await supabase.from("schedule_slots").update({ status: "scheduled" }).eq("id", r.slot_id);
-                        await loadAll();
-                        alert("✅ 서명 취소 완료");
+                        // ✅ v3.26.3: 서명 취소 강화 - 여러 방식으로 삭제 시도 + 시간표 예약 상태 복원
+                        if (!confirm(`${m.name || "회원"} · ${r._date} 서명을 완전 삭제할까요?\n\n• attendance 기록 완전 삭제\n• 연결된 시간표 예약 상태 → scheduled 복원\n• 복구 불가`)) return;
+                        try {
+                          // 1) attendance HARD DELETE by id
+                          let deleted = false;
+                          if (r.id) {
+                            const { error, count } = await supabase.from("attendance").delete({ count: "exact" }).eq("id", r.id);
+                            if (!error) deleted = true;
+                            else console.warn("id 삭제 실패:", error.message);
+                          }
+                          // 2) fallback: member_id + date + time_slot 매칭으로 삭제
+                          if (!deleted && r.member_id && r._date) {
+                            for (const dateCol of ["attend_date", "date", "attendance_date", "session_date"]) {
+                              try {
+                                let q: any = supabase.from("attendance").delete().eq("member_id", r.member_id).eq(dateCol, r._date);
+                                if (r.time_slot) q = q.eq("time_slot", r.time_slot);
+                                const rr = await q;
+                                if (!rr.error) { deleted = true; break; }
+                              } catch {}
+                            }
+                          }
+                          // 3) fallback: signature로 다시 시도 (id가 UUID가 아닌 경우 대비)
+                          if (!deleted && r.signature) {
+                            try {
+                              const rr = await supabase.from("attendance").delete().eq("signature", r.signature).eq("member_id", r.member_id);
+                              if (!rr.error) deleted = true;
+                            } catch {}
+                          }
+                          // 4) 시간표 상태 scheduled로 복원
+                          if (r.slot_id) {
+                            try { await supabase.from("schedule_slots").update({ status: "scheduled" }).eq("id", r.slot_id); } catch {}
+                          }
+                          if (!deleted) {
+                            alert("⚠️ 서명 삭제에 실패했습니다. 관리자에게 문의하세요.");
+                          } else {
+                            alert("✅ 서명이 완전 삭제되었습니다.");
+                          }
+                          await loadAll();
+                        } catch (e: any) {
+                          alert("삭제 오류: " + (e?.message || e));
+                        }
                       }}
-                        title="서명 취소"
+                        title="서명 완전 삭제"
                         className="p-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded border border-red-200">
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
