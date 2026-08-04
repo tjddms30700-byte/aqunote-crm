@@ -70,10 +70,13 @@ export default function AttendancePage() {
       if (r.error && (r.error.code === "42703" || r.error.message?.includes("branch_id"))) return await baseFn();
       return r;
     };
+    // ✅ v3.26.2: event_date가 timestamp 형식이어도 잡도록 date 범위 필터로 변경
+    const dayStart = date;
+    const dayEnd = date;
     const [sRes, mRes, stRes, aRes] = await Promise.all([
       safeQ(
-        () => supabase.from("schedule_slots").select("*").eq("event_date", date).order("time_slot"),
-        (q: any) => q.eq("branch_id", branchId).eq("event_date", date).order("time_slot")
+        () => supabase.from("schedule_slots").select("*").gte("event_date", dayStart).lte("event_date", dayEnd + "T23:59:59").is("deleted_at", null).order("time_slot"),
+        (q: any) => q.eq("branch_id", branchId).gte("event_date", dayStart).lte("event_date", dayEnd + "T23:59:59").is("deleted_at", null).order("time_slot")
       ),
       safeQ(
         () => supabase.from("members").select("id, name, member_type").is("deleted_at", null).order("name"),
@@ -397,13 +400,16 @@ export default function AttendancePage() {
     await loadAll();
   }
 
-  // v3.23.0: slot 단위 통계 (연타임은 각각 카운트)
+  // ✅ v3.26.2: KPI 완전히 시간표 기점으로 통일
+  // - 대상 회원 = 그날 활성 시간표 슬롯의 고유 회원 수 (todayMembers.length와 일치)
+  // - 미체크 = 활성 슬롯 수 - drafts 수 (event_type/deleted_at 안전 필터 적용)
+  const activeSlotsForKpi = scheduleSlots.filter((s: any) => s && s.member_id && !s.deleted_at);
   const stat = {
-    total: scheduleSlots.filter(s => s.member_id && (s.event_type === "lesson" || s.event_type === "trial" || s.event_type === "makeup")).length,
+    total: todayMembers.length,
     present: Object.values(drafts).filter(v => v === "present").length,
     absent: Object.values(drafts).filter(v => v === "absent").length,
     sick: Object.values(drafts).filter(v => v === "sick").length,
-    unchecked: Math.max(0, scheduleSlots.filter(s => s.member_id).length - Object.keys(drafts).length),
+    unchecked: Math.max(0, activeSlotsForKpi.length - Object.keys(drafts).length),
   };
 
   return (
