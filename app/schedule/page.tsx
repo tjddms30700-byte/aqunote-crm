@@ -218,10 +218,11 @@ export default function SchedulePage() {
       }
       return r;
     };
+    // ✅ v3.28.0: 과거 히스토리 전면 보존 - deleted_at 필터 제거 (Hard Delete로 전환되었으므로 불필요), range 확장
     const [sRes, mRes, stRes, pRes, aRes, plRes, msRes] = await Promise.all([
       safeBranchQuery(
-        () => supabase.from("schedule_slots").select("*").is("deleted_at", null).order("event_date", { ascending: false }).order("time_slot").range(0, 49999),
-        (q: any) => q.or(`branch_id.eq.${branchId},branch_id.is.null`).is("deleted_at", null).order("event_date", { ascending: false }).order("time_slot").range(0, 49999)
+        () => supabase.from("schedule_slots").select("*").order("event_date", { ascending: false }).order("time_slot").range(0, 99999),
+        (q: any) => q.or(`branch_id.eq.${branchId},branch_id.is.null`).order("event_date", { ascending: false }).order("time_slot").range(0, 99999)
       ),
       safeBranchQuery(
         () => supabase.from("members").select("id, name, member_type, status, phone").is("deleted_at", null).order("name"),
