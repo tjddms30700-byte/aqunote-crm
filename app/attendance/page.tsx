@@ -978,7 +978,8 @@ td.sig-cell img { max-width: 130px; max-height: 55px; object-fit: contain; }
         </div>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
-          {filtered.map((m: any) => {
+          {filtered.filter((m: any) => m && m.id).map((m: any) => {
+            // ✅ v3.25.5: null 방어 강화 - undefined 멤버/status 크래시 방지
             const rec = recMap.get(m.id);
             const signed = !!rec?.signature;
             const status = rec?.status;
@@ -991,14 +992,16 @@ td.sig-cell img { max-width: 130px; max-height: 55px; object-fit: contain; }
               : status === "sick"
               ? "bg-orange-50 border-orange-300"
               : "bg-white border-gray-200 hover:bg-purple-50";
+            // ✅ v3.25.5: statusMeta 리턴값이 undefined일 때 .label 접근 방지
+            const statusLabel = status ? (statusMeta(status)?.label || "상태") : "터치해서 사인";
             return (
               <button
                 key={m.id}
-                onClick={() => onOpenSign(m)}
+                onClick={() => onOpenSign && onOpenSign(m)}
                 className={`p-4 rounded-2xl border-2 transition-all text-left shadow-sm hover:shadow-md ${bgClass}`}
               >
                 <div className="flex items-center justify-between mb-2">
-                  <div className="text-base font-bold text-gray-800 truncate">{m.name}</div>
+                  <div className="text-base font-bold text-gray-800 truncate">{m.name || "-"}</div>
                   {signed && <span className="text-xs text-purple-600">✓ 사인</span>}
                 </div>
                 <div className="text-[10px] text-gray-500 mb-2">
@@ -1006,7 +1009,7 @@ td.sig-cell img { max-width: 130px; max-height: 55px; object-fit: contain; }
                   {m.guardian_name ? ` · ${m.guardian_name}` : ""}
                 </div>
                 <div className="text-xs text-purple-700 font-semibold">
-                  {signed ? "사인 수정" : status ? statusMeta(status).label : "터치해서 사인"}
+                  {signed ? "사인 수정" : statusLabel}
                 </div>
               </button>
             );
