@@ -2292,7 +2292,14 @@ function WeekView({ slots, members, staff, onCellClick, onCellDoubleClick, onEdi
     setWeekStart(d);
   }
   function slotsAt(date: string, time: string) {
-    return slots.filter((s: any) => s.event_date === date && s.time_slot === time);
+    // ✅ v3.25.1: event_date가 timestamp 형식(2026-08-04T00:00:00+00:00)이어도 매칭되도록 정규화
+    return slots.filter((s: any) => {
+      if (!s.event_date) return false;
+      const ed = typeof s.event_date === "string"
+        ? s.event_date.substring(0, 10)
+        : new Date(s.event_date).toISOString().substring(0, 10);
+      return ed === date && s.time_slot === time;
+    });
   }
 
   function goToDate(dateStr: string) {
@@ -2438,14 +2445,26 @@ function DayView({ date, setDate, slots, members, staff, onCellClick, onCellDoub
   }
 
   function slotsAtStaff(staffId: string | null, time: string) {
-    return slots.filter((s: any) =>
-      s.event_date === date &&
-      s.time_slot === time &&
-      (staffId ? s.staff_id === staffId : !s.staff_id)
-    );
+    // ✅ v3.25.1: 일간 뷰 event_date 정규화
+    return slots.filter((s: any) => {
+      if (!s.event_date) return false;
+      const ed = typeof s.event_date === "string"
+        ? s.event_date.substring(0, 10)
+        : new Date(s.event_date).toISOString().substring(0, 10);
+      return ed === date &&
+        s.time_slot === time &&
+        (staffId ? s.staff_id === staffId : !s.staff_id);
+    });
   }
 
-  const daySlots = slots.filter((s: any) => s.event_date === date);
+  // ✅ v3.25.1: 일간 뷰 daySlots event_date 정규화
+  const daySlots = slots.filter((s: any) => {
+    if (!s.event_date) return false;
+    const ed = typeof s.event_date === "string"
+      ? s.event_date.substring(0, 10)
+      : new Date(s.event_date).toISOString().substring(0, 10);
+    return ed === date;
+  });
   const total = daySlots.length;
 
   return (
