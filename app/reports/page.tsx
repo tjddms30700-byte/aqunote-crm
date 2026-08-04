@@ -75,7 +75,9 @@ function ReportsPage() {
   const [type, setType] = useState<string>("daily");
   const [selectedMember, setSelectedMember] = useState<string>("");
   const [startDate, setStartDate] = useState(weekAgoStr());
-  const [endDate, setEndDate] = useState(todayStr());
+  // ✅ v3.26.10: hydration mismatch 방지
+  const [endDate, setEndDate] = useState<string>("");
+  useEffect(() => { setEndDate(todayStr()); }, []);
   const [generating, setGenerating] = useState(false);
   const [reportHtml, setReportHtml] = useState<string>("");
   // v3.20.21: 상단 탭 (보고서 / 양식)

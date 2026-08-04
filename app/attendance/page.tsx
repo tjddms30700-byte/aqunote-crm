@@ -85,25 +85,43 @@ export default function AttendancePage() {
       d.setUTCDate(d.getUTCDate() + 1);
       return d.toISOString().slice(0, 10);
     })();
+    // ✅ v3.27.0: 400 Bad Request 방지 - order/is/deleted_at 오류 시 순차적 fallback
+    const safeSelect = async (table: string, cols: string, extraFn: (q: any) => any) => {
+      // 전체 시도 → order 없이 시도 → deleted_at 없이 시도
+      const attempts = [
+        () => extraFn(supabase.from(table).select(cols).is("deleted_at", null).order("name")),
+        () => extraFn(supabase.from(table).select(cols).is("deleted_at", null)),
+        () => extraFn(supabase.from(table).select(cols)),
+      ];
+      for (const fn of attempts) {
+        try {
+          const r = await fn();
+          if (!r.error) return r;
+          console.warn(`[v3.27.0] ${table} select fallback:`, r.error.message);
+        } catch (e) { console.warn(`[v3.27.0] ${table} exception:`, e); }
+      }
+      return { data: [], error: null };
+    };
+
     const [sRes, mRes, stRes, aRes] = await Promise.all([
       safeQ(
-        () => supabase.from("schedule_slots").select("*").gte("event_date", date).lt("event_date", nextDate).is("deleted_at", null).order("time_slot"),
-        (q: any) => q.eq("branch_id", branchId).gte("event_date", date).lt("event_date", nextDate).is("deleted_at", null).order("time_slot")
+        () => supabase.from("schedule_slots").select("*").gte("event_date", date).lt("event_date", nextDate).order("time_slot"),
+        (q: any) => q.eq("branch_id", branchId).gte("event_date", date).lt("event_date", nextDate).order("time_slot")
       ),
-      safeQ(
-        () => supabase.from("members").select("id, name, member_type").is("deleted_at", null).order("name"),
-        (q: any) => q.eq("branch_id", branchId).is("deleted_at", null).order("name")
-      ),
-      safeQ(
-        () => supabase.from("staff").select("id, name, role, color").order("name"),
-        (q: any) => q.eq("branch_id", branchId).order("name")
-      ),
+      // ✅ v3.27.0: members 스키마 변경되었을 수도 있으므로 fallback
+      (branchId
+        ? safeSelect("members", "id, name, member_type, guardian_name", (q: any) => q.eq("branch_id", branchId))
+        : safeSelect("members", "id, name, member_type, guardian_name", (q: any) => q)),
+      (branchId
+        ? safeSelect("staff", "id, name, role, color", (q: any) => q.eq("branch_id", branchId))
+        : safeSelect("staff", "id, name, role, color", (q: any) => q)),
       supabase.from("attendance").select("*").gte("attend_date", cutoffStr).order("attend_date", { ascending: false }),
     ]);
-    setSlots(sRes.data || []);
-    setMembers(mRes.data || []);
-    setStaff(stRes.data || []);
-    setAttendance(aRes.data || []);
+    // ✅ v3.27.0: null 방어 강화 - 런타임 크래시 방지
+    setSlots(Array.isArray(sRes?.data) ? sRes.data : []);
+    setMembers(Array.isArray(mRes?.data) ? mRes.data : []);
+    setStaff(Array.isArray(stRes?.data) ? stRes.data : []);
+    setAttendance(Array.isArray(aRes?.data) ? aRes.data : []);
     // v3.23.0: slot 단위 drafts 초기화 (slotKey = memberId__timeSlot)
     const today = (aRes.data || []).filter((a: any) => normDate(a.attend_date) === date);
     const dr: Record<string, string> = {};

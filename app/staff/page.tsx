@@ -79,8 +79,14 @@ export default function StaffPage() {
   });
   const [editAtt, setEditAtt] = useState<any>(null);
 
-  const [filterYear, setFilterYear] = useState(new Date().getFullYear());
-  const [filterMonth, setFilterMonth] = useState(new Date().getMonth() + 1);
+  // ✅ v3.26.10: hydration mismatch 방지
+  const [filterYear, setFilterYear] = useState<number>(0);
+  const [filterMonth, setFilterMonth] = useState<number>(0);
+  useEffect(() => {
+    const now = new Date();
+    setFilterYear(now.getFullYear());
+    setFilterMonth(now.getMonth() + 1);
+  }, []);
   const [filterStaffId, setFilterStaffId] = useState("");
 
   // ✅ v3.18.0: 강사별 세션 자동 계산용 state (상단에 선언)
@@ -91,7 +97,9 @@ export default function StaffPage() {
   const [membersLite, setMembersLite] = useState<any[]>([]);
   // v3.21.6: 상담·매칭 페이지에서 지정한 고정 셀도 예약으로 인식 (주간 반복 수업 파이프라인)
   const [slotMatrix, setSlotMatrix] = useState<any[]>([]);
-  const [slotsMonth, setSlotsMonth] = useState<string>(new Date().toISOString().slice(0, 7));
+  // ✅ v3.26.10: hydration mismatch 방지
+  const [slotsMonth, setSlotsMonth] = useState<string>("");
+  useEffect(() => { setSlotsMonth(new Date().toISOString().slice(0, 7)); }, []);
 
   useEffect(() => { loadAll(); }, [slotsMonth]);
   useEffect(() => { checkDirector(); }, []);
@@ -1179,7 +1187,9 @@ function Modal({ title, onClose, children }: any) {
 }
 
 function ResignModal({ staff, onClose, onConfirm }: any) {
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  // ✅ v3.26.10: hydration mismatch 방지
+  const [date, setDate] = useState<string>("");
+  useEffect(() => { setDate(new Date().toISOString().slice(0, 10)); }, []);
   const [reason, setReason] = useState("");
   return (
     <Modal title={`${staff.name} 님 퇴사 처리`} onClose={onClose}>

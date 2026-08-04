@@ -61,7 +61,9 @@ export default function StaffAttendancePage() {
   const [expenses, setExpenses] = useState<any[]>([]);
   const [posts, setPosts] = useState<any[]>([]);
   const [selectedStaff, setSelectedStaff] = useState<string>("");
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  // ✅ v3.26.10: hydration mismatch 방지
+  const [month, setMonth] = useState<string>("");
+  useEffect(() => { setMonth(new Date().toISOString().slice(0, 7)); }, []);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<TabKey>("attendance");
   // v3.21.4: 마스터/센터장 기본 허용 – profile/staff role 조회 실패 시에도 버튼 노출 보장

@@ -62,7 +62,8 @@ function FinancePage() {
   const [staffList, setStaffList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
-  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [selectedMonth, setSelectedMonth] = useState<string>("");
+  useEffect(() => { setSelectedMonth(new Date().toISOString().slice(0, 7)); }, []);
   const [newExpense, setNewExpense] = useState<any>({
     category: "임대료",
     amount: 0,

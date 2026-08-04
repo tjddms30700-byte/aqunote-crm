@@ -26,11 +26,14 @@ const RESULTS = [
 ];
 
 export default function ContactLogModal({ member, onClose, onSaved }: any) {
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [time, setTime] = useState(() => {
+  // ✅ v3.26.10: hydration mismatch 방지
+  const [date, setDate] = useState<string>("");
+  const [time, setTime] = useState<string>("");
+  useEffect(() => {
     const d = new Date();
-    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  });
+    setDate(d.toISOString().slice(0, 10));
+    setTime(`${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`);
+  }, []);
   const [channel, setChannel] = useState("call");
   const [result, setResult] = useState("answered");
   const [memo, setMemo] = useState("");

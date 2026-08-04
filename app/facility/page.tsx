@@ -57,7 +57,9 @@ export default function FacilityPage() {
 function FacilityPageInner() {
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedMonth, setSelectedMonth] = useState(todayStr().slice(0, 7));
+  // ✅ v3.26.10: hydration mismatch 방지
+  const [selectedMonth, setSelectedMonth] = useState<string>("");
+  useEffect(() => { setSelectedMonth(todayStr().slice(0, 7)); }, []);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState<LogRow>({
     check_date: todayStr(),
