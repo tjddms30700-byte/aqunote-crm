@@ -1054,8 +1054,20 @@ export default function SchedulePage() {
     // 하위 호환: series=true → series_all
     const mode: "single" | "series_all" | "series_after" =
       opts?.mode || (opts?.series ? "series_all" : "single");
-    // ✅ v3.25.0: 모든 삭제를 HARD DELETE로 전환 (소프트 삭제 완전 폐기)
+    // ✅ v3.28.4: 모든 삭제를 HARD DELETE로 전환 + 마스터 권한 체크
     const isHardDelete = true;
+
+    // ✅ v3.28.4: 마스터 권한 체크 (permission.ts 연동)
+    try {
+      const { isMasterAccount } = await import("@/lib/permission");
+      const master = await isMasterAccount();
+      if (!master) {
+        alert("⚠️ 완전 삭제 권한이 없습니다.\n\n마스터(대표) 계정으로만 삭제할 수 있습니다.\n담당자에게 문의하세요.");
+        return;
+      }
+    } catch (e) {
+      console.warn("[v3.28.4] permission 체크 실패 (개발 모드):", e);
+    }
 
     // ✅ v3.24.3: 시간표 삭제 시 연동된 attendance도 함께 소프트 삭제 (출결장 동기화 강화)
     // slot_id 매칭 실패 대비 - member_id + event_date + time_slot 3중 매칭 병행
