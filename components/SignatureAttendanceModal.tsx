@@ -17,19 +17,7 @@ export default function SignatureAttendanceModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  // ✅ v3.25.1: 태블릿 사인입장 런타임 에러 방지 - member가 null/undefined이면 모달 렌더링 안함
-  if (!member || !member.id || !date) {
-    return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
-        <div className="bg-white rounded-2xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-          <div className="text-center">
-            <p className="text-gray-700 mb-4">⚠️ 회원 정보가 없어 서명을 진행할 수 없습니다.</p>
-            <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg">닫기</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // ✅ v3.25.3: 훅은 무조건 최상단에서 순서대로 호출 (React Hooks 규칙 준수)
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [drawing, setDrawing] = useState(false);
   const [hasStroke, setHasStroke] = useState(false);
@@ -84,6 +72,20 @@ export default function SignatureAttendanceModal({
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
   }, []);
+
+  // ✅ v3.25.3: 모든 훅 호출 완료 후에 조건부 early return
+  if (!member || !member.id || !date) {
+    return (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+        <div className="bg-white rounded-2xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+          <div className="text-center">
+            <p className="text-gray-700 mb-4">⚠️ 회원 정보가 없어 서명을 진행할 수 없습니다.</p>
+            <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg">닫기</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const getPos = (e: any) => {
     const c = canvasRef.current!;

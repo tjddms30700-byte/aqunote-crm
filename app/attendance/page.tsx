@@ -1010,19 +1010,7 @@ td.sig-cell img { max-width: 130px; max-height: 55px; object-fit: contain; }
 
 /* ✅ v3.14.1: 사인패드 모달 (Canvas 기반) */
 function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSlot, onClose, onSaved }: any) {
-  // ✅ v3.25.2: member/date null 방어 - 태블릿 사인입장 런타임 크래시 방지
-  if (!member || !member.id || !date) {
-    return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
-        <div className="bg-white rounded-2xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-          <div className="text-center">
-            <p className="text-gray-700 mb-4">⚠️ 회원 정보가 없어 서명을 진행할 수 없습니다.</p>
-            <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg">닫기</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // ✅ v3.25.3: 훅은 반드시 조건문 이전에 모두 호출 (React Hooks 규칙)
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [drawing, setDrawing] = useState(false);
   const [hasStroke, setHasStroke] = useState(false);
@@ -1031,6 +1019,8 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    // ✅ v3.25.3: member 없어도 훅은 실행되고, 캔버스 초기화만 조건부로 건너뜀
+    if (!member || !member.id) return;
     const c = canvasRef.current;
     if (!c) return;
     const ctx = c.getContext("2d");
@@ -1046,7 +1036,21 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
       img.onload = () => { ctx.drawImage(img, 0, 0, c.width, c.height); setHasStroke(true); };
       img.src = existingAttendance.signature;
     }
-  }, [existingAttendance]);
+  }, [existingAttendance, member]);
+
+  // ✅ v3.25.3: 훅 호출 완료 후에 조건부 early return (Hooks 규칙 준수)
+  if (!member || !member.id || !date) {
+    return (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+        <div className="bg-white rounded-2xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+          <div className="text-center">
+            <p className="text-gray-700 mb-4">⚠️ 회원 정보가 없어 서명을 진행할 수 없습니다.</p>
+            <button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-lg">닫기</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const getPos = (e: any) => {
     const c = canvasRef.current!;
