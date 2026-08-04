@@ -1221,8 +1221,10 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
           .sort((a: any, b: any) => (b.created_at || "").localeCompare(a.created_at || ""))[0];
       }
 
+      // ✅ v3.26.7: status를 명시적으로 강제 설정 (undefined/null 방지)
+      const finalStatus = status || "present";
       const basePayload: any = {
-        status,
+        status: finalStatus,
         signature: dataUrl,
         signer_role: signer,
         signed_at: nowIso,
@@ -1230,6 +1232,7 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
         slot_id: scheduleSlot?.id || existingAttendance?.slot_id || null,
         time_slot: scheduleSlot?.time_slot || existingAttendance?.time_slot || null,
       };
+      console.log("📝 v3.26.7 사인 저장 payload:", { finalStatus, slot_id: basePayload.slot_id, time_slot: basePayload.time_slot });
 
       // v3.21.2: 차감/복원 로직
       let deducted = false, restored = false;
@@ -1283,17 +1286,21 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
         if (err) throw err;
       }
 
-      // ✅ v3.26.3: 시간표 상태 동기화 강화 (scheduleSlot이 없으면 member_id+date+time_slot으로 슬롯 직접 검색)
+      // ✅ v3.26.7: 시간표 상태 동기화 강화 + 에러 로깅
       const statusMap: Record<string, string> = { present: "done", absent: "noshow", sick: "sick", personal: "sick" };
-      const newSlotStatus = statusMap[status] || "done";
+      const newSlotStatus = statusMap[finalStatus] || "done";
+      let slotUpdated = false;
       if (scheduleSlot?.id) {
         try {
-          await supabase.from("schedule_slots").update({ status: newSlotStatus }).eq("id", scheduleSlot.id);
+          const r = await supabase.from("schedule_slots").update({ status: newSlotStatus }).eq("id", scheduleSlot.id);
+          if (!r.error) slotUpdated = true;
+          else console.warn("시간표 직접 update 실패:", r.error);
         } catch (e) { console.warn("시간표 상태 동기화 실패:", e); }
-      } else {
+      }
+      if (!slotUpdated) {
         // fallback: scheduleSlot이 없으면 DB에서 직접 찾아서 업데이트
         try {
-          // ✅ v3.26.4: DATE 타입 안전 범위 - T23:59:59 제거
+          // ✅ v3.26.7: DATE 타입 안전 범위 fallback
           const nextD = (() => {
             const d = new Date(date + "T00:00:00Z");
             d.setUTCDate(d.getUTCDate() + 1);
@@ -1306,7 +1313,9 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
             .lt("event_date", nextD)
             .is("deleted_at", null);
           if (timeSlot) q = q.eq("time_slot", timeSlot);
-          await q;
+          const r = await q;
+          if (r.error) console.warn("fallback update 실패:", r.error);
+          else console.log("✅ v3.26.7 시간표 fallback 동기화 성공");
         } catch (e) { console.warn("시간표 fallback 동기화 실패:", e); }
       }
 

@@ -320,42 +320,62 @@ export default function SignatureAttendanceHistoryPage() {
                     </td>
                     <td className="px-3 py-2 text-center no-print">
                       <button onClick={async () => {
-                        // ✅ v3.26.3: 서명 취소 강화 - 여러 방식으로 삭제 시도 + 시간표 예약 상태 복원
+                        // ✅ v3.26.7: 삭제 실패 진짜 원인 노출 - count 확인 + 에러 메시지 alert로 표시
                         if (!confirm(`${m.name || "회원"} · ${r._date} 서명을 완전 삭제할까요?\n\n• attendance 기록 완전 삭제\n• 연결된 시간표 예약 상태 → scheduled 복원\n• 복구 불가`)) return;
+                        console.log("🗑️ v3.26.7 삭제 시작:", { id: r.id, member_id: r.member_id, date: r._date, time_slot: r.time_slot, slot_id: r.slot_id });
                         try {
-                          // 1) attendance HARD DELETE by id
-                          let deleted = false;
-                          if (r.id) {
-                            const { error, count } = await supabase.from("attendance").delete({ count: "exact" }).eq("id", r.id);
-                            if (!error) deleted = true;
-                            else console.warn("id 삭제 실패:", error.message);
+                          let totalDeleted = 0;
+                          const errors: string[] = [];
+                          // ✅ signature에 signature 값 직접 매칭으로 이 레코드만 정확히 지움 (가장 안전)
+                          if (r.signature) {
+                            const rr = await supabase.from("attendance").delete({ count: "exact" }).eq("signature", r.signature);
+                            if (rr.error) errors.push("signature: " + rr.error.message);
+                            else if (rr.count) totalDeleted += rr.count;
                           }
-                          // 2) fallback: member_id + date + time_slot 매칭으로 삭제
-                          if (!deleted && r.member_id && r._date) {
+                          // 만약 signature 매칭 수 = 0 이면 id로 재시도
+                          if (totalDeleted === 0 && r.id) {
+                            const rr = await supabase.from("attendance").delete({ count: "exact" }).eq("id", r.id);
+                            if (rr.error) errors.push("id: " + rr.error.message);
+                            else if (rr.count) totalDeleted += rr.count;
+                          }
+                          // 만약에도 0이면 member_id + date 매칭
+                          if (totalDeleted === 0 && r.member_id && r._date) {
                             for (const dateCol of ["attend_date", "date", "attendance_date", "session_date"]) {
                               try {
-                                let q: any = supabase.from("attendance").delete().eq("member_id", r.member_id).eq(dateCol, r._date);
+                                let q: any = supabase.from("attendance").delete({ count: "exact" }).eq("member_id", r.member_id).eq(dateCol, r._date);
                                 if (r.time_slot) q = q.eq("time_slot", r.time_slot);
                                 const rr = await q;
-                                if (!rr.error) { deleted = true; break; }
-                              } catch {}
+                                if (!rr.error && rr.count) { totalDeleted += rr.count; break; }
+                                else if (rr.error) errors.push(dateCol + ": " + rr.error.message);
+                              } catch (e: any) { errors.push(dateCol + ": " + (e?.message || e)); }
                             }
                           }
-                          // 3) fallback: signature로 다시 시도 (id가 UUID가 아닌 경우 대비)
-                          if (!deleted && r.signature) {
-                            try {
-                              const rr = await supabase.from("attendance").delete().eq("signature", r.signature).eq("member_id", r.member_id);
-                              if (!rr.error) deleted = true;
-                            } catch {}
-                          }
-                          // 4) 시간표 상태 scheduled로 복원
+                          // 시간표 상태 scheduled로 복원
                           if (r.slot_id) {
                             try { await supabase.from("schedule_slots").update({ status: "scheduled" }).eq("id", r.slot_id); } catch {}
+                          } else if (r.member_id && r._date) {
+                            // fallback: member_id + event_date + time_slot 으로 슬롯 찾아서 복원
+                            try {
+                              const nextD = (() => {
+                                const d = new Date(r._date + "T00:00:00Z");
+                                d.setUTCDate(d.getUTCDate() + 1);
+                                return d.toISOString().slice(0, 10);
+                              })();
+                              let sq: any = supabase.from("schedule_slots").update({ status: "scheduled" })
+                                .eq("member_id", r.member_id)
+                                .gte("event_date", r._date)
+                                .lt("event_date", nextD)
+                                .is("deleted_at", null);
+                              if (r.time_slot) sq = sq.eq("time_slot", r.time_slot);
+                              await sq;
+                            } catch {}
                           }
-                          if (!deleted) {
-                            alert("⚠️ 서명 삭제에 실패했습니다. 관리자에게 문의하세요.");
+                          console.log("🗑️ v3.26.7 삭제 결과:", { totalDeleted, errors });
+                          if (totalDeleted === 0) {
+                            const errMsg = errors.length > 0 ? "\n\n원인:\n" + errors.join("\n") : "\n\n(RLS 권한 문제일 수 있습니다)";
+                            alert("⚠️ 서명 삭제에 실패했습니다." + errMsg);
                           } else {
-                            alert("✅ 서명이 완전 삭제되었습니다.");
+                            alert(`✅ 서명 ${totalDeleted}건이 완전 삭제되었습니다.`);
                           }
                           await loadAll();
                         } catch (e: any) {
