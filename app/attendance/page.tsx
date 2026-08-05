@@ -384,22 +384,53 @@ export default function AttendancePage() {
           insertPayload.deduction_mode = "auto";
           deductedCount++;
         }
-        // v3.23.2: INSERT 자동 컴럼 drop 폴백 (최대 10회) - time_slot/saved_at/deducted_at 등 어떤 컴럼이 없어도 저장 성공
+        // v3.31.2: INSERT 실패 대응 강화 (컬럼 drop + NOT NULL 준수 + RLS 분리)
         let payloadTry: any = { ...insertPayload };
         let ins: any = { error: null };
-        for (let i = 0; i < 10; i++) {
-          ins = await supabase.from("attendance").insert(payloadTry);
-          if (!ins.error) break;
-          const m = /'([^']+)' column|column "([^"]+)"|Could not find the '([^']+)'/i.exec(ins.error.message || "");
+        console.log("[v3.31.2] attendance INSERT 시도:", { memberId, draft, hasSlot: !!slot?.id });
+
+        for (let i = 0; i < 15; i++) {
+          ins = await supabase.from("attendance").insert(payloadTry).select();
+          if (!ins.error) {
+            console.log("[v3.31.2] ✅ attendance INSERT 성공:", ins.data?.[0]?.id);
+            break;
+          }
+          const errMsg = ins.error.message || "";
+          const errCode = ins.error.code || "";
+          console.warn(`[v3.31.2] INSERT 시도 ${i+1} 실패: ${errCode} - ${errMsg}`);
+
+          // 패턴 1: 존재하지 않는 컬럼 → drop
+          const m = /'([^']+)' column|column "([^"]+)"|Could not find the '([^']+)'/i.exec(errMsg);
           const missing = m?.[1] || m?.[2] || m?.[3];
           if (missing && missing in payloadTry) {
             const { [missing]: _drop, ...rest } = payloadTry;
             payloadTry = { ...rest };
             continue;
           }
+
+          // 패턴 2: NOT NULL 제약 위반 → 기본값 보완
+          const nn = /null value in column "([^"]+)"/i.exec(errMsg);
+          if (nn && nn[1]) {
+            const col = nn[1];
+            if (col === "org_id" && !payloadTry.org_id) { payloadTry.org_id = orgId || "00000000-0000-0000-0000-000000000000"; continue; }
+            if (col === "attend_date" && !payloadTry.attend_date) { payloadTry.attend_date = date; continue; }
+            if (col === "time_slot" && !payloadTry.time_slot) { payloadTry.time_slot = slot?.time_slot || "00:00"; continue; }
+            if (col === "status") { payloadTry.status = draft || "scheduled"; continue; }
+          }
+
+          // 패턴 3: RLS 오류 → 즉시 중단 + 명확한 알림
+          if (errCode === "42501" || /permission|RLS|policy/i.test(errMsg)) {
+            console.error("[v3.31.2] ❌ RLS 권한 오류 - AQUNOTE_V3312_DIAGNOSE_400.sql 재실행 필요:", errMsg);
+            break;
+          }
+
           break;
         }
-        if (ins.error) errors.push(memberId + ": " + ins.error.message);
+        if (ins.error) {
+          const detail = `${ins.error.code || ""} ${ins.error.message || ""}`.trim();
+          errors.push(memberId + ": " + detail);
+          console.error("[v3.31.2] ❌ attendance INSERT 최종 실패:", detail);
+        }
       }
 
       // 시간표에도 상태 동기화 (있는 경우에만)
