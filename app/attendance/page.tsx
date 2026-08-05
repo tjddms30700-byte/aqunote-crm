@@ -1317,37 +1317,72 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
         if (err) throw err;
       }
 
-      // ✅ v3.26.7: 시간표 상태 동기화 강화 + 에러 로깅
-      const statusMap: Record<string, string> = { present: "done", absent: "noshow", sick: "sick", personal: "sick" };
+      // ✅ v3.30.3: 시간표 상태 완전 동기화 (결과 검증 + slot_id 자동 연결)
+      const statusMap: Record<string, string> = { present: "done", absent: "noshow", sick: "sick", personal: "personal" };
       const newSlotStatus = statusMap[finalStatus] || "done";
       let slotUpdated = false;
+      let resolvedSlotId: string | null = scheduleSlot?.id || null;
+
+      console.log("[v3.30.3] 시간표 동기화 시작:", { finalStatus, newSlotStatus, hasSlotId: !!scheduleSlot?.id });
+
+      // 1) scheduleSlot.id가 있으면 직접 UPDATE + 결과 검증
       if (scheduleSlot?.id) {
         try {
-          const r = await supabase.from("schedule_slots").update({ status: newSlotStatus }).eq("id", scheduleSlot.id);
-          if (!r.error) slotUpdated = true;
-          else console.warn("시간표 직접 update 실패:", r.error);
-        } catch (e) { console.warn("시간표 상태 동기화 실패:", e); }
+          const r = await supabase.from("schedule_slots")
+            .update({ status: newSlotStatus, updated_at: new Date().toISOString() })
+            .eq("id", scheduleSlot.id).select();
+          if (!r.error && r.data && r.data.length > 0) {
+            slotUpdated = true;
+            console.log("[v3.30.3] ✅ 시간표 직접 update 성공:", r.data.length + "건");
+          } else {
+            console.warn("[v3.30.3] 시간표 직접 update 0건 또는 오류:", r.error?.message);
+          }
+        } catch (e) { console.warn("[v3.30.3] 시간표 직접 update 예외:", e); }
       }
+
+      // 2) fallback: DB에서 직접 찾아 UPDATE + slot_id 수집
       if (!slotUpdated) {
-        // fallback: scheduleSlot이 없으면 DB에서 직접 찾아서 업데이트
         try {
-          // ✅ v3.26.7: DATE 타입 안전 범위 fallback
           const nextD = (() => {
             const d = new Date(date + "T00:00:00Z");
             d.setUTCDate(d.getUTCDate() + 1);
             return d.toISOString().slice(0, 10);
           })();
           const timeSlot = basePayload.time_slot;
-          let q: any = supabase.from("schedule_slots").update({ status: newSlotStatus })
+          let q: any = supabase.from("schedule_slots")
+            .update({ status: newSlotStatus, updated_at: new Date().toISOString() })
             .eq("member_id", member.id)
             .gte("event_date", date)
             .lt("event_date", nextD)
             .is("deleted_at", null);
           if (timeSlot) q = q.eq("time_slot", timeSlot);
-          const r = await q;
-          if (r.error) console.warn("fallback update 실패:", r.error);
-          else console.log("✅ v3.26.7 시간표 fallback 동기화 성공");
-        } catch (e) { console.warn("시간표 fallback 동기화 실패:", e); }
+          const r = await q.select();
+          if (r.error) {
+            console.warn("[v3.30.3] fallback update 오류:", r.error);
+          } else if (r.data && r.data.length > 0) {
+            slotUpdated = true;
+            resolvedSlotId = r.data[0].id;
+            console.log("[v3.30.3] ✅ 시간표 fallback 동기화 성공:", r.data.length + "건 (slot_id=" + resolvedSlotId + ")");
+          } else {
+            console.warn("[v3.30.3] fallback update 0건 - member_id/date/time_slot 매칭 실패");
+          }
+        } catch (e) { console.warn("[v3.30.3] 시간표 fallback 동기화 예외:", e); }
+      }
+
+      // 3) attendance.slot_id 강제 연결 (이후 삭제/동기화 가능하도록)
+      if (resolvedSlotId) {
+        try {
+          const upR = await supabase.from("attendance")
+            .update({ slot_id: resolvedSlotId })
+            .eq("member_id", member.id)
+            .eq("attend_date", date)
+            .is("slot_id", null);
+          if (!upR.error) console.log("[v3.30.3] ✅ attendance.slot_id 자동 연결 완료");
+        } catch (e) { /* ignore */ }
+      }
+
+      if (!slotUpdated) {
+        console.warn("[v3.30.3] ⚠️ 시간표 상태 갱신 실패 - 사인은 저장되었으나 시간표 상태는 예약 상태로 남음");
       }
 
       const parts: string[] = ["✅ 사인 저장 완료"];
