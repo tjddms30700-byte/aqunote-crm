@@ -3788,15 +3788,17 @@ function DayListModal({ date, slots, members, staff, memberships, onClose, onQui
   const dateObj = new Date(date + "T00:00:00");
   const dayLabel = `${dateObj.getFullYear()}년 ${dateObj.getMonth()+1}월 ${dateObj.getDate()}일`;
 
+  // ✅ v3.29.1: 7개 통합 상태 파스텔 배지 (드롭다운에 그대로 적용)
   const statusMeta: Record<string, { label: string; cls: string; icon: string }> = {
-    present:  { label: "출석",     cls: "bg-emerald-100 text-emerald-700 border-emerald-300", icon: "✓" },
-    done:     { label: "완료",     cls: "bg-emerald-100 text-emerald-700 border-emerald-300", icon: "✓" },
-    absent:   { label: "결석",     cls: "bg-rose-100 text-rose-700 border-rose-300",           icon: "✗" },
-    sick:     { label: "병결",     cls: "bg-amber-100 text-amber-700 border-amber-300",        icon: "🏥" },
-    personal: { label: "개인사정", cls: "bg-sky-100 text-sky-700 border-sky-300",             icon: "📝" },
-    cancel:   { label: "취소",     cls: "bg-slate-100 text-slate-600 border-slate-300",        icon: "🚫" },
-    noshow:   { label: "노쇼",     cls: "bg-rose-100 text-rose-700 border-rose-300",           icon: "⚠️" },
     scheduled:{ label: "예약",     cls: "bg-indigo-100 text-indigo-700 border-indigo-300",     icon: "🕒" },
+    present:  { label: "출석",     cls: "bg-emerald-100 text-emerald-700 border-emerald-300", icon: "🟢" },
+    done:     { label: "완료",     cls: "bg-emerald-100 text-emerald-700 border-emerald-300", icon: "🟢" },
+    sick:     { label: "병결",     cls: "bg-amber-100 text-amber-700 border-amber-300",        icon: "🟡" },
+    personal: { label: "개인사정", cls: "bg-orange-100 text-orange-700 border-orange-300",   icon: "🟠" },
+    carryover:{ label: "이월",     cls: "bg-blue-100 text-blue-700 border-blue-300",           icon: "🔵" },
+    noshow:   { label: "노쇼",     cls: "bg-rose-100 text-rose-700 border-rose-300",           icon: "🔴" },
+    absent:   { label: "결석",     cls: "bg-rose-100 text-rose-700 border-rose-300",           icon: "🔴" },
+    cancel:   { label: "예약취소", cls: "bg-slate-200 text-slate-700 border-slate-400",      icon: "⚪" },
   };
 
   return (
@@ -3858,26 +3860,25 @@ function DayListModal({ date, slots, members, staff, memberships, onClose, onQui
                     </div>
                   </div>
 
-                  {/* 원클릭 상태 변경 버튼 그룹 */}
-                  <div className="flex flex-wrap gap-1 flex-shrink-0">
-                    <button onClick={(e) => { e.stopPropagation(); onQuickStatus(s, "present"); }}
-                      className="px-2 py-1 text-[11px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded border border-emerald-200">
-                      출석
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); onQuickStatus(s, "sick"); }}
-                      className="px-2 py-1 text-[11px] font-semibold bg-amber-50 hover:bg-amber-100 text-amber-700 rounded border border-amber-200">
-                      병결
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); onQuickStatus(s, "personal"); }}
-                      className="px-2 py-1 text-[11px] font-semibold bg-sky-50 hover:bg-sky-100 text-sky-700 rounded border border-sky-200">
-                      개인사정
-                    </button>
-                    <button onClick={(e) => { e.stopPropagation(); onQuickStatus(s, "cancel"); }}
-                      className="px-2 py-1 text-[11px] font-semibold bg-slate-50 hover:bg-slate-100 text-slate-600 rounded border border-slate-200">
-                      취소
-                    </button>
+                  {/* ✅ v3.29.1: 통합 드롭다운 (Select Box) - 6개 상태 + 삭제 */}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <select
+                      value={s.status || "scheduled"}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => { e.stopPropagation(); onQuickStatus(s, e.target.value); }}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-full border-2 cursor-pointer outline-none ${st.cls}`}
+                      style={{ minWidth: "110px" }}
+                    >
+                      <option value="scheduled">🕒 예약</option>
+                      <option value="present">🟢 출석</option>
+                      <option value="sick">🟡 병결</option>
+                      <option value="personal">🟠 개인사정</option>
+                      <option value="carryover">🔵 이월</option>
+                      <option value="noshow">🔴 노쇼</option>
+                      <option value="cancel">⚪ 예약취소</option>
+                    </select>
                     <button onClick={(e) => { e.stopPropagation(); onDelete(s); }}
-                      className="px-2 py-1 text-[11px] font-semibold bg-rose-50 hover:bg-rose-100 text-rose-600 rounded border border-rose-200"
+                      className="px-2 py-1.5 text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-full border-2 border-rose-200"
                       title="완전 삭제 (마스터 권한)">
                       🗑️
                     </button>
