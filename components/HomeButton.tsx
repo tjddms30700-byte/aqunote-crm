@@ -1,23 +1,12 @@
 "use client";
-import Link from "next/link";
-import { Home } from "lucide-react";
-import GlobalQuickSearch from "./GlobalQuickSearch";
 
 /**
- * v3.18.0: 홈 버튼 + 글로벌 Quick Search 결합
- * - 모든 페이지 좌상단에서 Ctrl+K로 즉시 검색
+ * v3.31.0: 중복 홈 버튼 제거
+ * - 이전 버전들에서 각 페이지가 개별적으로 HomeButton을 렌더링했으나,
+ *   v3.30.0에서 GlobalHeader가 우측 상단에 홈 버튼을 통일 렌더링하도록 변경됨
+ * - 하위 호환 유지를 위해 컴포넌트 자체는 남기되, 렌더 결과는 null 반환
+ * - 64개 페이지의 <HomeButton /> 참조를 일일이 지우지 않아도 자동 소거됨
  */
 export default function HomeButton() {
-  return (
-    <div className="inline-flex items-center gap-2">
-      <Link href="/"
-        className="inline-flex items-center gap-1.5 px-4 py-2 md:px-5 md:py-2.5 rounded-xl bg-gradient-to-br from-aqu-500 to-aqu-700 text-white font-semibold text-sm md:text-base shadow-md hover:shadow-lg hover:scale-105 transition-all">
-        <Home className="w-4 h-4 md:w-5 md:h-5" />
-        <span>홈</span>
-      </Link>
-      <div className="hidden md:block">
-        <GlobalQuickSearch />
-      </div>
-    </div>
-  );
+  return null;
 }

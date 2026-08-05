@@ -88,6 +88,24 @@ export default function SignatureAttendanceHistoryPage() {
     }
     // 정규화 - _date 필드 통일 (attend_date 포함)
     filtered = filtered.map((r: any) => ({ ...r, _date: r[dateColumn] || r.attend_date || r.date || r.attendance_date || r.session_date || r.check_date }));
+
+    // ✅ v3.31.0: 클라이언트 측 최종 재정렬 (최신 서명이 항상 상단)
+    filtered.sort((a: any, b: any) => {
+      // 1순위: signed_at (사인 타임)
+      const sa = new Date(a.signed_at || 0).getTime();
+      const sb = new Date(b.signed_at || 0).getTime();
+      if (sb !== sa) return sb - sa;
+      // 2순위: created_at (생성 타임)
+      const ca = new Date(a.created_at || 0).getTime();
+      const cb = new Date(b.created_at || 0).getTime();
+      if (cb !== ca) return cb - ca;
+      // 3순위: _date (출결 날짜)
+      const da = new Date(a._date || 0).getTime();
+      const db = new Date(b._date || 0).getTime();
+      return db - da;
+    });
+    console.log("[v3.31.0] 사인 이력 정렬 완료:", filtered.length + "건 (최신순)");
+
     setRows(filtered);
     setLoading(false);
   }

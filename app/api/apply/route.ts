@@ -87,21 +87,72 @@ export async function POST(req: Request) {
       raw_payload: body,   // 원본 그대로 백업
     };
 
-    const { data, error } = await supabase
-      .from("leads_inbox")
-      .insert(payload)
+    // v3.31.0: 종만감이 자동 승격 - leads_inbox 메이보다 members + consultations 직접 INSERT
+    // 이제 신청폼 제출 즉시 [NEW 신규] 컬럼으로 자동 생성 (수동 승격 절차 완전 제거)
+
+    // 1) leads_inbox에도 백업으로 저장 (오류 무시 - 테이블 없을 수 있음)
+    let leadId: string | null = null;
+    try {
+      const { data: leadData } = await supabase.from("leads_inbox").insert(payload).select().maybeSingle();
+      leadId = leadData?.id || null;
+    } catch (e) { console.warn("[v3.31.0] leads_inbox 저장 실패 (무시):", e); }
+
+    // 2) members 테이블에 직접 INSERT (status='new' - 파이프라인 [NEW 신규] 컬럼에 바로 표시)
+    const memberPayload: any = {
+      name,
+      phone,
+      member_type: body.member_type,
+      gender: body.gender || null,
+      birth: body.birth || null,
+      address: body.address || null,
+      guardian_name: isChild ? (body.guardian_name || null) : null,
+      guardian_relation: isChild ? (body.guardian_relation || null) : null,
+      school: isChild ? (body.institution || null) : null,
+      diagnosis: body.diagnosis || null,
+      status: "new", // 파이프라인 [NEW 신규] 컬럼 직행
+      source: body.source || "웹신청",
+      memo,
+      wish_days: body.wish_days?.length > 0 ? body.wish_days : null,
+      wish_time_slots: body.wish_time_slots?.length > 0 ? body.wish_time_slots : null,
+      extra: {
+        height_weight: body.height_weight,
+        main_symptom: body.main_symptom,
+        surgery_history: body.surgery_history,
+        medication: body.medication,
+        treatment_history: body.treatment_history,
+        expected_change: body.expected_change,
+        wish_branch: body.wish_branch,
+        wish_start_date: body.wish_start_date,
+        source_lead_id: leadId,
+      },
+    };
+
+    const { data: memberData, error: memberErr } = await supabase
+      .from("members")
+      .insert(memberPayload)
       .select()
       .single();
 
-    if (error) {
-      console.error("Apply insert error:", error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    if (memberErr) {
+      console.error("[v3.31.0] members 자동 승격 실패:", memberErr);
+      return NextResponse.json({ error: memberErr.message }, { status: 500 });
     }
 
-    // v3.21.7: 자동 members 승격 제거 – leads_inbox에만 저장, /inbox 신규 탭에서 수동 승격
-    // (요청: 앞으로 들어오는 상담폼은 신규 탭에 뜨게만 하고 자동 승격 없이 처리)
+    // 3) consultations 테이블에도 기록 (상담 이력 추적용 - 있으면)
+    try {
+      await supabase.from("consultations").insert({
+        member_id: memberData.id,
+        status: "new",
+        source: body.source || "웹신청",
+        memo,
+        raw_payload: body,
+        created_at: new Date().toISOString(),
+      });
+    } catch (e) { console.warn("[v3.31.0] consultations 저장 실패 (무시):", e); }
 
-    return NextResponse.json({ success: true, id: data?.id });
+    console.log("[v3.31.0] ✅ 신규 상담 자동 승격 완료:", { memberId: memberData.id, name, phone });
+
+    return NextResponse.json({ success: true, id: memberData.id, leadId });
   } catch (e: any) {
     console.error("Apply POST error:", e);
     return NextResponse.json({ error: e.message }, { status: 500 });

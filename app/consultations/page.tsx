@@ -1853,10 +1853,7 @@ function QuickCopyToolbar() {
               <button onClick={() => setShowSettings(false)} className="text-gray-500 hover:text-gray-800">✕</button>
             </div>
             <div className="p-4 space-y-3">
-              <Link href="/inbox" className="block px-4 py-3 bg-purple-50 border border-purple-200 rounded-lg hover:bg-purple-100">
-                <div className="text-sm font-bold text-purple-800">📥 신규 유입 목록 보기</div>
-                <div className="text-xs text-purple-600 mt-0.5">기존 신규 유입 페이지 (오입력/무결성 정리용)</div>
-              </Link>
+              {/* v3.31.0: 신규 유입 목록 보기 완전 제거 - 신청폼 제출 시 바로 파이프라인 [NEW 신규] 컬럼으로 자동 생성 */}
               <button onClick={() => copy("child")}
                 className="w-full text-left px-4 py-3 bg-pink-50 border border-pink-200 rounded-lg hover:bg-pink-100">
                 <div className="text-sm font-bold text-pink-800">👶 아동 신청폼 URL 복사</div>

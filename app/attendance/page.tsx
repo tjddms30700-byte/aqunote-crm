@@ -12,12 +12,14 @@ import {
   FileSignature, Printer, Waves
 } from "lucide-react";
 
-/* ✅ v3.20.0: 수업을 하지 않은 상태(결석/병결/개인사정)는 회색 계열로 통일 */
+/* ✅ v3.31.0: 파스텔 톤 단일 드롭다운 (Select Box) 용 상태 옵션 */
 const STATUS_OPTIONS = [
-  { value: "present",  label: "출석",     color: "bg-green-100 text-green-800 border-green-400 hover:bg-green-200", icon: "✓" },
-  { value: "absent",   label: "결석",     color: "bg-gray-100 text-gray-500 border-gray-300 hover:bg-gray-200",   icon: "✗" },
-  { value: "sick",     label: "병결",     color: "bg-gray-100 text-gray-500 border-gray-300 hover:bg-gray-200",   icon: "🏥" },
-  { value: "personal", label: "개인사정", color: "bg-gray-100 text-gray-500 border-gray-300 hover:bg-gray-200",   icon: "📝" },
+  { value: "present",  label: "출석",     color: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: "🟢", pill: "badge-present" },
+  { value: "absent",   label: "결석",     color: "bg-rose-50 text-rose-700 border-rose-200",         icon: "🔴", pill: "badge-noshow" },
+  { value: "sick",     label: "병결",     color: "bg-amber-50 text-amber-700 border-amber-200",      icon: "🟡", pill: "badge-sick" },
+  { value: "personal", label: "개인사정", color: "bg-orange-50 text-orange-700 border-orange-200",   icon: "🟠", pill: "badge-personal" },
+  { value: "carryover",label: "이월",     color: "bg-sky-50 text-sky-700 border-sky-200",            icon: "🔵", pill: "badge-carryover" },
+  { value: "cancel",   label: "취소",     color: "bg-slate-100 text-slate-600 border-slate-200",     icon: "⚪", pill: "badge-cancel" },
 ];
 function statusMeta(s: string) { return STATUS_OPTIONS.find(x => x.value === s); }
 
@@ -430,15 +432,17 @@ export default function AttendancePage() {
     await loadAll();
   }
 
-  // ✅ v3.26.2: KPI 완전히 시간표 기점으로 통일
-  // - 대상 회원 = 그날 활성 시간표 슬롯의 고유 회원 수 (todayMembers.length와 일치)
-  // - 미체크 = 활성 슬롯 수 - drafts 수 (event_type/deleted_at 안전 필터 적용)
+  // ✅ v3.31.0: KPI 집계 확장 (개인사정/노쇼/이월 별도 카운트)
   const activeSlotsForKpi = scheduleSlots.filter((s: any) => s && s.member_id && !s.deleted_at);
   const stat = {
     total: todayMembers.length,
     present: Object.values(drafts).filter(v => v === "present").length,
     absent: Object.values(drafts).filter(v => v === "absent").length,
     sick: Object.values(drafts).filter(v => v === "sick").length,
+    personal: Object.values(drafts).filter(v => v === "personal").length,
+    carryover: Object.values(drafts).filter(v => v === "carryover").length,
+    // 결석계 합산 = 결석(absent) + 병결(sick) + 개인사정(personal) + 노쇼(noshow)
+    absentTotal: Object.values(drafts).filter(v => v === "absent" || v === "sick" || v === "personal" || v === "noshow").length,
     unchecked: Math.max(0, activeSlotsForKpi.length - Object.keys(drafts).length),
   };
 
@@ -560,14 +564,15 @@ export default function AttendancePage() {
         />
       )}
 
-      {/* KPI (리스트 뷰에서만 표시) */}
+      {/* v3.31.0: KPI 파스텔 이당형 카드 상세화 */}
       {view === "list" && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3 mb-4">
-          <KPI title="대상 회원"    val={stat.total + "명"}     color="text-aqu-700" />
-          <KPI title="✓ 출석"      val={stat.present + "명"}   color="text-green-600" />
-          <KPI title="✗ 결석"      val={stat.absent + "명"}    color="text-red-600" />
-          <KPI title="🏥 병결"     val={stat.sick + "명"}      color="text-orange-600" />
-          <KPI title="미체크"       val={stat.unchecked + "명"} color="text-gray-500" />
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-2 md:gap-3 mb-4">
+          <KPI title="대상 회원"       val={stat.total + "명"}       color="text-sky-700" />
+          <KPI title="🟢 출석"        val={stat.present + "명"}     color="text-emerald-600" />
+          <KPI title="🔴 결석(전체)"  val={stat.absentTotal + "명"} color="text-rose-600" />
+          <KPI title="🟡 병결"        val={stat.sick + "명"}        color="text-amber-600" />
+          <KPI title="🟠 개인사정"    val={stat.personal + "명"}    color="text-orange-600" />
+          <KPI title="미체크"          val={stat.unchecked + "명"}   color="text-slate-500" />
         </div>
       )}
 
@@ -645,27 +650,37 @@ export default function AttendancePage() {
                               </span>
                               <span className="text-[10px] text-gray-500">{staffNameFor(sl.staff_id) || "미배정"}</span>
                             </div>
-                            <div className="grid grid-cols-4 gap-1">
+                            {/* v3.31.0: 모바일 슬롯별 단일 드롭다운 */}
+                            <select
+                              value={curSlot || ""}
+                              onChange={(e) => pickStatus(m.id, e.target.value, sl.time_slot)}
+                              className={`w-full text-xs px-2 py-1.5 rounded-full border-2 font-semibold ${
+                                curSlot ? (statusMeta(curSlot)?.color || "bg-white border-slate-200") : "bg-white border-slate-200 text-slate-400"
+                              }`}
+                            >
+                              <option value="">― 선택 ―</option>
                               {STATUS_OPTIONS.map(s => (
-                                <button key={s.value} onClick={() => pickStatus(m.id, s.value, sl.time_slot)}
-                                  className={`text-[11px] py-1.5 rounded border-2 transition font-medium ${curSlot === s.value ? s.color + " font-bold" : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"}`}>
-                                  {s.icon} {s.label}
-                                </button>
+                                <option key={s.value} value={s.value}>{s.icon} {s.label}</option>
                               ))}
-                            </div>
+                            </select>
                           </div>
                         );
                       })}
                     </div>
                   ) : (
-                    <div className="grid grid-cols-4 gap-1">
+                    /* v3.31.0: 모바일용 단일 드롭다운 */
+                    <select
+                      value={drafts[m.id] || ""}
+                      onChange={(e) => pickStatus(m.id, e.target.value)}
+                      className={`w-full text-sm px-3 py-2 rounded-full border-2 font-semibold ${
+                        drafts[m.id] ? (statusMeta(drafts[m.id])?.color || "bg-white border-slate-200") : "bg-white border-slate-200 text-slate-400"
+                      }`}
+                    >
+                      <option value="">― 상태 선택 ―</option>
                       {STATUS_OPTIONS.map(s => (
-                        <button key={s.value} onClick={() => pickStatus(m.id, s.value)}
-                          className={`text-xs py-2 rounded border-2 transition font-medium ${drafts[m.id] === s.value ? s.color + " font-bold" : "bg-white border-gray-200 text-gray-500 hover:bg-gray-50"}`}>
-                          {s.icon} {s.label}
-                        </button>
+                        <option key={s.value} value={s.value}>{s.icon} {s.label}</option>
                       ))}
-                    </div>
+                    </select>
                   )}
                 </div>
               );
@@ -679,7 +694,7 @@ export default function AttendancePage() {
                 <th className="p-3 text-left font-semibold text-aqu-800">회원</th>
                 <th className="p-3 text-left font-semibold text-aqu-800">유형</th>
                 <th className="p-3 text-left font-semibold text-aqu-800">이 날 수업</th>
-                <th className="p-3 text-center font-semibold text-aqu-800" colSpan={3}>{date} 출결</th>
+                <th className="p-3 text-center font-semibold text-aqu-800" colSpan={3}>{date} 출결 (드롭다운 선택)</th>
                 <th className="p-3 text-center font-semibold text-aqu-800">저장/차감</th>
                 <th className="p-3 text-center font-semibold text-aqu-800">30일 출석률</th>
                 <th className="p-3 text-center font-semibold text-aqu-800">관리</th>
@@ -720,14 +735,21 @@ export default function AttendancePage() {
                         </span>
                       ) : <span className="text-[10px] text-gray-400">예약 없음</span>}
                     </td>
-                    {STATUS_OPTIONS.map(s => (
-                      <td key={s.value} className="p-1 text-center">
-                        <button onClick={() => pickStatus(m.id, s.value, sl.time_slot || undefined)}
-                          className={`w-full text-xs px-2 py-1.5 rounded border-2 transition font-medium ${cur === s.value ? s.color + " font-bold shadow-sm" : "bg-white border-gray-200 text-gray-400 hover:bg-gray-50"}`}>
-                          {s.icon} {s.label}
-                        </button>
-                      </td>
-                    ))}
+                    {/* v3.31.0: 4개 버튼 → 단일 드롭다운(Select) 통합 */}
+                    <td colSpan={3} className="p-2 text-center">
+                      <select
+                        value={cur || ""}
+                        onChange={(e) => pickStatus(m.id, e.target.value, sl.time_slot || undefined)}
+                        className={`w-full max-w-[180px] mx-auto text-sm px-3 py-2 rounded-full border-2 font-semibold cursor-pointer transition-all ${
+                          cur ? (statusMeta(cur)?.color || "bg-white border-slate-200") : "bg-white border-slate-200 text-slate-400"
+                        }`}
+                      >
+                        <option value="">― 상태 선택 ―</option>
+                        {STATUS_OPTIONS.map(s => (
+                          <option key={s.value} value={s.value}>{s.icon} {s.label}</option>
+                        ))}
+                      </select>
+                    </td>
                     {/* ✅ v3.13.5: 저장일 / 차감일 / 수동·자동 배지 */}
                     <td className="p-2 text-center text-[10px]">
                       {(() => {
