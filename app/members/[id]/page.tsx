@@ -595,54 +595,57 @@ export default function MemberDetail() {
   if (!member) return <div className="p-10 text-center text-red-500">회원을 찾을 수 없습니다.</div>;
 
   return (
-    <main className="max-w-5xl mx-auto px-4 md:px-6 py-6 md:py-10">
+    <main className="max-w-5xl mx-auto px-4 md:px-6 py-6 md:py-10 bg-gradient-to-br from-sky-50 via-white to-cyan-50 min-h-screen">
       <div className="flex items-center justify-between mb-6">
-        <button onClick={() => router.push("/members")} className="flex items-center gap-1 text-sm text-aqu-600 hover:underline">
+        <button onClick={() => router.push("/members")} className="flex items-center gap-1 text-sm text-aqu-600 hover:underline bg-white/70 px-3 py-1.5 rounded-full border border-aqu-100 hover:bg-white shadow-sm">
           <ArrowLeft className="w-4 h-4" /> 회원 목록
         </button>
         <HomeButton />
       </div>
 
-      {/* Profile Card */}
-      <div className="bg-white rounded-2xl shadow-md border border-aqu-100 p-6 mb-6">
+      {/* ✨ v3.32.0: Profile Card - aqu-card + 파스텔 그라데이션 */}
+      <div className="aqu-card bg-gradient-to-br from-white via-sky-50/40 to-cyan-50/30 shadow-lg border border-aqu-100 p-6 mb-6" style={{ borderRadius: "20px" }}>
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="flex items-start gap-4">
-            <div className={`w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold ${
-              member.member_type === "child" ? "bg-blue-100 text-blue-600" : "bg-purple-100 text-purple-600"
+            <div className={`w-20 h-20 rounded-2xl flex items-center justify-center text-3xl font-bold shadow-md ${
+              member.member_type === "child" ? "bg-gradient-to-br from-blue-100 to-sky-200 text-blue-700" : "bg-gradient-to-br from-violet-100 to-purple-200 text-purple-700"
             }`}>
               {member.name?.charAt(0) || "?"}
             </div>
             <div>
-              <div className="flex flex-wrap items-center gap-2 mb-1">
+              <div className="flex flex-wrap items-center gap-2 mb-2">
                 <h1 className="text-2xl font-bold text-aqu-900">{member.name}</h1>
-                <span className={`px-2 py-0.5 rounded text-xs ${
+                <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
                   member.member_type === "child" ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700"
                 }`}>
-                  {member.member_type === "child" ? "아동" : "성인"}
+                  {member.member_type === "child" ? "👶 아동" : "👤 성인"}
                 </span>
-                <span className="text-sm text-gray-500">{getAge(member.birth)}</span>
-                <span className="text-sm text-gray-500">{["F","female","여","여자"].includes(member.gender) ? "여" : ["M","male","남","남자"].includes(member.gender) ? "남" : ""}</span>
+                {getAge(member.birth) && <span className="text-xs text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200">{getAge(member.birth)}</span>}
+                {(() => {
+                  const g = ["F","female","여","여자"].includes(member.gender) ? "여" : ["M","male","남","남자"].includes(member.gender) ? "남" : "";
+                  return g ? <span className="text-xs text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200">{g}</span> : null;
+                })()}
               </div>
               <div className="text-sm text-gray-600 space-y-1">
-                {member.guardian_name && <div>👨‍👩‍👧 보호자: {member.guardian_name} ({member.guardian_relation || "보호자"})</div>}
-                {member.phone && <div><Phone className="w-3.5 h-3.5 inline mr-1" />{member.phone}</div>}
-                {member.address && <div><MapPin className="w-3.5 h-3.5 inline mr-1" />{member.address}</div>}
+                {member.guardian_name && <div className="bg-white/70 rounded-lg px-3 py-1.5 inline-block mr-2 border border-slate-100">👨‍👩‍👧 보호자: <b>{member.guardian_name}</b> ({member.guardian_relation || "보호자"})</div>}
+                {member.phone && <div className="flex items-center gap-1 text-slate-700"><Phone className="w-3.5 h-3.5" />{member.phone}</div>}
+                {member.address && <div className="flex items-center gap-1 text-slate-600"><MapPin className="w-3.5 h-3.5" />{member.address}</div>}
               </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
             {saveStatus && (
-              <div className="text-sm px-3 py-1.5 rounded-lg bg-aqu-50 text-aqu-700">{saveStatus}</div>
+              <div className="text-sm px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold">{saveStatus}</div>
             )}
             <button onClick={deleteMember} title="회원 삭제"
-              className="p-2 rounded-lg text-red-500 hover:bg-red-50 border border-red-200">
+              className="p-2.5 rounded-full text-red-500 hover:bg-red-50 border border-red-200 shadow-sm transition-colors">
               <Trash className="w-4 h-4" />
             </button>
           </div>
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* ✨ v3.32.0: Tabs - Pill 탭 */}
       <div className="flex flex-wrap gap-2 mb-4">
         {[
           { k: "info", label: "📌 기본정보" },
@@ -653,13 +656,13 @@ export default function MemberDetail() {
           { k: "documents", label: "📄 문서" },
         ].map((t) => (
           <button key={t.k} onClick={() => setTab(t.k as any)}
-            className={`px-4 py-2 rounded-lg text-sm ${tab === t.k ? "bg-aqu-600 text-white" : "bg-white border border-aqu-200 text-aqu-700 hover:bg-aqu-50"}`}>
+            className={`px-4 py-2 rounded-full text-sm font-semibold transition-all ${tab === t.k ? "bg-gradient-to-r from-aqu-600 to-cyan-600 text-white shadow-md" : "bg-white border border-aqu-200 text-aqu-700 hover:bg-aqu-50 hover:border-aqu-400"}`}>
             {t.label}
           </button>
         ))}
       </div>
 
-      <div className="bg-white rounded-2xl shadow-md border border-aqu-100 p-6">
+      <div className="aqu-card bg-white shadow-md border border-aqu-100 p-6" style={{ borderRadius: "20px" }}>
         {tab === "info" && (
           <div className="space-y-6">
             {/* 기본 정보 - 회원유형/이름/연락처 수정 가능 */}

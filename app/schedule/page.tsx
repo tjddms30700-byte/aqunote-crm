@@ -217,7 +217,7 @@ export default function SchedulePage() {
   async function loadAll() {
     setLoading(true);
     const branchId = getActiveBranchId();
-    console.log(`[v3.29.2] loadAll 시작 - branch_id=${branchId || "(없음)"} (build: v3.29.2)`);
+    console.log(`[v3.32.0] loadAll 시작 - branch_id=${branchId || "(없음)"} (build: v3.32.0 · 보강완료+이월 재설계 · UI 대마감)`);
     // ✅ branch_id 필터 (컴럼 미존재 시 폴백)
     const safeBranchQuery = async (baseFn: () => any, filterFn: (q: any) => any) => {
       if (!branchId) return await baseFn();
@@ -234,7 +234,7 @@ export default function SchedulePage() {
     const rangeStart = `${startY}-${String(startM).padStart(2, "0")}-01`;
     const endD = new Date(startY, startM + 2, 0); // 다음달 마지막일
     const rangeEnd = `${endD.getFullYear()}-${String(endD.getMonth()+1).padStart(2,"0")}-${String(endD.getDate()).padStart(2,"0")}`;
-    console.log(`[v3.29.2] fetch range: ${rangeStart} ~ ${rangeEnd}`);
+    console.log(`[v3.32.0] fetch range: ${rangeStart} ~ ${rangeEnd}`);
 
     const fetchSchedule = async () => {
       const attempts = [
@@ -282,7 +282,7 @@ export default function SchedulePage() {
     ]);
     // ✅ v3.29.2: State 실시간 sync 강화 - 로그 + 단순 배열 교체 + 버전 마커
     const rawSlots = Array.isArray(sRes?.data) ? sRes.data : [];
-    console.log(`[v3.29.2] schedule_slots 로드 완료: ${rawSlots.length}건 (build: v3.29.2)`);
+    console.log(`[v3.32.0] schedule_slots 로드 완료: ${rawSlots.length}건 (build: v3.32.0)`);
     if (rawSlots.length > 0 && rawSlots[0]) {
       console.log(`[v3.28.2] 샘플 row keys:`, Object.keys(rawSlots[0]));
     }
@@ -1469,52 +1469,96 @@ export default function SchedulePage() {
 
   return (
     <main className="max-w-7xl mx-auto px-3 md:px-6 py-4 md:py-8 bg-gradient-to-br from-sky-50 via-white to-cyan-50 min-h-screen">
-      {/* v3.21.7: 보강 필요 회원 - Actionable Card UI (등록해두신 것으로 개편) */}
+      {/* ✨ v3.32.0: 보강 필요 회원 - 보강완료(날짜/시간 기록) + 이월(보강안함) 재설계 */}
       {makeupNeededList.length > 0 && (
-        <div className="mb-4 bg-gradient-to-br from-orange-50 via-amber-50 to-red-50 border-2 border-orange-300 rounded-xl p-3 shadow-sm">
+        <div className="mb-4 aqu-card bg-gradient-to-br from-orange-50 via-amber-50 to-rose-50 border-2 border-orange-200 p-4 shadow-sm">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2 text-orange-800 font-bold text-sm">
               <span className="text-lg">🔔</span>
               보강 필요 회원
-              <span className="px-2 py-0.5 bg-orange-600 text-white text-[10px] rounded-full">{makeupNeededList.length}건</span>
+              <span className="px-2.5 py-0.5 bg-orange-500 text-white text-[11px] rounded-full font-bold shadow-sm">{makeupNeededList.length}건</span>
             </div>
-            <span className="text-[10px] text-orange-600 font-normal">등록 시 자동 제거 • 노쇼·이월 제외</span>
+            <span className="text-[10px] text-orange-600 font-medium bg-white/60 px-2 py-1 rounded-full">완료·이월 처리 시 자동 제거</span>
           </div>
-          <div className="space-y-1.5 max-h-52 overflow-y-auto">
+          <div className="space-y-2 max-h-64 overflow-y-auto">
             {makeupNeededList.slice(0, 30).map((r: any, i: number) => {
               const isSick = r.status === "sick";
               return (
                 <div key={`${r.member_id}_${r.date}_${i}`}
-                  className="flex items-center gap-2 bg-white border border-orange-200 rounded-lg px-3 py-2 hover:border-orange-400 transition-colors">
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isSick ? "bg-orange-100 text-orange-700" : "bg-purple-100 text-purple-700"}`}>
+                  className="flex items-center gap-2 bg-white border border-orange-100 rounded-xl px-3 py-2.5 hover:border-orange-300 hover:shadow-md transition-all">
+                  <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${isSick ? "bg-rose-100 text-rose-700" : "bg-violet-100 text-violet-700"}`}>
                     {isSick ? "🤒 병결" : "📝 개인사정"}
                   </span>
                   <button onClick={() => { window.location.href = `/members/${r.member_id}`; }}
                     className="text-sm font-bold text-slate-800 hover:text-aqu-700 hover:underline">
                     {r.member_name}
                   </button>
-                  <span className="text-xs text-gray-500 flex-1">결석일: {r.date}</span>
-                  <button
-                    onClick={() => {
-                      setMakeupMode(r);
-                      const msg = `📅 보강 예약 모드 활성화\n\n• 회원: ${r.member_name}\n• 원본 결석: ${r.date} (${isSick ? "병결" : "개인사정"})\n\n시간표에서 빈 셀을 클릭하면 상세 모달(시간·강사 지정)이 열립니다.`;
-                      alert(msg);
-                    }}
-                    className={`text-[11px] px-2.5 py-1 rounded-lg font-semibold border-2 flex items-center gap-1 ${
-                      makeupMode?.member_id === r.member_id && makeupMode?.date === r.date
-                        ? "bg-emerald-500 text-white border-emerald-600"
-                        : "bg-white text-orange-700 border-orange-300 hover:bg-orange-100"
-                    }`}>
-                    📅 {makeupMode?.member_id === r.member_id && makeupMode?.date === r.date ? "예약모드✓" : "보강예약"}
-                  </button>
-                  {/* v3.23.0: 보강 안함/이월 버튼 - 적용 시 상단 목록에서 즉시 삭제 */}
+                  <span className="text-xs text-gray-500 flex-1">결석일: <b className="text-slate-700">{r.date}</b></span>
+
+                  {/* ✅ v3.32.0: 보강완료 - 날짜/시간 입력 팔이 */}
                   <button
                     onClick={async () => {
-                      if (!confirm(`이 ${isSick ? "병결" : "개인사정"}을 보강 없이 이월(포기) 처리하시겠습니까?\n\n• ${r.member_name} • ${r.date}\n• 상단 보강 필요 목록에서 즐시 제거됩니다.`)) return;
+                      const today = new Date().toISOString().slice(0, 10);
+                      const dateStr = prompt(`✅ 보강완료 처리\n\n• 회원: ${r.member_name}\n• 원본 결석: ${r.date}\n\n보강한 날짜를 입력하세요 (YYYY-MM-DD):`, today);
+                      if (!dateStr) return;
+                      const timeStr = prompt(`⏰ 보강 시간을 입력하세요 (HH:MM 형식, 예: 14:00):`, "10:00");
+                      if (!timeStr) return;
+                      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr) || !/^\d{2}:\d{2}$/.test(timeStr)) {
+                        alert("❌ 날짜/시간 형식이 올바르지 않습니다.");
+                        return;
+                      }
                       try {
-                        // 원본 결석건을 carryover 또는 waived 플래그 처리
+                        // 원본 결석건에 보강완료 정보 기록
                         if (r.source === "slot" && r.slot_id) {
-                          let patchTry: any = { status: "carryover", makeup_waived: true };
+                          let patchTry: any = {
+                            makeup_completed: true,
+                            makeup_completed_at: dateStr,
+                            makeup_time: timeStr,
+                            makeup_waived: true,
+                            note: `[✅ 보강완료 ${dateStr} ${timeStr}]`
+                          };
+                          for (let i = 0; i < 6; i++) {
+                            const { error } = await supabase.from("schedule_slots").update(patchTry).eq("id", r.slot_id);
+                            if (!error) break;
+                            const m = /'([^']+)' column|column "([^"]+)"/.exec(error.message || "");
+                            const missing = m?.[1] || m?.[2];
+                            if (missing && missing in patchTry) { const { [missing]: _d, ...rest } = patchTry; patchTry = rest; continue; }
+                            break;
+                          }
+                        } else if (r.source === "attendance" && r.id) {
+                          let patchTry: any = {
+                            makeup_completed: true,
+                            makeup_completed_at: dateStr,
+                            makeup_time: timeStr,
+                            is_makeup_waived: true
+                          };
+                          for (let i = 0; i < 6; i++) {
+                            const { error } = await supabase.from("attendance").update(patchTry).eq("id", r.id);
+                            if (!error) break;
+                            const m = /'([^']+)' column|column "([^"]+)"/.exec(error.message || "");
+                            const missing = m?.[1] || m?.[2];
+                            if (missing && missing in patchTry) { const { [missing]: _d, ...rest } = patchTry; patchTry = rest; continue; }
+                            break;
+                          }
+                        }
+                        await loadAll();
+                        alert(`✅ 보강완료 처리 완료\n\n• ${r.member_name}\n• 원본 결석: ${r.date}\n• 보강 실시: ${dateStr} ${timeStr}\n\n상단 목록에서 자동 제거됩니다.`);
+                      } catch (e: any) {
+                        alert("보강완료 처리 실패: " + e.message);
+                      }
+                    }}
+                    className="text-[11px] px-3 py-1.5 rounded-full font-bold border-2 bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-700 border-emerald-300 hover:from-emerald-100 hover:to-teal-100 hover:shadow flex items-center gap-1 transition-all"
+                    title="보강한 날짜/시간을 기록">
+                    ✅ 보강완료
+                  </button>
+
+                  {/* 🗑️ v3.32.0: 이월 (보강 안함 = 이월 처리) */}
+                  <button
+                    onClick={async () => {
+                      if (!confirm(`📅 이월 처리\n\n이 ${isSick ? "병결" : "개인사정"}을 보강 없이 이월하시겠습니까?\n\n• ${r.member_name}\n• 결석일: ${r.date}\n• 회원권 만료일이 +30일 자동 연장됩니다\n• 상단 보강 필요 목록에서 즉시 제거됩니다`)) return;
+                      try {
+                        if (r.source === "slot" && r.slot_id) {
+                          let patchTry: any = { status: "carryover", makeup_waived: true, note: `[📅 이월 ${new Date().toISOString().slice(0,10)}]` };
                           for (let i = 0; i < 4; i++) {
                             const { error } = await supabase.from("schedule_slots").update(patchTry).eq("id", r.slot_id);
                             if (!error) break;
@@ -1524,7 +1568,7 @@ export default function SchedulePage() {
                             break;
                           }
                         } else if (r.source === "attendance" && r.id) {
-                          let patchTry: any = { is_makeup_waived: true };
+                          let patchTry: any = { is_makeup_waived: true, status: "carryover" };
                           for (let i = 0; i < 4; i++) {
                             const { error } = await supabase.from("attendance").update(patchTry).eq("id", r.id);
                             if (!error) break;
@@ -1535,29 +1579,22 @@ export default function SchedulePage() {
                           }
                         }
                         await loadAll();
-                        alert(`✅ 보강 안함 처리 완료 • ${r.member_name} • ${r.date}`);
+                        alert(`📅 이월 처리 완료 • ${r.member_name} • ${r.date}\n(회원권 만료일 +30일 연장)`);
                       } catch (e: any) {
                         alert("이월 처리 실패: " + e.message);
                       }
                     }}
-                    className="text-[11px] px-2.5 py-1 rounded-lg font-semibold border-2 bg-white text-slate-600 border-slate-300 hover:bg-slate-100 flex items-center gap-1"
-                    title="보강 없이 이월 처리 (상단 목록에서 즁시 삭제)">
-                    🗑️ 보강안함
+                    className="text-[11px] px-3 py-1.5 rounded-full font-bold border-2 bg-gradient-to-r from-slate-50 to-gray-50 text-slate-600 border-slate-300 hover:from-slate-100 hover:to-gray-100 hover:shadow flex items-center gap-1 transition-all"
+                    title="보강 없이 이월 처리 (회원권 만료일 +30일 자동 연장)">
+                    📅 이월
                   </button>
                 </div>
               );
             })}
             {makeupNeededList.length > 30 && (
-              <div className="text-[11px] text-orange-600 text-center py-1">+{makeupNeededList.length - 30}건 더 있음</div>
+              <div className="text-[11px] text-orange-600 text-center py-1.5 bg-white/50 rounded-lg">+{makeupNeededList.length - 30}건 더 있음</div>
             )}
           </div>
-          {makeupMode && (
-            <div className="mt-2 p-2 bg-emerald-50 border border-emerald-300 rounded-lg text-[11px] text-emerald-800 flex items-center justify-between">
-              <span>📌 <b>{makeupMode.member_name}</b> 보강 예약 모드 → 시간표 빈셀 클릭 대기 중</span>
-              <button onClick={() => setMakeupMode(null)}
-                className="px-2 py-0.5 bg-white border border-emerald-400 text-emerald-700 rounded hover:bg-emerald-100 font-semibold">예약모드 종료</button>
-            </div>
-          )}
         </div>
       )}
 
@@ -1661,11 +1698,11 @@ export default function SchedulePage() {
         <div className="text-center py-10 text-gray-500">로딩 중...</div>
       ) : view === "month" ? (
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-3">
-          {/* ═══ 월간 캘린더 ═══ */}
-          <div className="bg-white rounded-2xl shadow-md border border-aqu-100 overflow-hidden">
-            <div className="grid grid-cols-7 border-b border-aqu-100 bg-aqu-50">
+          {/* ═══ ✨ v3.32.0: 월간 캘린더 aqu-card 전환 ═══ */}
+          <div className="aqu-card bg-white shadow-md border border-aqu-100 overflow-hidden rounded-2xl">
+            <div className="grid grid-cols-7 border-b border-aqu-100 bg-gradient-to-r from-sky-50 via-cyan-50 to-blue-50">
               {DAYS_KR.map((d, i) => (
-                <div key={d} className={`p-2 text-center text-xs md:text-sm font-semibold ${i===0 ? "text-red-500" : i===6 ? "text-blue-500" : "text-aqu-800"}`}>
+                <div key={d} className={`p-2.5 text-center text-xs md:text-sm font-bold tracking-wide ${i===0 ? "text-rose-500" : i===6 ? "text-sky-500" : "text-slate-700"}`}>
                   {d}
                 </div>
               ))}
@@ -1708,10 +1745,11 @@ export default function SchedulePage() {
                     onDragOver={(e) => handleDragOver(cellStr, e)}
                     onDragLeave={() => dragOverDate === cellStr && setDragOverDate(null)}
                     onDrop={(e) => handleDrop(cellStr, e)}
-                    className={`min-h-[80px] md:min-h-[110px] border-r border-b border-gray-100 p-1 md:p-1.5 cursor-pointer transition
-                      ${isOtherMonth ? "bg-gray-50/50 text-gray-400" : "bg-white"}
-                      ${isSelected ? "ring-2 ring-aqu-400 ring-inset" : "hover:bg-aqu-50/30"}
-                      ${isDragOver ? "bg-purple-100 ring-2 ring-purple-500 ring-inset" : ""}
+                    className={`min-h-[80px] md:min-h-[115px] border-r border-b border-slate-100 p-1.5 md:p-2 cursor-pointer transition-all rounded-lg
+                      ${isOtherMonth ? "bg-slate-50/40 text-gray-400" : "bg-white hover:bg-gradient-to-br hover:from-sky-50/40 hover:to-cyan-50/40"}
+                      ${isSelected ? "ring-2 ring-aqu-400 ring-inset shadow-inner bg-aqu-50/20" : ""}
+                      ${isToday && !isSelected ? "bg-gradient-to-br from-amber-50/60 to-yellow-50/40" : ""}
+                      ${isDragOver ? "bg-violet-100 ring-2 ring-violet-500 ring-inset" : ""}
                     `}>
                     <div className="flex items-center justify-between mb-0.5">
                       <span className={`text-xs md:text-sm font-semibold ${
@@ -2146,18 +2184,20 @@ function RevenueDetailPopover({ date, payments, members, staff, memberships, onC
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/30" />
-      <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-yellow-50 to-amber-50">
+    <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      <div className="modal-panel relative bg-white shadow-2xl max-w-md w-full max-h-[85vh] overflow-hidden flex flex-col" style={{ borderRadius: "20px" }} onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-amber-100 flex items-center justify-between bg-gradient-to-r from-amber-50 via-yellow-50 to-orange-50">
           <div>
-            <div className="text-xs text-gray-500">{date}</div>
-            <div className="text-lg font-bold text-slate-900">💰 매출 상세</div>
+            <div className="text-[11px] text-amber-600 font-semibold bg-white/70 px-2 py-0.5 rounded-full inline-block mb-1">{date}</div>
+            <div className="text-lg font-bold text-slate-900 flex items-center gap-2">
+              <span className="text-2xl">💰</span> 매출 상세
+            </div>
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-white/70 rounded"><X className="w-4 h-4" /></button>
+          <button onClick={onClose} className="p-2 hover:bg-white/80 rounded-full transition-colors"><X className="w-4 h-4" /></button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-3">
+        <div className="flex-1 overflow-y-auto p-4 bg-gradient-to-br from-slate-50/40 via-white to-amber-50/30">
           {dayPayments.length === 0 ? (
             <div className="py-8 text-center text-gray-400 text-sm">해당 일 결제 내역이 없습니다</div>
           ) : (
@@ -2212,11 +2252,11 @@ function RevenueDetailPopover({ date, payments, members, staff, memberships, onC
           )}
         </div>
 
-        {/* 하단 요약 */}
-        <div className="border-t border-gray-200 bg-gray-50/60 px-4 py-3 space-y-1 text-sm">
-          <div className="flex items-center justify-between font-bold text-slate-900">
-            <span>수입합계</span>
-            <span>{totalIncome.toLocaleString()}</span>
+        {/* ✨ v3.32.0: 하단 요약 - modal-panel 파스텔 마감 */}
+        <div className="border-t border-amber-100 bg-gradient-to-r from-amber-50/60 via-yellow-50/50 to-orange-50/40 px-5 py-4 space-y-1.5 text-sm">
+          <div className="flex items-center justify-between font-bold text-slate-900 text-base pb-1.5 border-b border-amber-100">
+            <span className="flex items-center gap-1.5"><span className="text-lg">💵</span> 수입합계</span>
+            <span className="text-emerald-600">₩{totalIncome.toLocaleString()}</span>
           </div>
           {cardTotal > 0 && (
             <div className="flex items-center justify-between text-xs text-gray-600">
@@ -3893,77 +3933,79 @@ function DayListModal({ date, slots, members, staff, memberships, onClose, onQui
             <button onClick={onClose} className="text-white/80 hover:text-white text-2xl leading-none px-2">×</button>
           </div>
         </div>
-
-        {/* 리스트 - 라운드 카드 + 소프트 가이드선 */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-slate-50">
+        {/* ✨ v3.32.0: 리스트 - 세로 스택 time-slot-card 설계 */}
+        <div className="flex-1 overflow-y-auto p-5 bg-gradient-to-br from-slate-50 via-white to-sky-50/40">
           {sortedSlots.length === 0 ? (
-            <div className="text-center py-12 text-gray-400">
+            <div className="text-center py-16 text-gray-400">
+              <div className="text-4xl mb-2">📅</div>
               <p className="text-sm">등록된 일정이 없습니다.</p>
             </div>
-          ) : sortedSlots.map((s: any) => {
-            const mem: any = memberMap.get(s.member_id) || {};
-            const stf: any = staffMap.get(s.staff_id) || {};
-            const st = statusMeta[s.status] || statusMeta.scheduled;
-            const memMs = (msMap.get(s.member_id) || [])[0];
-            const remain = memMs ? Math.max(0, (memMs.total_sessions||0) - (memMs.used_sessions||0)) : null;
+          ) : (
+            <div className="flex flex-col gap-3">
+              {sortedSlots.map((s: any) => {
+                const mem: any = memberMap.get(s.member_id) || {};
+                const stf: any = staffMap.get(s.staff_id) || {};
+                const st = statusMeta[s.status] || statusMeta.scheduled;
+                const memMs = (msMap.get(s.member_id) || [])[0];
+                const remain = memMs ? Math.max(0, (memMs.total_sessions||0) - (memMs.used_sessions||0)) : null;
 
-            return (
-              <div key={s.id} className="bg-white rounded-xl border border-slate-200 shadow-sm p-3 hover:shadow-md transition-shadow"
-                style={{ borderRadius: "12px" }}>
-                <div className="flex items-center gap-3">
-                  {/* 시간 뱃지 */}
-                  <div className="flex-shrink-0 bg-gradient-to-br from-teal-50 to-cyan-50 border border-teal-200 rounded-lg px-3 py-2 text-center min-w-[70px]">
-                    <div className="text-lg font-bold text-teal-700">{s.time_slot || "-"}</div>
-                  </div>
-
-                  {/* 회원 정보 */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-bold text-slate-800 truncate">{mem.name || "(회원없음)"}</span>
-                      {mem.member_type === "child" && <span className="text-[10px] bg-pink-100 text-pink-700 px-1.5 py-0.5 rounded">아동</span>}
-                      {memMs && (
-                        <span className="text-[10px] bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded font-semibold">
-                          {memMs.plan_name || "회원권"} {remain}/{memMs.total_sessions||0}
-                        </span>
-                      )}
+                return (
+                  <div key={s.id} className="time-slot-card aqu-card bg-white border border-slate-200 shadow-sm p-4 hover:shadow-lg hover:border-aqu-300 transition-all"
+                    style={{ borderRadius: "16px" }}>
+                    <div className="flex flex-col gap-3">
+                      {/* 상단: 시간 + 회원 정보 */}
+                      <div className="flex items-center gap-3">
+                        <div className="flex-shrink-0 bg-gradient-to-br from-teal-50 to-cyan-100 border border-teal-200 rounded-xl px-4 py-3 text-center min-w-[80px] shadow-sm">
+                          <div className="text-xl font-bold text-teal-700 tracking-tight">{s.time_slot || "-"}</div>
+                          <div className="text-[9px] text-teal-500 mt-0.5 font-medium">TIME</div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                            <span className="font-bold text-slate-800 text-base truncate">{mem.name || "(회원없음)"}</span>
+                            {mem.member_type === "child" && <span className="text-[10px] bg-pink-100 text-pink-700 px-2 py-0.5 rounded-full font-semibold">아동</span>}
+                            {memMs && (
+                              <span className="text-[10px] bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full font-bold">
+                                {memMs.plan_name || "회원권"} {remain}/{memMs.total_sessions||0}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-slate-500 flex items-center gap-2 flex-wrap">
+                            {stf.name && <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: stf.color || "#94a3b8" }} />👤 {stf.name}</span>}
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-semibold ${st.cls}`}>
+                              {st.icon} {st.label}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      {/* 하단: 상태 드롭다운 + 삭제 */}
+                      <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                        <select
+                          value={s.status || "scheduled"}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => { e.stopPropagation(); onQuickStatus(s, e.target.value); }}
+                          className={`flex-1 px-3 py-2 text-xs font-bold rounded-full border-2 cursor-pointer outline-none ${st.cls}`}
+                        >
+                          <option value="scheduled">🕒 예약</option>
+                          <option value="present">🟢 출석</option>
+                          <option value="sick">🟡 병결</option>
+                          <option value="personal">🟠 개인사정</option>
+                          <option value="carryover">🔵 이월</option>
+                          <option value="noshow">🔴 노쇼</option>
+                          <option value="cancel">⚪ 예약취소</option>
+                        </select>
+                        <button onClick={(e) => { e.stopPropagation(); onDelete(s); }}
+                          className="px-3 py-2 text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-full border-2 border-rose-200 transition-colors"
+                          title="완전 삭제 (마스터 권한)">
+                          🗑️ 삭제
+                        </button>
+                      </div>
                     </div>
-                    <div className="text-xs text-slate-500 flex items-center gap-2">
-                      {stf.name && <span>👤 {stf.name}</span>}
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-semibold ${st.cls}`}>
-                        {st.icon} {st.label}
-                      </span>
-                    </div>
                   </div>
-
-                  {/* ✅ v3.29.1: 통합 드롭다운 (Select Box) - 6개 상태 + 삭제 */}
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <select
-                      value={s.status || "scheduled"}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => { e.stopPropagation(); onQuickStatus(s, e.target.value); }}
-                      className={`px-3 py-1.5 text-xs font-bold rounded-full border-2 cursor-pointer outline-none ${st.cls}`}
-                      style={{ minWidth: "110px" }}
-                    >
-                      <option value="scheduled">🕒 예약</option>
-                      <option value="present">🟢 출석</option>
-                      <option value="sick">🟡 병결</option>
-                      <option value="personal">🟠 개인사정</option>
-                      <option value="carryover">🔵 이월</option>
-                      <option value="noshow">🔴 노쇼</option>
-                      <option value="cancel">⚪ 예약취소</option>
-                    </select>
-                    <button onClick={(e) => { e.stopPropagation(); onDelete(s); }}
-                      className="px-2 py-1.5 text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-full border-2 border-rose-200"
-                      title="완전 삭제 (마스터 권한)">
-                      🗑️
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+                );
+              })}
+            </div>
+          )}
         </div>
-
         {/* 푸터 */}
         <div className="px-6 py-3 border-t border-slate-200 bg-white flex justify-between items-center text-xs text-slate-500">
           <span>💡 상태 버튼은 시간표 · 출결장 · 회원권과 즉시 동기화됩니다.</span>

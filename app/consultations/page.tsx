@@ -912,26 +912,28 @@ function MatchView({ matrix, members, staff, waiters, stats, getCell, getMatched
         })}
       </div>
 
-      {/* 매트릭스 */}
-      <div className="bg-white rounded-xl border border-aqu-100 overflow-hidden shadow-sm">
-        <div className="bg-gradient-to-r from-aqu-500 to-cyan-500 text-white px-4 py-2.5 flex items-center justify-between">
-          <div className="font-bold text-sm">📋 주간 시간표 매트릭스</div>
-          <div className="text-[11px] opacity-90">셀 클릭 → 상태 변경 · 회원 배정</div>
+      {/* ✨ v3.32.0: 매트릭스 - aqu-card + 라운드 격자 */}
+      <div className="aqu-card bg-white overflow-hidden shadow-md border border-aqu-100" style={{ borderRadius: "16px" }}>
+        <div className="bg-gradient-to-r from-aqu-500 via-cyan-500 to-teal-500 text-white px-5 py-3 flex items-center justify-between">
+          <div className="font-bold text-sm flex items-center gap-2">
+            <span className="text-lg">📋</span> 주간 시간표 매트릭스
+          </div>
+          <div className="text-[11px] opacity-90 bg-white/20 px-2.5 py-1 rounded-full">셀 클릭 → 상태 변경 · 회원 배정</div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-xs">
+        <div className="overflow-x-auto p-2 bg-gradient-to-br from-slate-50/40 to-white">
+          <table className="min-w-full text-xs border-separate" style={{ borderSpacing: "4px" }}>
             <thead>
-              <tr className="bg-aqu-50 text-aqu-800">
-                <th className="w-20 p-2 border-b border-r border-aqu-100">시간대</th>
+              <tr className="text-slate-700">
+                <th className="w-20 p-2 rounded-lg bg-gradient-to-br from-sky-100 to-cyan-100 font-bold text-aqu-800">시간대</th>
                 {DAYS.map((d, i) => (
-                  <th key={d} className={`p-2 border-b border-r border-aqu-100 font-bold ${i === 5 ? "bg-orange-50" : ""}`}>{d}</th>
+                  <th key={d} className={`p-2 rounded-lg font-bold ${i === 5 ? "bg-gradient-to-br from-orange-50 to-amber-50 text-orange-700" : "bg-gradient-to-br from-sky-50 to-cyan-50 text-aqu-800"}`}>{d}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {TIME_SLOTS.map(time => (
                 <tr key={time}>
-                  <td className="p-2 border-b border-r border-aqu-100 font-medium text-aqu-700 bg-aqu-50/50 text-[11px]">{time}</td>
+                  <td className="p-2 rounded-lg font-semibold text-aqu-700 bg-gradient-to-br from-sky-50/60 to-white text-[11px] text-center">{time}</td>
                   {DAYS.map((_, idx) => {
                     const day = idx + 1;
                     const cell = getCell(day, time);
@@ -948,15 +950,15 @@ function MatchView({ matrix, members, staff, waiters, stats, getCell, getMatched
                     return (
                       <td key={`${day}-${time}`}
                         onClick={() => onCellClick(day, time)}
-                        className={`p-1 border-b border-r border-aqu-100 align-top cursor-pointer min-w-[110px] transition-colors
-                          ${status === "fixed" && !staffColor ? "bg-emerald-50 hover:bg-emerald-100" : ""}
-                          ${status === "open" && !staffColor ? "bg-blue-50 hover:bg-blue-100" : ""}
-                          ${status === "closed" ? "bg-gray-100 hover:bg-gray-200" : ""}
+                        className={`p-2 rounded-xl align-top cursor-pointer min-w-[110px] transition-all hover:shadow-md hover:-translate-y-0.5
+                          ${status === "fixed" && !staffColor ? "bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 hover:from-emerald-100 hover:to-teal-100" : ""}
+                          ${status === "open" && !staffColor ? "bg-gradient-to-br from-blue-50 to-sky-50 border border-blue-200 hover:from-blue-100 hover:to-sky-100" : ""}
+                          ${status === "closed" ? "bg-slate-100 border border-slate-200 hover:bg-slate-200" : ""}
                           ${staffFilter && effectiveStaffId !== staffFilter && status !== "closed" ? "opacity-30" : ""}`}
                         style={staffColor && status !== "closed" ? {
-                          backgroundColor: staffColor + (status === "fixed" ? "33" : "18"),
-                          borderLeftColor: staffColor,
-                          borderLeftWidth: 3,
+                          background: `linear-gradient(135deg, ${staffColor}18, ${staffColor}08)`,
+                          borderLeft: `3px solid ${staffColor}`,
+                          borderRadius: "12px",
                         } : {}}
                       >
                         {status === "fixed" && (
