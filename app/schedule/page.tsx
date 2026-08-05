@@ -126,6 +126,10 @@ export default function SchedulePage() {
 
   // Quick action sheet (예약 클릭 시)
   const [quickAction, setQuickAction] = useState<any | null>(null);
+  // ✅ v3.29.0: +더보기 모달 (당일 전체 회원 리스트)
+  const [dayListModal, setDayListModal] = useState<{ date: string; slots: any[] } | null>(null);
+  // ✅ v3.29.0: 보강 선택 모드 - 상단 보강 배지 클릭 시 설정
+  const [makeupSelectMode, setMakeupSelectMode] = useState<{ member_id: string; makeup_ticket_id?: string; member_name?: string } | null>(null);
   // ✅ v3.20.1: 사인 출결 모달
   const [signatureSlot, setSignatureSlot] = useState<any | null>(null);
   // ✅ v3.20.11: 매출 상세 팝오버 (셔 설정 날짜별)
@@ -1732,9 +1736,15 @@ export default function SchedulePage() {
                         );
                       })}
                       {daySlots.length > 3 && (
-                        <div className="text-[9px] md:text-[10px] text-gray-500 pl-1">
-                          +{daySlots.length - 3} 더보기
-                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDayListModal({ date: cellStr, slots: daySlots });
+                          }}
+                          className="text-[9px] md:text-[10px] text-teal-600 font-semibold pl-1 hover:text-teal-800 hover:underline text-left"
+                        >
+                          +{daySlots.length - 3}명 더보기
+                        </button>
                       )}
                       {/* v3.23.5: 셀 우상단 dayPaymentsSum과 중복되던 하단 매출 표시 제거 */}
                     </div>
@@ -1881,6 +1891,31 @@ export default function SchedulePage() {
           date={signatureSlot.event_date}
           onClose={() => setSignatureSlot(null)}
           onSaved={async () => { setSignatureSlot(null); await loadAll(); }}
+        />
+      )}
+
+      {/* ✅ v3.29.0: +더보기 모달 - 당일 전체 회원 리스트 */}
+      {dayListModal && (
+        <DayListModal
+          date={dayListModal.date}
+          slots={dayListModal.slots}
+          members={members}
+          staff={staff}
+          memberships={memberships}
+          onClose={() => setDayListModal(null)}
+          onQuickStatus={async (slot: any, status: string) => {
+            const statusMap: Record<string, string> = { present: "done", absent: "noshow", sick: "sick", personal: "personal", cancel: "cancel" };
+            await supabase.from("schedule_slots").update({ status: statusMap[status] || status }).eq("id", slot.id);
+            await loadAll();
+            // 모달도 갱신
+            const refreshedSlots = slots.filter((s: any) => {
+              const ed = typeof s.event_date === "string" ? s.event_date.substring(0,10) : new Date(s.event_date).toISOString().substring(0,10);
+              return ed === dayListModal.date;
+            });
+            setDayListModal({ date: dayListModal.date, slots: refreshedSlots });
+          }}
+          onDelete={async (slot: any) => { await deleteSlot(slot.id, { mode: "single" }); setDayListModal(null); }}
+          onAddNew={() => { setDayListModal(null); setModal({ date: dayListModal.date }); }}
         />
       )}
 
@@ -3727,6 +3762,138 @@ function PlanPicker({ plans, value, onChange }: any) {
             className="text-gray-400 hover:text-red-500 text-sm leading-none">×</button>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+ * ✅ v3.29.0: DayListModal - 달력 셀 +더보기 클릭 시 표시
+ * 당일 전체 수강 회원 리스트 + 원클릭 상태 변경 + 완전 삭제
+ * ═══════════════════════════════════════════════════════════ */
+function DayListModal({ date, slots, members, staff, memberships, onClose, onQuickStatus, onDelete, onAddNew }: any) {
+  const memberMap = new Map((members || []).map((m: any) => [m.id, m]));
+  const staffMap = new Map((staff || []).map((s: any) => [s.id, s]));
+  const msMap = new Map<string, any>();
+  (memberships || []).forEach((ms: any) => {
+    const list = msMap.get(ms.member_id) || [];
+    list.push(ms);
+    msMap.set(ms.member_id, list);
+  });
+
+  // 시간순 정렬
+  const sortedSlots = [...(slots || [])].sort((a: any, b: any) =>
+    (a.time_slot || "").localeCompare(b.time_slot || "")
+  );
+
+  const dateObj = new Date(date + "T00:00:00");
+  const dayLabel = `${dateObj.getFullYear()}년 ${dateObj.getMonth()+1}월 ${dateObj.getDate()}일`;
+
+  const statusMeta: Record<string, { label: string; cls: string; icon: string }> = {
+    present:  { label: "출석",     cls: "bg-emerald-100 text-emerald-700 border-emerald-300", icon: "✓" },
+    done:     { label: "완료",     cls: "bg-emerald-100 text-emerald-700 border-emerald-300", icon: "✓" },
+    absent:   { label: "결석",     cls: "bg-rose-100 text-rose-700 border-rose-300",           icon: "✗" },
+    sick:     { label: "병결",     cls: "bg-amber-100 text-amber-700 border-amber-300",        icon: "🏥" },
+    personal: { label: "개인사정", cls: "bg-sky-100 text-sky-700 border-sky-300",             icon: "📝" },
+    cancel:   { label: "취소",     cls: "bg-slate-100 text-slate-600 border-slate-300",        icon: "🚫" },
+    noshow:   { label: "노쇼",     cls: "bg-rose-100 text-rose-700 border-rose-300",           icon: "⚠️" },
+    scheduled:{ label: "예약",     cls: "bg-indigo-100 text-indigo-700 border-indigo-300",     icon: "🕒" },
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+        {/* 헤더 - 파스텔 그라디언트 */}
+        <div className="bg-gradient-to-r from-teal-500 to-cyan-500 text-white px-6 py-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-bold">{dayLabel} 전체 수강 회원</h2>
+            <p className="text-xs opacity-90 mt-0.5">총 {sortedSlots.length}건 · 시간순 정렬</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={(e) => { e.stopPropagation(); onAddNew && onAddNew(); }}
+              className="px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-sm font-semibold flex items-center gap-1">
+              + 이 날짜에 일정 추가
+            </button>
+            <button onClick={onClose} className="text-white/80 hover:text-white text-2xl leading-none px-2">×</button>
+          </div>
+        </div>
+
+        {/* 리스트 - 라운드 카드 + 소프트 가이드선 */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-slate-50">
+          {sortedSlots.length === 0 ? (
+            <div className="text-center py-12 text-gray-400">
+              <p className="text-sm">등록된 일정이 없습니다.</p>
+            </div>
+          ) : sortedSlots.map((s: any) => {
+            const mem: any = memberMap.get(s.member_id) || {};
+            const stf: any = staffMap.get(s.staff_id) || {};
+            const st = statusMeta[s.status] || statusMeta.scheduled;
+            const memMs = (msMap.get(s.member_id) || [])[0];
+            const remain = memMs ? Math.max(0, (memMs.total_sessions||0) - (memMs.used_sessions||0)) : null;
+
+            return (
+              <div key={s.id} className="bg-white rounded-xl border border-slate-200 shadow-sm p-3 hover:shadow-md transition-shadow"
+                style={{ borderRadius: "12px" }}>
+                <div className="flex items-center gap-3">
+                  {/* 시간 뱃지 */}
+                  <div className="flex-shrink-0 bg-gradient-to-br from-teal-50 to-cyan-50 border border-teal-200 rounded-lg px-3 py-2 text-center min-w-[70px]">
+                    <div className="text-lg font-bold text-teal-700">{s.time_slot || "-"}</div>
+                  </div>
+
+                  {/* 회원 정보 */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-bold text-slate-800 truncate">{mem.name || "(회원없음)"}</span>
+                      {mem.member_type === "child" && <span className="text-[10px] bg-pink-100 text-pink-700 px-1.5 py-0.5 rounded">아동</span>}
+                      {memMs && (
+                        <span className="text-[10px] bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded font-semibold">
+                          {memMs.plan_name || "회원권"} {remain}/{memMs.total_sessions||0}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-slate-500 flex items-center gap-2">
+                      {stf.name && <span>👤 {stf.name}</span>}
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-semibold ${st.cls}`}>
+                        {st.icon} {st.label}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 원클릭 상태 변경 버튼 그룹 */}
+                  <div className="flex flex-wrap gap-1 flex-shrink-0">
+                    <button onClick={(e) => { e.stopPropagation(); onQuickStatus(s, "present"); }}
+                      className="px-2 py-1 text-[11px] font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded border border-emerald-200">
+                      출석
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); onQuickStatus(s, "sick"); }}
+                      className="px-2 py-1 text-[11px] font-semibold bg-amber-50 hover:bg-amber-100 text-amber-700 rounded border border-amber-200">
+                      병결
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); onQuickStatus(s, "personal"); }}
+                      className="px-2 py-1 text-[11px] font-semibold bg-sky-50 hover:bg-sky-100 text-sky-700 rounded border border-sky-200">
+                      개인사정
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); onQuickStatus(s, "cancel"); }}
+                      className="px-2 py-1 text-[11px] font-semibold bg-slate-50 hover:bg-slate-100 text-slate-600 rounded border border-slate-200">
+                      취소
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); onDelete(s); }}
+                      className="px-2 py-1 text-[11px] font-semibold bg-rose-50 hover:bg-rose-100 text-rose-600 rounded border border-rose-200"
+                      title="완전 삭제 (마스터 권한)">
+                      🗑️
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* 푸터 */}
+        <div className="px-6 py-3 border-t border-slate-200 bg-white flex justify-between items-center text-xs text-slate-500">
+          <span>💡 상태 버튼은 시간표 · 출결장 · 회원권과 즉시 동기화됩니다.</span>
+          <button onClick={onClose} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded text-slate-700 font-semibold">닫기</button>
+        </div>
+      </div>
     </div>
   );
 }
