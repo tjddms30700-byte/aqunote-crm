@@ -499,7 +499,7 @@ export default function ConsultationsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-aqu-50 to-white p-4 md:p-6">
+    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-cyan-50 p-4 md:p-6">
       {/* 헤더 */}
       <div className="max-w-7xl mx-auto mb-5 flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -523,12 +523,14 @@ export default function ConsultationsPage() {
       {/* v3.20.23: 신청폼 URL 퀵 복사 툴바 + 설정 톱니바퀴 */}
       <QuickCopyToolbar />
 
-      {/* 탭 전환 */}
-      <div className="max-w-7xl mx-auto mb-5 flex gap-1 border-b border-aqu-100">
-        <TabBtn active={tab === "kanban"} onClick={() => setTab("kanban")} icon="📋" label="칸반 (파이프라인)" />
-        <TabBtn active={tab === "match"} onClick={() => setTab("match")} icon="🗓️" label="시간표 매칭" />
-        <TabBtn active={tab === "dashboard"} onClick={() => setTab("dashboard")} icon="📊" label="대시보드" />
-        <TabBtn active={tab === "faq"} onClick={() => setTab("faq")} icon="💬" label="상담 FAQ" />
+      {/* v3.31.1: 알약형(pill) 탭 전환 */}
+      <div className="max-w-7xl mx-auto mb-5">
+        <div className="pill-tab-group">
+          <button onClick={() => setTab("kanban")} className={`pill-tab ${tab === "kanban" ? "pill-tab-active" : ""}`}>📋 칸반 (파이프라인)</button>
+          <button onClick={() => setTab("match")} className={`pill-tab ${tab === "match" ? "pill-tab-active" : ""}`}>🗓️ 시간표 매칭</button>
+          <button onClick={() => setTab("dashboard")} className={`pill-tab ${tab === "dashboard" ? "pill-tab-active" : ""}`}>📊 대시보드</button>
+          <button onClick={() => setTab("faq")} className={`pill-tab ${tab === "faq" ? "pill-tab-active" : ""}`}>💬 상담 FAQ</button>
+        </div>
       </div>
 
       {/* ─── 탭 1: 칸반 ─── */}
@@ -658,9 +660,9 @@ function KanbanView({ members, stats, onMove, matrix }: any) {
       {/* 파이프라인 요약 */}
       <div className="mb-4 grid grid-cols-3 md:grid-cols-6 gap-2 text-xs">
         {COLUMNS.map(col => (
-          <div key={col.key} className={`${col.bg} border rounded-lg p-2`}>
-            <div className={`font-medium ${col.accent}`}>{col.label}</div>
-            <div className="text-lg font-bold mt-0.5">{stats.byStatus[col.key] || 0}명</div>
+          <div key={col.key} className="kpi-card">
+            <div className={`kpi-label ${col.accent}`}>{col.label}</div>
+            <div className="kpi-value">{stats.byStatus[col.key] || 0}명</div>
           </div>
         ))}
       </div>
@@ -694,7 +696,7 @@ function KanbanView({ members, stats, onMove, matrix }: any) {
           const cards = members.filter((m: Member) => (m.status || "new") === col.key).filter(passesFilter);
           return (
             <div key={col.key}
-              className={`${col.bg} border-2 border-dashed rounded-xl p-2 ${isCollapsed ? "" : "min-h-[400px]"}`}
+              className={`kanban-col ${col.bg} ${isCollapsed ? "min-h-0" : ""}`}
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => {
                 e.preventDefault();
@@ -702,12 +704,12 @@ function KanbanView({ members, stats, onMove, matrix }: any) {
                 if (id && draggedId) onMove(id, col.key);
                 setDraggedId(null);
               }}>
-              <div className="flex items-center justify-between mb-2 px-1">
-                <button onClick={() => setCollapsed({ ...collapsed, [col.key]: !isCollapsed })} className={`text-xs font-semibold ${col.accent} flex items-center gap-1 hover:opacity-70`}>
+              <div className="kanban-col-header">
+                <button onClick={() => setCollapsed({ ...collapsed, [col.key]: !isCollapsed })} className={`kanban-col-title flex items-center gap-1 ${col.accent} hover:opacity-70`}>
                   <span>{isCollapsed ? "▸" : "▾"}</span>
                   {col.label}
                 </button>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full bg-white ${col.accent} font-bold`}>{cards.length}</span>
+                <span className="kanban-col-count">{cards.length}</span>
               </div>
               {!isCollapsed && (
                 <div className="space-y-1.5 max-h-[560px] overflow-y-auto">
@@ -717,7 +719,7 @@ function KanbanView({ members, stats, onMove, matrix }: any) {
                       <div key={m.id}
                         draggable
                         onDragStart={(e) => { setDraggedId(m.id); e.dataTransfer.setData("text/plain", m.id); }}
-                        className="bg-white border border-gray-200 rounded-lg p-2 shadow-sm hover:shadow-md cursor-move transition-shadow">
+                        className="member-card cursor-move">
                         <Link href={`/members/${m.id}`} className="block">
                           <div className="flex items-center justify-between gap-1 mb-1">
                             <span className="font-medium text-sm text-aqu-900 truncate">{m.name}</span>
