@@ -1468,7 +1468,7 @@ export default function SchedulePage() {
   }
 
   return (
-    <main className="max-w-7xl mx-auto px-3 md:px-6 py-4 md:py-8">
+    <main className="max-w-7xl mx-auto px-3 md:px-6 py-4 md:py-8 bg-gradient-to-br from-sky-50 via-white to-cyan-50 min-h-screen">
       {/* v3.21.7: 보강 필요 회원 - Actionable Card UI (등록해두신 것으로 개편) */}
       {makeupNeededList.length > 0 && (
         <div className="mb-4 bg-gradient-to-br from-orange-50 via-amber-50 to-red-50 border-2 border-orange-300 rounded-xl p-3 shadow-sm">

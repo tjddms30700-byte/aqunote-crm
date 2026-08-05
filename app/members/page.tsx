@@ -235,7 +235,7 @@ export default function MembersPage() {
     );
 
   return (
-    <main className="max-w-6xl mx-auto px-4 md:px-6 py-6 md:py-10">
+    <main className="max-w-6xl mx-auto px-4 md:px-6 py-6 md:py-10 bg-gradient-to-br from-sky-50 via-white to-cyan-50 min-h-screen">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
           <Waves className="w-8 h-8 text-aqu-600" />

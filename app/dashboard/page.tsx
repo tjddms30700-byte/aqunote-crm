@@ -170,7 +170,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-aqu-50 to-white p-6">
+    <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-cyan-50 p-6">
       {/* Header */}
       <div className="max-w-7xl mx-auto mb-6 flex justify-between items-center">
         <div>

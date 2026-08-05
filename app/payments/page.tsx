@@ -557,7 +557,7 @@ export default function PaymentsPage() {
   const activeMemberships = memberships.filter((m) => m.status !== "cancelled" && (!m.end_date || new Date(m.end_date) > new Date())).length;
 
   return (
-    <main className="max-w-6xl mx-auto px-3 md:px-6 py-6 md:py-10">
+    <main className="max-w-6xl mx-auto px-3 md:px-6 py-6 md:py-10 bg-gradient-to-br from-sky-50 via-white to-cyan-50 min-h-screen">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div className="flex items-center gap-2 md:gap-3">
@@ -579,35 +579,44 @@ export default function PaymentsPage() {
         </div>
       </div>
 
-      {/* ✅ v3.18.0: 결제 · 매출 분석 통합 바로가기 */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
-        <Link href="/sales" className="bg-gradient-to-br from-pink-50 to-rose-50 border border-pink-200 rounded-lg p-3 hover:shadow-md hover:border-pink-400 transition group">
-          <div className="text-[10px] text-pink-600 font-semibold flex items-center gap-1">📊 매출내역</div>
-          <div className="text-xs md:text-sm font-bold text-slate-800 mt-1">다중수단 상세 보기</div>
-          <div className="text-[10px] text-gray-500 mt-0.5 group-hover:text-pink-600">→</div>
+      {/* v3.31.5: 파스텔 라운드 카드 바로가기 */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        <Link href="/sales" className="aqu-card aqu-card-hover group">
+          <div className="text-xs text-rose-600 font-semibold flex items-center gap-1">📊 매출내역</div>
+          <div className="text-sm font-bold text-slate-800 mt-1">다중수단 상세</div>
+          <div className="text-xs text-slate-400 mt-1 group-hover:text-rose-600">보기 →</div>
         </Link>
-        <Link href="/dashboard/revenue" className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 rounded-lg p-3 hover:shadow-md hover:border-emerald-400 transition group">
-          <div className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">📈 매출 통계</div>
-          <div className="text-xs md:text-sm font-bold text-slate-800 mt-1">월별 · 주별 추이</div>
-          <div className="text-[10px] text-gray-500 mt-0.5 group-hover:text-emerald-600">→</div>
+        <Link href="/dashboard/revenue" className="aqu-card aqu-card-hover group">
+          <div className="text-xs text-emerald-600 font-semibold flex items-center gap-1">📈 매출 통계</div>
+          <div className="text-sm font-bold text-slate-800 mt-1">월별 · 주별 추이</div>
+          <div className="text-xs text-slate-400 mt-1 group-hover:text-emerald-600">보기 →</div>
         </Link>
-        <Link href="/renewals" className="bg-gradient-to-br from-blue-50 to-cyan-50 border border-blue-200 rounded-lg p-3 hover:shadow-md hover:border-blue-400 transition group">
-          <div className="text-[10px] text-blue-600 font-semibold flex items-center gap-1">🔄 정기 결제</div>
-          <div className="text-xs md:text-sm font-bold text-slate-800 mt-1">자동갱신 · 만료임박</div>
-          <div className="text-[10px] text-gray-500 mt-0.5 group-hover:text-blue-600">→</div>
+        <Link href="/renewals" className="aqu-card aqu-card-hover group">
+          <div className="text-xs text-sky-600 font-semibold flex items-center gap-1">🔄 정기 결제</div>
+          <div className="text-sm font-bold text-slate-800 mt-1">자동갱신 · 만료임박</div>
+          <div className="text-xs text-slate-400 mt-1 group-hover:text-sky-600">보기 →</div>
         </Link>
-        <Link href="/finance" className="bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-200 rounded-lg p-3 hover:shadow-md hover:border-purple-400 transition group">
-          <div className="text-[10px] text-purple-600 font-semibold flex items-center gap-1">💼 재무 관리</div>
-          <div className="text-xs md:text-sm font-bold text-slate-800 mt-1">수입 · 지출 · 손익</div>
-          <div className="text-[10px] text-gray-500 mt-0.5 group-hover:text-purple-600">→</div>
+        <Link href="/finance" className="aqu-card aqu-card-hover group">
+          <div className="text-xs text-indigo-600 font-semibold flex items-center gap-1">💼 재무 관리</div>
+          <div className="text-sm font-bold text-slate-800 mt-1">수입 · 지출 · 손익</div>
+          <div className="text-xs text-slate-400 mt-1 group-hover:text-indigo-600">보기 →</div>
         </Link>
       </div>
 
-      {/* KPI */}
-      <div className="grid grid-cols-3 gap-2 md:gap-4 mb-6">
-        <KPI label="누적 매출" val={"₩" + totalRevenue.toLocaleString()} color="text-aqu-900" />
-        <KPI label="이번달 매출" val={"₩" + thisMonthRevenue.toLocaleString()} color="text-green-600" />
-        <KPI label="활성 회원권" val={activeMemberships + "건"} color="text-purple-600" />
+      {/* v3.31.5: KPI 파스텔 대형 라운드 카드 */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 mb-6">
+        <div className="kpi-card">
+          <div className="kpi-label">누적 매출</div>
+          <div className="kpi-value kpi-value-accent">₩{totalRevenue.toLocaleString()}</div>
+        </div>
+        <div className="kpi-card">
+          <div className="kpi-label">이번달 매출</div>
+          <div className="kpi-value kpi-value-success">₩{thisMonthRevenue.toLocaleString()}</div>
+        </div>
+        <div className="kpi-card">
+          <div className="kpi-label">활성 회원권</div>
+          <div className="kpi-value">{activeMemberships}건</div>
+        </div>
       </div>
 
       {/* Tabs + ✅ v3.20.7: 회원 검색바 */}

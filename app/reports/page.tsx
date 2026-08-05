@@ -312,7 +312,7 @@ function ReportsPage() {
   }
 
   return (
-    <main className="max-w-5xl mx-auto px-3 md:px-6 py-6 md:py-10">
+    <main className="max-w-5xl mx-auto px-3 md:px-6 py-6 md:py-10 bg-gradient-to-br from-sky-50 via-white to-cyan-50 min-h-screen">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <h1 className="text-xl md:text-3xl font-bold text-aqu-900 flex items-center gap-2">
           <FileText className="w-6 h-6 md:w-7 md:h-7 text-blue-500" /> 보고서 · 양식

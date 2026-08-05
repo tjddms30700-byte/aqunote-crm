@@ -93,7 +93,7 @@ export default function SalesPage() {
   }
 
   return (
-    <main className="max-w-full mx-auto px-3 md:px-6 py-6 md:py-8">
+    <main className="max-w-full mx-auto px-3 md:px-6 py-6 md:py-8 bg-gradient-to-br from-sky-50 via-white to-cyan-50 min-h-screen">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
