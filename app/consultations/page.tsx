@@ -208,11 +208,48 @@ export default function ConsultationsPage() {
     setLoading(false);
   }
 
-  /* ─── 회원 상태 변경 (드래그 등) ─── */
+  /* ─── 회원 상태 변경 (드래그 등) ─── v3.29.2 UUID 파싱 수정 */
   async function moveMember(id: string, newStatus: string) {
-    const { error } = await supabase.from("members").update({ status: newStatus }).eq("id", id);
-    if (error) alert("변경 실패: " + error.message);
-    else await loadAll();
+    console.log("[v3.29.2] moveMember 호출:", { id, newStatus });
+
+    // 🔧 v3.29.2: lead_ 접두어 제거 + 소스 테이블 자동 분기
+    const isLead = typeof id === "string" && id.startsWith("lead_");
+    const pureId = isLead ? id.replace("lead_", "") : id;
+
+    // UUID 형식 검증 (36자, 하이픈 4개)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(pureId)) {
+      console.error("[v3.29.2] 잘못된 UUID 형식:", pureId);
+      alert("❌ 잘못된 ID 형식입니다: " + pureId);
+      return;
+    }
+
+    try {
+      if (isLead) {
+        // 신청폼(lead)은 consultations 테이블 UPDATE
+        console.log("[v3.29.2] consultations 테이블 UPDATE:", pureId);
+        const { error } = await supabase
+          .from("consultations")
+          .update({ status: newStatus, updated_at: new Date().toISOString() })
+          .eq("id", pureId);
+        if (error) {
+          // consultations 테이블에 status 컬럼이 없을 수 있음 → members 로 fallback
+          console.warn("[v3.29.2] consultations UPDATE 실패, members 로 fallback:", error.message);
+          const r2 = await supabase.from("members").update({ status: newStatus }).eq("id", pureId);
+          if (r2.error) throw r2.error;
+        }
+      } else {
+        // 정식 회원은 members 테이블 UPDATE
+        console.log("[v3.29.2] members 테이블 UPDATE:", pureId);
+        const { error } = await supabase.from("members").update({ status: newStatus }).eq("id", pureId);
+        if (error) throw error;
+      }
+      console.log("[v3.29.2] ✅ 상태 변경 성공");
+      await loadAll();
+    } catch (e: any) {
+      console.error("[v3.29.2] 상태 변경 실패:", e);
+      alert("변경 실패: " + (e?.message || String(e)));
+    }
   }
 
   /* ─── 신규 상담 빠른 등록 ─── */

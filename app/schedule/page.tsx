@@ -217,7 +217,7 @@ export default function SchedulePage() {
   async function loadAll() {
     setLoading(true);
     const branchId = getActiveBranchId();
-    console.log(`[v3.28.2] loadAll 시작 - branch_id=${branchId || "(없음)"}`);
+    console.log(`[v3.29.2] loadAll 시작 - branch_id=${branchId || "(없음)"} (build: v3.29.2)`);
     // ✅ branch_id 필터 (컴럼 미존재 시 폴백)
     const safeBranchQuery = async (baseFn: () => any, filterFn: (q: any) => any) => {
       if (!branchId) return await baseFn();
@@ -234,7 +234,7 @@ export default function SchedulePage() {
     const rangeStart = `${startY}-${String(startM).padStart(2, "0")}-01`;
     const endD = new Date(startY, startM + 2, 0); // 다음달 마지막일
     const rangeEnd = `${endD.getFullYear()}-${String(endD.getMonth()+1).padStart(2,"0")}-${String(endD.getDate()).padStart(2,"0")}`;
-    console.log(`[v3.28.3] fetch range: ${rangeStart} ~ ${rangeEnd}`);
+    console.log(`[v3.29.2] fetch range: ${rangeStart} ~ ${rangeEnd}`);
 
     const fetchSchedule = async () => {
       const attempts = [
@@ -280,9 +280,9 @@ export default function SchedulePage() {
       // ✅ v3.20.9: memberships 자동 로드 → 시간표 셀에 회원권 이름 + 잔여/총회수 자동 표시
       supabase.from("memberships").select("id, member_id, plan_name, total_sessions, used_sessions, adjustment, end_date, status"),
     ]);
-    // ✅ v3.28.2: State 실시간 sync 강화 - 로그 + 단순 배열 교체
+    // ✅ v3.29.2: State 실시간 sync 강화 - 로그 + 단순 배열 교체 + 버전 마커
     const rawSlots = Array.isArray(sRes?.data) ? sRes.data : [];
-    console.log(`[v3.28.2] schedule_slots 로드 완료: ${rawSlots.length}건`);
+    console.log(`[v3.29.2] schedule_slots 로드 완료: ${rawSlots.length}건 (build: v3.29.2)`);
     if (rawSlots.length > 0 && rawSlots[0]) {
       console.log(`[v3.28.2] 샘플 row keys:`, Object.keys(rawSlots[0]));
     }
@@ -1159,13 +1159,22 @@ export default function SchedulePage() {
         .eq("recurring_id", recurringId)
         .gte("event_date", opts.from_date);
     } else {
-      // ✅ v3.25.0: 완전 삭제 강화 경고 팝업
+      // ✅ v3.29.2: 완전 삭제 강화 경고 팝업 + 결과 검증 + State 즉시 동기화
       if (!confirm("🚫 정말로 완전 삭제하시겠습니까? (복구 불가)\n\n⚠️ DB에서 이 일정과 연결된 모든 출결 기록이 완전히 삭제됩니다.\n🔄 출석 체크가 되어 있었다면 회원권 장여가 자동 복원됩니다.")) return;
-      // ✅ v3.24.3: 삭제 전 slot 상세 정보 조회
-      const { data: slotInfo } = await supabase.from("schedule_slots")
+
+      console.log("[v3.29.2] deleteSlot single 시작:", id);
+
+      // 1) 삭제 전 slot 상세 정보 조회
+      const { data: slotInfo, error: infoErr } = await supabase.from("schedule_slots")
         .select("id, member_id, event_date, time_slot").eq("id", id).maybeSingle();
-      // ✅ v3.25.0: HARD DELETE
-      await supabase.from("attendance").delete().eq("slot_id", id);
+      if (infoErr) console.warn("[v3.29.2] slotInfo 조회 오류:", infoErr);
+      console.log("[v3.29.2] slotInfo:", slotInfo);
+
+      // 2) 연결된 attendance HARD DELETE (slot_id 기반)
+      const attR1 = await supabase.from("attendance").delete().eq("slot_id", id);
+      console.log("[v3.29.2] attendance slot_id 삭제 결과:", attR1.error?.message || "OK");
+
+      // 3) slot_id 누락된 attendance는 member_id + date + time_slot 3중 매칭으로도 삭제
       if (slotInfo?.member_id && slotInfo?.event_date) {
         const dateStr = typeof slotInfo.event_date === "string" ? slotInfo.event_date.substring(0, 10) : new Date(slotInfo.event_date).toISOString().substring(0, 10);
         for (const dateCol of ["attend_date", "date", "attendance_date", "session_date"]) {
@@ -1174,17 +1183,83 @@ export default function SchedulePage() {
               .eq("member_id", slotInfo.member_id).eq(dateCol, dateStr);
             if (slotInfo.time_slot) q = q.eq("time_slot", slotInfo.time_slot);
             const r = await q;
-            if (!r.error) break;
+            if (!r.error) { console.log("[v3.29.2] attendance fallback 삭제 성공 (" + dateCol + ")"); break; }
           } catch {}
         }
       }
-      await supabase.from("schedule_slots").delete().eq("id", id);
+
+      // 4) schedule_slots HARD DELETE + 결과 검증 (v3.29.2 핵심)
+      const delR = await supabase.from("schedule_slots").delete().eq("id", id).select();
+      console.log("[v3.29.2] schedule_slots 삭제 결과:", { deleted: delR.data?.length || 0, error: delR.error?.message });
+
+      if (delR.error) {
+        alert("❌ 삭제 실패: " + delR.error.message + "\n\nRLS 정책 잠김 가능성. AQUNOTE_V3292_CLEANUP.sql 실행 요청.");
+        return;
+      }
+      if (!delR.data || delR.data.length === 0) {
+        alert("⚠️ 0건 삭제됨. RLS DELETE 권한 확인 필요.\nID: " + id);
+        return;
+      }
+
+      // 5) State 즉시 동기화 (loadAll 이전에 먼저 UI에서 제거)
+      setSlots(prev => (prev || []).filter((s: any) => s && s.id !== id));
+      console.log("[v3.29.2] ✅ UI State 즉시 제거 완료");
     }
     await loadAll();
+    console.log("[v3.29.2] ✅ deleteSlot 완료 + loadAll 재조회 끝");
   }
 
+  /* ─── v3.29.2: 상태 변경 통합 로직 (드롭다운 즉시 적용) ─── */
   async function quickStatus(slot: any, newStatus: string) {
-    await supabase.from("schedule_slots").update({ status: newStatus }).eq("id", slot.id);
+    console.log("[v3.29.2] quickStatus 호출:", { slotId: slot?.id, member_id: slot?.member_id, newStatus });
+    if (!slot?.id) { alert("❌ 유효하지 않은 슬롯입니다."); return; }
+
+    // 1) schedule_slots 상태 UPDATE (즉시 반영을 위해 select() 붙임)
+    const upR = await supabase.from("schedule_slots")
+      .update({ status: newStatus })
+      .eq("id", slot.id).select();
+    if (upR.error) {
+      console.error("[v3.29.2] status UPDATE 실패:", upR.error);
+      alert("❌ 상태 변경 실패: " + upR.error.message);
+      return;
+    }
+    console.log("[v3.29.2] ✅ status UPDATE 성공:", upR.data);
+
+    // 2) UI State 즉시 동기화
+    setSlots(prev => (prev || []).map((s: any) => s && s.id === slot.id ? { ...s, status: newStatus } : s));
+
+    // 3) 상태별 부가 로직 (회원권/보강권 자동 처리)
+    try {
+      // 병결/개인사정 → 보강권 +1 자동 생성 (DB 트리거 create_makeup_on_status가 있으면 중복 방지)
+      if ((newStatus === "sick" || newStatus === "personal") && slot.member_id) {
+        const checkR = await supabase.from("makeup_tickets")
+          .select("id").eq("member_id", slot.member_id).eq("source_slot_id", slot.id).maybeSingle();
+        if (!checkR.data) {
+          const insR = await supabase.from("makeup_tickets").insert({
+            member_id: slot.member_id,
+            source_slot_id: slot.id,
+            reason: newStatus,
+            created_at: new Date().toISOString(),
+            status: "available",
+          });
+          console.log("[v3.29.2] 보강권 생성:", insR.error?.message || "OK");
+        }
+      }
+      // 이월(carryover) → 회원권 만료일 +30일 연장
+      if (newStatus === "carryover" && slot.member_id) {
+        const mem = memberships.filter((m: any) => m.member_id === slot.member_id)
+          .sort((a: any, b: any) => new Date(b.end_date || 0).getTime() - new Date(a.end_date || 0).getTime())[0];
+        if (mem?.id && mem?.end_date) {
+          const newEnd = new Date(mem.end_date);
+          newEnd.setDate(newEnd.getDate() + 30);
+          const r = await supabase.from("memberships").update({ end_date: newEnd.toISOString().slice(0, 10) }).eq("id", mem.id);
+          console.log("[v3.29.2] 회원권 +30일 연장:", r.error?.message || "OK");
+        }
+      }
+    } catch (e) {
+      console.warn("[v3.29.2] 상태별 부가 로직 예외(데이터는 저장됨):", e);
+    }
+
     await loadAll();
   }
 
