@@ -938,7 +938,8 @@ function MatchView({ matrix, members, staff, waiters, stats, getCell, getMatched
                     const day = idx + 1;
                     const cell = getCell(day, time);
                     const status: any = cell?.status || "closed";
-                    const matched = status === "open" ? getMatchedWaiters(day, time) : [];
+                    // ✨ v3.33.1: OPEN + 고정 배정 셀 모두 대기자 조회 (이전은 open만)
+                    const matched = (status === "open" || status === "fixed") ? getMatchedWaiters(day, time) : [];
                     // v3.21.4: 체험예정 회원 자동 표시 (open 셀에서만)
                     const trialScheduled = (status === "open" && getTrialScheduled) ? getTrialScheduled(day, time) : [];
                     const member = cell?.member_id ? memberMap[cell.member_id] : null;
@@ -963,11 +964,33 @@ function MatchView({ matrix, members, staff, waiters, stats, getCell, getMatched
                       >
                         {status === "fixed" && (
                           <div className="text-[11px]">
+                            {/* 상단: 기존 배정 회원 정보 */}
                             <div className="flex items-center gap-0.5 font-bold" style={{ color: staffColor || "#065f46" }}>
                               <Lock className="w-3 h-3" /> {cell?.fixed_name || "고정"}
                             </div>
                             {staffName && (
                               <div className="text-[9px] mt-0.5 font-semibold" style={{ color: staffColor || "#059669" }}>👨‍⚕️ {staffName}</div>
+                            )}
+                            {/* ✨ v3.33.1: 하단 – 대기자 1~3위 (고정 셀에도 노출) */}
+                            {matched.length > 0 && (
+                              <div className="mt-1 pt-1 border-t border-emerald-200/70">
+                                <div className="text-[9px] font-bold text-purple-700 mb-0.5 flex items-center gap-0.5">
+                                  ⏳ 대기 {matched.length}명
+                                </div>
+                                <div className="space-y-0.5">
+                                  {matched.slice(0, 3).map((w: any, i: number) => (
+                                    <div key={w.id} className="flex items-center gap-1 text-[9px]">
+                                      <span className={`inline-block w-3.5 h-3.5 rounded-full text-white text-[8px] text-center font-bold leading-[14px] ${
+                                        i === 0 ? "bg-red-500" : i === 1 ? "bg-orange-500" : "bg-amber-500"
+                                      }`}>{w.priority}</span>
+                                      <span className="truncate text-slate-700">{w.name}</span>
+                                    </div>
+                                  ))}
+                                  {matched.length > 3 && (
+                                    <div className="text-purple-500 text-[8px] font-semibold text-right">+{matched.length - 3}명</div>
+                                  )}
+                                </div>
+                              </div>
                             )}
                           </div>
                         )}
