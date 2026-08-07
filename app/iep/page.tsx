@@ -5,7 +5,6 @@ import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { recommendIepGoals } from "@/lib/sessionAnalyzer";
-import { Sparkles } from "lucide-react";
 import HomeButton from "@/components/HomeButton";
 import MemberSearch from "@/components/MemberSearch";
 import {
