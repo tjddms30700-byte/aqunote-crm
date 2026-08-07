@@ -16,14 +16,10 @@ const STAFF_FORMS = [
   { v: "resignation",    label: "📝 사직서",       desc: "퇴사 자동 설문" },
   { v: "incident",       label: "⚠️ 시말서",       desc: "징계/사유서 자동 설문" },
 ];
+// ✨ v3.33.2: 회원 이용계약서를 통합 4페이지(member_unified) 1개로 정돈
+// ❌ 삭제: privacy, safety, aqua_safety(전부 통합), portrait, research, consent_minor (3종)
 const MEMBER_FORMS = [
-  { v: "member_service", label: "📝 회원 이용계약서", desc: "STANDARD/ADVANCED/PREMIUM" },
-  { v: "privacy",        label: "🔐 개인정보 동의서", desc: "수집·이용 동의" },
-  { v: "safety",         label: "🏊 안전·입수 동의서", desc: "수중 안전 및 책임" },
-  { v: "aqua_safety",    label: "🏊‍♀️ 수중재활 안전·응급처치 동의서", desc: "기저질환·응급 이송 동의" },
-  { v: "portrait",       label: "📸 초상권·세션 영상 동의서", desc: "사진/영상 촬영·활용" },
-  { v: "research",       label: "🎓 연구대상자 참여 동의서", desc: "대학 연계 학술용" },
-  { v: "consent_minor",  label: "👶 미성년자 보호자 동의서", desc: "미성년 회원 보호자 동의" },
+  { v: "member_unified", label: "📋 회원 이용계약서 · 통합 (4페이지)", desc: "이용계약 + 개인정보 + 안전 + 수중재활 응급처치 · STANDARD/ADVANCED/PREMIUM 선택" },
 ];
 
 const REPORT_TYPES = [

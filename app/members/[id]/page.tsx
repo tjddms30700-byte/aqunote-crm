@@ -22,6 +22,25 @@ const DOC_CATEGORIES = [
   { value: "photo",     label: "📷 사진" },
   { value: "other",     label: "📎 기타" },
 ];
+
+// ✨ v3.33.2: DB에서 배열/문자열/JSONB 뭐로 오든 값을 안전하게 배열로 정규화
+// wish_time_slots.forEach is not a function 크래시 근본 방지
+function toArray(v: any): any[] {
+  if (Array.isArray(v)) return v;
+  if (v === null || v === undefined) return [];
+  if (typeof v === "string") {
+    const s = v.trim();
+    if (!s) return [];
+    // JSON 배열 문자열 지원 (Supabase JSONB가 문자열로 온 경우)
+    if (s.startsWith("[") && s.endsWith("]")) {
+      try { const p = JSON.parse(s); return Array.isArray(p) ? p : [s]; } catch { /* fallthrough */ }
+    }
+    // 쉼표/세미콜론 구분자 fallback
+    return s.split(/[,;]+/).map(t => t.trim()).filter(Boolean);
+  }
+  if (typeof v === "object") return Object.values(v);
+  return [v];
+}
 function docLabel(c: string) { return DOC_CATEGORIES.find(x => x.value === c)?.label || c; }
 
 type Member = any;
@@ -2559,7 +2578,7 @@ function ConsultationChartPanel({ memberId, member, painMap, setPainMap, sensati
     <tr><th>상담방법</th><td>${f.consult_method || "-"}</td><th>상담자</th><td>${f.counselor || "-"}</td></tr>
     <tr><th>${isChildLocal ? "이용기관/학교" : "이용기관"}</th><td colspan="3">${f.institution || "-"}</td></tr>
     <tr><th>현재 진행중 치료</th><td colspan="3">${f.current_therapy || "-"}</td></tr>
-    <tr><th>희망요일</th><td>${(f.wish_days || []).join(", ") || "-"}</td><th>희망시간</th><td>${(f.wish_time_slots || []).join(", ") || "-"}</td></tr>
+    <tr><th>희망요일</th><td>${toArray(f.wish_days).join(", ") || "-"}</td><th>희망시간</th><td>${toArray(f.wish_time_slots).join(", ") || "-"}</td></tr>
   </table>
 
   <h2>■ 1. 의학적 정보 및 주의사항</h2>
@@ -2684,18 +2703,18 @@ function ConsultationChartPanel({ memberId, member, painMap, setPainMap, sensati
           <ChartField label="상담자" value={f.counselor} onChange={v => setF({ ...f, counselor: v })} />
           <ChartField label={isChild ? "이용기관/학교" : "이용기관"} value={f.institution} onChange={v => setF({ ...f, institution: v })} />
           <ChartField label="현재 진행 중 치료" value={f.current_therapy} onChange={v => setF({ ...f, current_therapy: v })} className="col-span-2" />
-          <ChartField label="희망요일" value={(f.wish_days || []).join(", ")} onChange={v => setF({ ...f, wish_days: v.split(",").map((s: string) => s.trim()).filter(Boolean) })} placeholder="월,수,금" />
-          <ChartField label="희망시간" value={(f.wish_time_slots || []).join(", ")} onChange={v => setF({ ...f, wish_time_slots: v.split(",").map((s: string) => s.trim()).filter(Boolean) })} placeholder="13:30~14:40" />
+          <ChartField label="희망요일" value={toArray(f.wish_days).join(", ")} onChange={v => setF({ ...f, wish_days: v.split(",").map((s: string) => s.trim()).filter(Boolean) })} placeholder="월,수,금" />
+          <ChartField label="희망시간" value={toArray(f.wish_time_slots).join(", ")} onChange={v => setF({ ...f, wish_time_slots: v.split(",").map((s: string) => s.trim()).filter(Boolean) })} placeholder="13:30~14:40" />
         </div>
-        {/* ✅ v3.16.1: 요일별 그룹된 요약 시각화 (자동 생성) */}
+        {/* ✨ v3.33.2: 요일별 그룹된 요약 시각화 (toArray 방어 적용) */}
         {(() => {
-          const days = f.wish_days || [];
-          const times = f.wish_time_slots || [];
+          const days = toArray(f.wish_days);
+          const times = toArray(f.wish_time_slots);
           if (days.length === 0 && times.length === 0) return null;
           const DAY_ORDER = ["월", "화", "수", "목", "금", "토", "일"];
           const groups: Record<string, string[]> = {};
           const orphans: string[] = [];
-          (times as any[]).forEach((raw) => {
+          times.forEach((raw) => {
             const s = String(raw).trim();
             if (!s) return;
             const m = s.match(/^([월화수목금토일])[\s·]*(.+)$/);
@@ -2705,9 +2724,9 @@ function ConsultationChartPanel({ memberId, member, painMap, setPainMap, sensati
               t.split(/[,;\s]+/).filter(Boolean).forEach((x) => { if (!groups[d].includes(x)) groups[d].push(x); });
             } else orphans.push(s);
           });
-          (days as any[]).forEach((d) => { const k = String(d).trim(); if (k && !groups[k]) groups[k] = []; });
-          if (orphans.length > 0 && (days as any[]).length > 0) {
-            (days as any[]).forEach((d) => {
+          days.forEach((d) => { const k = String(d).trim(); if (k && !groups[k]) groups[k] = []; });
+          if (orphans.length > 0 && days.length > 0) {
+            days.forEach((d) => {
               const k = String(d).trim(); if (!k) return;
               orphans.forEach((t) => { if (!groups[k].includes(t)) groups[k].push(t); });
             });
@@ -3002,11 +3021,13 @@ function ConsultFormEmbedded({ member, onImport }: { member: any; onImport: () =
   const form = member?.extra?.consult_form;
   if (!form) return null;
 
-  // 요일별 그룹화 (대기시간 표시용)
+  // ✨ v3.33.2: 요일별 그룹화 (toArray 방어 적용)
   const DAY_ORDER = ["월", "화", "수", "목", "금", "토", "일"];
   const groups: Record<string, string[]> = {};
   const orphanTimes: string[] = [];
-  (form.wish_time_slots || []).forEach((raw: any) => {
+  const wishTimes = toArray(form.wish_time_slots);
+  const wishDays = toArray(form.wish_days);
+  wishTimes.forEach((raw: any) => {
     const s = String(raw).trim();
     if (!s) return;
     const m = s.match(/^([월화수목금토일])[\s·]*(.+)$/);
@@ -3021,12 +3042,12 @@ function ConsultFormEmbedded({ member, onImport }: { member: any; onImport: () =
       orphanTimes.push(s);
     }
   });
-  (form.wish_days || []).forEach((d: any) => {
+  wishDays.forEach((d: any) => {
     const key = String(d).trim();
     if (key && !groups[key]) groups[key] = [];
   });
-  if (orphanTimes.length > 0 && (form.wish_days || []).length > 0) {
-    (form.wish_days || []).forEach((d: any) => {
+  if (orphanTimes.length > 0 && wishDays.length > 0) {
+    wishDays.forEach((d: any) => {
       const key = String(d).trim();
       if (!key) return;
       if (!groups[key]) groups[key] = [];
@@ -3268,9 +3289,9 @@ function ConsultFormPanel({ member }: { member: any }) {
         renderRow("기타 주의사항", form.special_notes, "📝"),
       ], "amber") : null}
 
-      {/* ✅ v3.16.0: 희망 수업 시간대 - 요일별 그룹화 표시 */}
-      {(Array.isArray(form.wish_time_slots) && form.wish_time_slots.length > 0) ||
-       (Array.isArray(form.wish_days) && form.wish_days.length > 0) ? (
+      {/* ✨ v3.33.2: 희망 수업 시간대 - toArray 방어 적용 */}
+      {(toArray(form.wish_time_slots).length > 0) ||
+       (toArray(form.wish_days).length > 0) ? (
         <div className={`bg-gradient-to-br ${colorMap.blue} border rounded-2xl p-4 mb-4`}>
           <h3 className="text-sm font-bold text-slate-800 mb-2 flex items-center gap-1.5">📅 희망 수업 시간대</h3>
           <div className="bg-white/70 rounded-xl px-3 py-2">
@@ -3279,8 +3300,10 @@ function ConsultFormPanel({ member }: { member: any }) {
               const DAY_ORDER = ["월", "화", "수", "목", "금", "토", "일"];
               const groups: Record<string, string[]> = {};
               const orphanTimes: string[] = [];
+              const wishTimes2 = toArray(form.wish_time_slots);
+              const wishDays2 = toArray(form.wish_days);
 
-              (form.wish_time_slots || []).forEach((raw: any) => {
+              wishTimes2.forEach((raw: any) => {
                 const s = String(raw).trim();
                 if (!s) return;
                 // "월 13:30" 또는 "수 15:50-17:00" 패턴 감지
@@ -3298,14 +3321,14 @@ function ConsultFormPanel({ member }: { member: any }) {
               });
 
               // wish_days에만 있고 시간 정보 없는 요일도 추가
-              (form.wish_days || []).forEach((d: any) => {
+              wishDays2.forEach((d: any) => {
                 const key = String(d).trim();
                 if (key && !groups[key] && orphanTimes.length === 0) groups[key] = [];
               });
 
               // orphanTimes가 있고 요일이 분리 지정되었다면 연결
-              if (orphanTimes.length > 0 && (form.wish_days || []).length > 0) {
-                (form.wish_days || []).forEach((d: any) => {
+              if (orphanTimes.length > 0 && wishDays2.length > 0) {
+                wishDays2.forEach((d: any) => {
                   const key = String(d).trim();
                   if (!key) return;
                   if (!groups[key]) groups[key] = [];
@@ -3340,7 +3363,7 @@ function ConsultFormPanel({ member }: { member: any }) {
                         )}
                       </div>
                     ))}
-                    {orphanTimes.length > 0 && (form.wish_days || []).length === 0 && (
+                    {orphanTimes.length > 0 && wishDays2.length === 0 && (
                       <div className="flex flex-wrap gap-1.5 pt-2 mt-2 border-t border-blue-100">
                         <span className="text-xs text-slate-500">요일 미지정:</span>
                         {orphanTimes.map((t, i) => (
@@ -3357,7 +3380,7 @@ function ConsultFormPanel({ member }: { member: any }) {
               // fallback: 기존 스타일
               return (
                 <div className="flex flex-wrap gap-2">
-                  {(form.wish_time_slots || []).map((slot: string, i: number) => (
+                  {toArray(form.wish_time_slots).map((slot: string, i: number) => (
                     <span key={i} className="text-xs px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full font-semibold">
                       {String(slot)}
                     </span>
