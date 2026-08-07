@@ -5,6 +5,7 @@ import { useEffect, useState, useMemo, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { analyzeSessions, detectBehaviors, recommendIepGoals, summarizeWeekly } from "@/lib/sessionAnalyzer";
 import HomeButton from "@/components/HomeButton";
 import { FileText, Download, User, Calendar, Printer, Loader2, ClipboardList, Search } from "lucide-react";
 
@@ -239,9 +240,15 @@ function ReportsPage() {
     try {
       const member = members.find(m => m.id === selectedMember);
 
-      // 데이터 조회
+      // ✅ v3.35.0: sessions 테이블 직접 조회 (레거시 members.extra.sessions 폐기)
       const [sessionsRes, iepRes, progressRes, behaviorsRes, behavRecRes, attRes] = await Promise.all([
-        supabase.from("members").select("extra, memo").eq("id", selectedMember).single(),
+        supabase.from("sessions").select("*")
+          .eq("member_id", selectedMember)
+          .gte("session_date", startDate)
+          .lte("session_date", endDate)
+          .is("deleted_at", null)
+          .order("session_date", { ascending: true })
+          .order("created_at", { ascending: true }),
         supabase.from("iep_goals").select("*").eq("member_id", selectedMember),
         supabase.from("iep_progress_records").select("*").eq("member_id", selectedMember)
           .gte("record_date", startDate).lte("record_date", endDate),
@@ -252,9 +259,8 @@ function ReportsPage() {
           .gte("attend_date", startDate).lte("attend_date", endDate),
       ]);
 
-      const sessions = (sessionsRes.data?.extra?.sessions || []).filter((s: any) =>
-        s.date >= startDate && s.date <= endDate
-      );
+      const sessions = sessionsRes.data || [];
+      console.log(`[v3.35.0] 보고서 세션 로드: ${sessions.length}건 (${startDate} ~ ${endDate})`);
       const goals = iepRes.data || [];
       const progress = progressRes.data || [];
       const behaviors = behaviorsRes.data || [];
@@ -645,24 +651,99 @@ function generateHtml(type: string, data: any) {
 
   let content = "";
 
-  if (type === "daily" || type === "weekly") {
-    // 세션 요약
-    content += `<h2>📝 세션 활동 요약</h2>`;
+  // ═══ v3.35.0: 일일일지 - 세션 태그·메모·보호자 메시지 100% 매핑 ═══
+  if (type === "daily") {
+    content += `<h2>📝 일일 수업일지</h2>`;
     if (sessions.length === 0) {
-      content += `<p style="color:#9ca3af;">이 기간에 기록된 세션이 없습니다.</p>`;
+      content += `<p style="color:#9ca3af;">이 날짜에 기록된 세션이 없습니다.</p>`;
     } else {
-      content += `<table><thead><tr><th>날짜</th><th>활동 라벨</th><th>메모</th></tr></thead><tbody>`;
       sessions.forEach((s: any) => {
-        content += `<tr><td>${s.date}</td><td>${(s.labels || []).map((l: string) => `<span class="badge badge-blue">${l}</span>`).join("")}</td><td>${s.memo || "-"}</td></tr>`;
+        const acts: string[] = Array.isArray(s.activities) ? s.activities
+          : Array.isArray(s.tags) ? s.tags.filter((t: string) => !t.startsWith("status:")) : [];
+        const memo = (s.memo || "").toString();
+        const statusLabel = s.status === "sick" ? "🤒 병결"
+                          : s.status === "personal" ? "📝 개인사정"
+                          : s.status === "noshow" ? "🚩 노쇼"
+                          : s.status === "cancel" ? "❌ 취소"
+                          : "✅ 출석";
+        content += `
+          <div style="border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin-bottom:16px;background:#f9fafb;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+              <b style="font-size:16px;color:#0891b2;">📅 ${s.session_date}</b>
+              <span class="badge badge-${s.status === "sick" || s.status === "personal" || s.status === "noshow" ? "yellow" : "green"}">${statusLabel}</span>
+            </div>
+            <div style="margin-bottom:10px;">
+              <b style="font-size:13px;color:#374151;">진행한 활동 (${acts.length}개):</b><br/>
+              ${acts.length > 0 ? acts.map((l: string) => `<span class="badge badge-blue">${l}</span>`).join(" ") : "<span style='color:#9ca3af;'>기록된 활동 태그 없음</span>"}
+            </div>
+            ${memo ? `<div style="margin-top:10px;padding:10px;background:white;border-left:3px solid #06b6d4;border-radius:4px;">
+              <b style="font-size:13px;color:#374151;">💬 관찰 메모 · 보호자 대화:</b><br/>
+              <div style="white-space:pre-wrap;font-size:13px;color:#4b5563;margin-top:6px;">${memo.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
+            </div>` : ""}
+          </div>
+        `;
       });
-      content += `</tbody></table>`;
     }
 
     // 출결
     if (attendance.length > 0) {
       content += `<h2>✓ 출결 기록</h2>`;
-      const statusCount = { present: 0, absent: 0, sick: 0 };
-      attendance.forEach((a: any) => { if (statusCount[a.status as keyof typeof statusCount] !== undefined) statusCount[a.status as keyof typeof statusCount]++; });
+      const statusCount: any = { present: 0, absent: 0, sick: 0 };
+      attendance.forEach((a: any) => { if (statusCount[a.status] !== undefined) statusCount[a.status]++; });
+      content += `<div class="kpi"><div class="kpi-label">출석</div><div class="kpi-val">${statusCount.present}</div></div>`;
+      content += `<div class="kpi"><div class="kpi-label">결석</div><div class="kpi-val">${statusCount.absent}</div></div>`;
+      content += `<div class="kpi"><div class="kpi-label">병결</div><div class="kpi-val">${statusCount.sick}</div></div>`;
+    }
+  }
+
+  // ═══ v3.35.0: 주간리포트 - 영역별 활동 태그 요약 + 주간 관찰 종합 ═══
+  if (type === "weekly") {
+    const weekly = summarizeWeekly(sessions);
+    content += `<h2>📅 주간 리포트 요약</h2>`;
+    content += `
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px;">
+        <div class="kpi"><div class="kpi-label">주간 총 세션</div><div class="kpi-val">${weekly.totalSessions}회</div></div>
+        <div class="kpi"><div class="kpi-label">주력 영역</div><div class="kpi-val" style="font-size:14px;">${weekly.strongestArea}</div></div>
+        <div class="kpi"><div class="kpi-label">진행 활동</div><div class="kpi-val">${weekly.activityTags.length}종</div></div>
+      </div>
+    `;
+
+    if (weekly.areaBreakdown.length > 0) {
+      content += `<h3>🎯 영역별 활동 태그 요약</h3>`;
+      content += `<table><thead><tr><th>영역</th><th>세션 수</th><th>진행 활동</th></tr></thead><tbody>`;
+      weekly.areaBreakdown.forEach((a: any) => {
+        content += `<tr>
+          <td><b>${a.label}</b></td>
+          <td style="text-align:center;">${a.count}건</td>
+          <td>${a.activities.map((act: string) => `<span class="badge badge-${a.color === "purple" ? "blue" : a.color === "emerald" ? "green" : a.color === "amber" ? "yellow" : a.color === "rose" ? "red" : "blue"}">${act}</span>`).join(" ")}</td>
+        </tr>`;
+      });
+      content += `</tbody></table>`;
+    }
+
+    if (weekly.memoSummary.length > 0) {
+      content += `<h3>💬 주간 관찰 종합</h3>`;
+      content += `<div style="background:#f0f9ff;padding:14px;border-radius:8px;border-left:4px solid #06b6d4;">`;
+      weekly.memoSummary.forEach((m: string) => {
+        content += `<p style="font-size:13px;color:#4b5563;margin:6px 0;white-space:pre-wrap;">${m.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>`;
+      });
+      content += `</div>`;
+    }
+
+    if (weekly.parentMessages.length > 0) {
+      content += `<h3>👨‍👩‍👦 보호자 커뮤니케이션 하이라이트</h3>`;
+      content += `<div style="background:#fef3c7;padding:14px;border-radius:8px;border-left:4px solid #f59e0b;">`;
+      weekly.parentMessages.forEach((m: string) => {
+        content += `<p style="font-size:12px;color:#78350f;margin:6px 0;white-space:pre-wrap;">${m.slice(0, 200).replace(/</g, "&lt;").replace(/>/g, "&gt;")}${m.length > 200 ? "…" : ""}</p>`;
+      });
+      content += `</div>`;
+    }
+
+    // 출결
+    if (attendance.length > 0) {
+      content += `<h3>✓ 주간 출결</h3>`;
+      const statusCount: any = { present: 0, absent: 0, sick: 0 };
+      attendance.forEach((a: any) => { if (statusCount[a.status] !== undefined) statusCount[a.status]++; });
       content += `<div class="kpi"><div class="kpi-label">출석</div><div class="kpi-val">${statusCount.present}</div></div>`;
       content += `<div class="kpi"><div class="kpi-label">결석</div><div class="kpi-val">${statusCount.absent}</div></div>`;
       content += `<div class="kpi"><div class="kpi-label">병결</div><div class="kpi-val">${statusCount.sick}</div></div>`;
@@ -670,10 +751,35 @@ function generateHtml(type: string, data: any) {
   }
 
   if (type === "iep" || type === "weekly") {
-    // IEP 목표
+    // ═══ v3.35.0: 세션기록 기반 IEP 목표 자동 추천 (신규) ═══
+    const recommended = recommendIepGoals(sessions);
+    if (recommended.length > 0) {
+      content += `<h2>🤖 세션기록 기반 IEP 목표 자동 추천</h2>`;
+      content += `<p style="font-size:12px;color:#6b7280;margin-bottom:14px;">최근 ${sessions.length}건의 세션 활동 태그를 분석해 자동 추천된 목표입니다. 담당 치료사가 검토 후 확정합니다.</p>`;
+      recommended.forEach((rec: any) => {
+        content += `
+          <div style="border:2px solid #06b6d4;border-radius:10px;padding:14px;margin-bottom:14px;background:linear-gradient(135deg, #ecfeff 0%, #f0f9ff 100%);">
+            <h3 style="margin-top:0;">${rec.areaLabel} <span style="font-size:12px;color:#6b7280;">(${rec.sessionCount}건 활동 기반)</span></h3>
+            <div style="margin-bottom:10px;">
+              ${rec.activities.slice(0, 8).map((a: string) => `<span class="badge badge-blue">${a}</span>`).join(" ")}
+            </div>
+            <p style="font-size:13px;margin:8px 0 4px 0;"><b>🎯 장기 목표 (6개월~1년):</b></p>
+            <ul style="font-size:13px;color:#4b5563;margin:0 0 10px 20px;">
+              ${rec.longGoals.map((g: string) => `<li>${g}</li>`).join("")}
+            </ul>
+            <p style="font-size:13px;margin:8px 0 4px 0;"><b>⚡ 단기 목표 (4~6주):</b></p>
+            <ul style="font-size:13px;color:#4b5563;margin:0 0 4px 20px;">
+              ${rec.shortGoals.map((g: string) => `<li>${g}</li>`).join("")}
+            </ul>
+          </div>
+        `;
+      });
+    }
+
+    // 기존 IEP 목표 현황
     content += `<h2>🎯 IEP 목표 현황</h2>`;
     if (goals.length === 0) {
-      content += `<p style="color:#9ca3af;">등록된 IEP 목표가 없습니다.</p>`;
+      content += `<p style="color:#9ca3af;">등록된 IEP 목표가 없습니다. 위의 자동 추천 목표를 참고해 등록하세요.</p>`;
     } else {
       goals.forEach((g: any) => {
         const goalRecords = progress.filter((p: any) => p.goal_id === g.id);
@@ -697,10 +803,40 @@ function generateHtml(type: string, data: any) {
   }
 
   if (type === "behavior" || type === "weekly") {
-    // 행동중재
+    // ═══ v3.35.0: 세션 메모 기반 행동 키워드 자동 감지 (신규) ═══
+    const detected = detectBehaviors(sessions);
+    if (detected.length > 0) {
+      content += `<h2>🤖 세션기록 기반 행동중재 자동 감지</h2>`;
+      content += `<p style="font-size:12px;color:#6b7280;margin-bottom:14px;">세션 메모 및 카톡 대화록에서 감지된 표적 행동 및 대응 중재 가이드입니다.</p>`;
+      detected.forEach((det: any) => {
+        const sevColor = det.severity === "high" ? "red" : det.severity === "medium" ? "yellow" : "blue";
+        const sevLabel = det.severity === "high" ? "🔴 High" : det.severity === "medium" ? "🟡 Medium" : "🔵 Low";
+        content += `
+          <div style="border:2px solid ${det.severity === "high" ? "#dc2626" : det.severity === "medium" ? "#f59e0b" : "#0891b2"};border-radius:10px;padding:14px;margin-bottom:14px;background:${det.severity === "high" ? "#fef2f2" : det.severity === "medium" ? "#fffbeb" : "#f0f9ff"};">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+              <h3 style="margin:0;">${det.targetBehavior}</h3>
+              <span class="badge badge-${sevColor}">${sevLabel}</span>
+            </div>
+            <p style="font-size:12px;color:#6b7280;margin:4px 0;"><b>발생 ${det.occurrences.length}회</b> · ${det.occurrences.slice(0, 3).map((o: any) => o.date).join(", ")}</p>
+            <div style="margin-top:8px;padding:10px;background:white;border-radius:6px;">
+              <b style="font-size:13px;">💡 대응 중재 가이드:</b>
+              <div style="font-size:13px;color:#4b5563;margin-top:6px;white-space:pre-wrap;">${det.intervention}</div>
+            </div>
+            ${det.occurrences.length > 0 ? `<details style="margin-top:8px;">
+              <summary style="cursor:pointer;font-size:12px;color:#6b7280;">📋 감지 근거 (${det.occurrences.length}건 발췌)</summary>
+              <div style="margin-top:6px;padding:8px;background:#f9fafb;border-radius:4px;font-size:11px;color:#6b7280;">
+                ${det.occurrences.slice(0, 5).map((o: any) => `<div style="margin:4px 0;"><b>${o.date}:</b> "${o.excerpt.replace(/</g, "&lt;").replace(/>/g, "&gt;")}"</div>`).join("")}
+              </div>
+            </details>` : ""}
+          </div>
+        `;
+      });
+    }
+
+    // 기존 행동중재
     content += `<h2>🚨 행동중재 현황</h2>`;
     if (behaviors.length === 0) {
-      content += `<p style="color:#9ca3af;">등록된 문제행동이 없습니다.</p>`;
+      content += `<p style="color:#9ca3af;">등록된 문제행동이 없습니다. 위의 자동 감지 결과를 참고해 등록하세요.</p>`;
     } else {
       behaviors.forEach((b: any) => {
         const recs = behRecords.filter((r: any) => r.behavior_id === b.id);

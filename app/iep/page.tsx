@@ -4,6 +4,8 @@ export const dynamic = "force-dynamic";
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { recommendIepGoals } from "@/lib/sessionAnalyzer";
+import { Sparkles } from "lucide-react";
 import HomeButton from "@/components/HomeButton";
 import MemberSearch from "@/components/MemberSearch";
 import {
@@ -56,12 +58,33 @@ export default function IEPPage() {
     progress_percent: 0,
   });
 
+  const [recommendedGoals, setRecommendedGoals] = useState<any[]>([]);
+  const [showRecommend, setShowRecommend] = useState(true);
+
   const [recordForm, setRecordForm] = useState<any>({
     trials_total: 5, trials_success: 0, rating: 3,
     prompt_level: "verbal", note: "",
   });
 
   useEffect(() => { loadAll(); }, []);
+
+  // ✅ v3.35.0: 회원 선택 시 세션기록 기반 IEP 목표 자동 추천 로드
+  useEffect(() => {
+    if (!selectedMember) return;
+    (async () => {
+      const today = new Date();
+      const threeMonthsAgo = new Date(today.getTime() - 90 * 86400000).toISOString().slice(0, 10);
+      const { data } = await supabase.from("sessions").select("*")
+        .eq("member_id", selectedMember)
+        .gte("session_date", threeMonthsAgo)
+        .is("deleted_at", null)
+        .order("session_date", { ascending: false })
+        .limit(50);
+      const recs = recommendIepGoals(data || []);
+      setRecommendedGoals(recs);
+      console.log(`[v3.35.0] IEP 자동 추천: 최근 ${(data || []).length}건 세션 → ${recs.length}개 영역 추천`);
+    })();
+  }, [selectedMember]);
 
   async function loadAll() {
     setLoading(true);
@@ -257,6 +280,71 @@ export default function IEPPage() {
             <KPI label="✓ 달성 완료" val={stats.achieved + "개"} color="text-green-600" />
             <KPI label="평균 진도"  val={stats.avgProgress + "%"} color="text-purple-600" />
           </div>
+
+          {/* ✅ v3.35.0: 세션기록 기반 IEP 목표 자동 추천 카드 */}
+          {recommendedGoals.length > 0 && showRecommend && (
+            <div className="mb-6 aqu-card bg-gradient-to-br from-cyan-50 via-sky-50 to-blue-50 border-2 border-cyan-200 rounded-2xl p-4 shadow-sm">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-cyan-600" />
+                  <h3 className="text-sm md:text-base font-bold text-cyan-900">🤖 세션기록 기반 IEP 목표 자동 추천</h3>
+                  <span className="text-[10px] font-bold text-cyan-700 bg-cyan-100 px-2 py-0.5 rounded-full">최근 90일</span>
+                </div>
+                <button onClick={() => setShowRecommend(false)}
+                  className="text-xs text-cyan-700 hover:bg-cyan-100 px-2 py-1 rounded">
+                  접기 ▲
+                </button>
+              </div>
+              <p className="text-xs text-cyan-800/70 mb-3">활동 태그 분석 결과, 다음 영역이 주력 영역으로 감지되었습니다. 원클릭으로 목표를 등록하세요.</p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {recommendedGoals.map((rec: any, idx: number) => (
+                  <div key={idx} className="bg-white rounded-xl border border-cyan-200 p-3 shadow-sm">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-bold text-cyan-800">{rec.areaLabel}</span>
+                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">{rec.sessionCount}건</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1 mb-2">
+                      {rec.activities.slice(0, 4).map((a: string, i: number) => (
+                        <span key={i} className="text-[10px] px-1.5 py-0.5 bg-cyan-100 text-cyan-700 rounded">{a}</span>
+                      ))}
+                    </div>
+                    <div className="space-y-1.5">
+                      {rec.shortGoals.slice(0, 2).map((g: string, i: number) => (
+                        <button key={i}
+                          onClick={() => {
+                            setGoalForm({
+                              domain_code: rec.area === "aqua_rehab" || rec.area === "physical_therapy" ? "gross_motor"
+                                          : rec.area === "occupational_therapy" ? "fine_motor"
+                                          : rec.area === "sensory_integration" ? "sensory"
+                                          : rec.area === "cognitive_behavior" ? "cognitive" : "gross_motor",
+                              goal_type: "short",
+                              title: g,
+                              description: `[자동 추천] ${rec.areaLabel} 영역 - 최근 ${rec.sessionCount}건 세션 활동 기반`,
+                              target_criteria: "80% 이상 성공률 · 3회 연속 달성",
+                              teaching_method: "",
+                              curriculum_id: "",
+                              target_date: new Date(Date.now() + 42*86400000).toISOString().slice(0,10),
+                              status: "in_progress",
+                              progress_percent: 0,
+                            });
+                            setShowGoalModal(true);
+                          }}
+                          className="w-full text-left text-[11px] p-2 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-lg text-sky-800 transition">
+                          <span className="text-emerald-600 font-bold">＋</span> {g}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {recommendedGoals.length > 0 && !showRecommend && (
+            <button onClick={() => setShowRecommend(true)}
+              className="mb-3 text-xs text-cyan-700 hover:bg-cyan-50 px-3 py-1.5 rounded-lg border border-cyan-200 inline-flex items-center gap-1">
+              <Sparkles className="w-3.5 h-3.5" /> 세션 기반 자동 추천 다시 보기 ({recommendedGoals.length}개 영역)
+            </button>
+          )}
 
           {loading ? (
             <div className="text-center py-10 text-gray-500">로딩 중...</div>

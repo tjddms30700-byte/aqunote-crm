@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { detectBehaviors } from "@/lib/sessionAnalyzer";
 import HomeButton from "@/components/HomeButton";
 import MemberSearch from "@/components/MemberSearch";
 import {
@@ -38,6 +39,9 @@ export default function BehaviorPage() {
   const [aiResult, setAiResult] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+  // ✅ v3.35.0: 세션기록 기반 행동 자동 감지
+  const [detectedBehaviors, setDetectedBehaviors] = useState<any[]>([]);
+  const [showDetected, setShowDetected] = useState(true);
 
   const [behForm, setBehForm] = useState<any>({
     name: "", operational_definition: "", severity: "medium",
@@ -50,6 +54,23 @@ export default function BehaviorPage() {
   });
 
   useEffect(() => { loadAll(); }, []);
+
+  // ✅ v3.35.0: 회원 선택 시 세션 메모 기반 행동 자동 감지 (최근 90일)
+  useEffect(() => {
+    if (!selectedMember) return;
+    (async () => {
+      const threeMonthsAgo = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+      const { data } = await supabase.from("sessions").select("*")
+        .eq("member_id", selectedMember)
+        .gte("session_date", threeMonthsAgo)
+        .is("deleted_at", null)
+        .order("session_date", { ascending: false })
+        .limit(60);
+      const detected = detectBehaviors(data || []);
+      setDetectedBehaviors(detected);
+      console.log(`[v3.35.0] 행동 자동 감지: ${(data || []).length}건 세션 → ${detected.length}개 표적행동`);
+    })();
+  }, [selectedMember]);
 
   async function loadAll() {
     setLoading(true);
@@ -180,6 +201,66 @@ export default function BehaviorPage() {
 
       {selectedMember && (
         <>
+          {/* ✅ v3.35.0: 세션기록 기반 표적행동 자동 감지 카드 */}
+          {detectedBehaviors.length > 0 && showDetected && (
+            <div className="mb-6 aqu-card bg-gradient-to-br from-rose-50 via-orange-50 to-amber-50 border-2 border-rose-200 rounded-2xl p-4 shadow-sm">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Zap className="w-5 h-5 text-rose-600" />
+                  <h3 className="text-sm md:text-base font-bold text-rose-900">🤖 세션기록 기반 표적행동 자동 감지</h3>
+                  <span className="text-[10px] font-bold text-rose-700 bg-rose-100 px-2 py-0.5 rounded-full">최근 90일</span>
+                </div>
+                <button onClick={() => setShowDetected(false)}
+                  className="text-xs text-rose-700 hover:bg-rose-100 px-2 py-1 rounded">
+                  접기 ▲
+                </button>
+              </div>
+              <p className="text-xs text-rose-800/70 mb-3">세션 메모·카톡 대화록에서 감지된 표적행동입니다. 원클릭으로 문제행동을 등록하세요.</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {detectedBehaviors.map((det: any, idx: number) => {
+                  const sevColor = det.severity === "high" ? "border-red-400 bg-red-50"
+                                 : det.severity === "medium" ? "border-orange-400 bg-orange-50"
+                                 : "border-blue-400 bg-blue-50";
+                  const sevBadge = det.severity === "high" ? "bg-red-100 text-red-700"
+                                 : det.severity === "medium" ? "bg-orange-100 text-orange-700"
+                                 : "bg-blue-100 text-blue-700";
+                  return (
+                    <div key={idx} className={`rounded-xl border-2 ${sevColor} p-3 shadow-sm`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-bold text-gray-800">{det.targetBehavior}</span>
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${sevBadge}`}>{det.severity.toUpperCase()}</span>
+                      </div>
+                      <p className="text-[11px] text-gray-600 mb-2"><b>발생 {det.occurrences.length}회</b> · {det.occurrences.slice(0, 2).map((o: any) => o.date).join(", ")}</p>
+                      <div className="text-[11px] p-2 bg-white/70 rounded-lg mb-2 whitespace-pre-wrap text-gray-700 border border-gray-200 max-h-24 overflow-y-auto">
+                        {det.intervention}
+                      </div>
+                      <button
+                        onClick={() => {
+                          setBehForm({
+                            name: det.targetBehavior,
+                            operational_definition: `[자동 감지] 세션기록 ${det.occurrences.length}건에서 감지됨. 예: "${det.occurrences[0]?.excerpt.slice(0, 80) || ""}"`,
+                            severity: det.severity,
+                            measurement_method: "abc",
+                            intervention_plan: det.intervention,
+                          });
+                          setShowBehModal(true);
+                        }}
+                        className="w-full text-[11px] py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-medium transition">
+                        ＋ 이 행동으로 등록
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {detectedBehaviors.length > 0 && !showDetected && (
+            <button onClick={() => setShowDetected(true)}
+              className="mb-3 text-xs text-rose-700 hover:bg-rose-50 px-3 py-1.5 rounded-lg border border-rose-200 inline-flex items-center gap-1">
+              <Zap className="w-3.5 h-3.5" /> 세션 기반 자동 감지 다시 보기 ({detectedBehaviors.length}개 행동)
+            </button>
+          )}
+
           {loading ? (
             <div className="text-center py-10 text-gray-500">로딩 중...</div>
           ) : memberBehaviors.length === 0 ? (
