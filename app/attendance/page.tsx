@@ -1137,6 +1137,53 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
   const [status, setStatus] = useState<"present" | "absent" | "sick" | "personal">(existingAttendance?.status || "present");
   const [signer, setSigner] = useState<"parent" | "self" | "staff">(member?.member_type === "child" ? "parent" : "self");
   const [saving, setSaving] = useState(false);
+  // ✨ v3.32.2: 회원권 잔여 + 최근 결석(보강필요) 상태
+  const [memberInfo, setMemberInfo] = useState<{
+    activeMs: any | null;
+    remain: number;
+    total: number;
+    recentAbsences: any[];
+    needsMakeup: number;
+    loading: boolean;
+  }>({ activeMs: null, remain: 0, total: 0, recentAbsences: [], needsMakeup: 0, loading: true });
+
+  // ✨ v3.32.2: 사인 팝업 열 때 회원권/출결 이력 자동 조회
+  useEffect(() => {
+    if (!member?.id) return;
+    (async () => {
+      try {
+        // 1) 활성 회원권 조회
+        const { data: allMs } = await supabase.from("memberships").select("*")
+          .eq("member_id", member.id).or("status.is.null,status.neq.cancelled");
+        const activeMs = (allMs || [])
+          .filter((ms: any) => (!ms.start_date || ms.start_date <= date) && (!ms.end_date || ms.end_date >= date))
+          .sort((a: any, b: any) => (b.created_at || "").localeCompare(a.created_at || ""))[0] || null;
+        const total = (activeMs?.total_sessions || 0) + (activeMs?.adjustment || 0);
+        const used = activeMs?.used_sessions || 0;
+        const remain = Math.max(0, total - used);
+
+        // 2) 최근 60일 내 병결/개인사정 이력 (보강 필요)
+        const past60 = (() => {
+          const d = new Date(date + "T00:00:00Z");
+          d.setUTCDate(d.getUTCDate() - 60);
+          return d.toISOString().slice(0, 10);
+        })();
+        const { data: absList } = await supabase.from("schedule_slots").select("id,event_date,time_slot,status,makeup_waived,makeup_completed")
+          .eq("member_id", member.id)
+          .in("status", ["sick", "personal"])
+          .gte("event_date", past60)
+          .lte("event_date", date)
+          .is("deleted_at", null)
+          .order("event_date", { ascending: false })
+          .limit(20);
+        const recentAbsences = (absList || []).filter((a: any) => !a.makeup_completed && !a.makeup_waived);
+        setMemberInfo({ activeMs, remain, total, recentAbsences, needsMakeup: recentAbsences.length, loading: false });
+      } catch (e) {
+        console.warn("[v3.32.2] 사인 팝업 자동조회 예외:", e);
+        setMemberInfo({ activeMs: null, remain: 0, total: 0, recentAbsences: [], needsMakeup: 0, loading: false });
+      }
+    })();
+  }, [member?.id, date]);
 
   useEffect(() => {
     // ✅ v3.25.3: member 없어도 훅은 실행되고, 캔버스 초기화만 조건부로 건너뜀
@@ -1370,15 +1417,15 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
         if (err) throw err;
       }
 
-      // ✅ v3.30.3: 시간표 상태 완전 동기화 (결과 검증 + slot_id 자동 연결)
+      // ✨ v3.32.2: 시간표 상태 강화 동기화 - 3단계 재시도 + 자동 생성 fallback
       const statusMap: Record<string, string> = { present: "done", absent: "noshow", sick: "sick", personal: "personal" };
       const newSlotStatus = statusMap[finalStatus] || "done";
       let slotUpdated = false;
       let resolvedSlotId: string | null = scheduleSlot?.id || null;
 
-      console.log("[v3.30.3] 시간표 동기화 시작:", { finalStatus, newSlotStatus, hasSlotId: !!scheduleSlot?.id });
+      console.log("[v3.32.2] 시간표 동기화 시작:", { finalStatus, newSlotStatus, hasSlotId: !!scheduleSlot?.id, member_id: member.id, date, time_slot: basePayload.time_slot });
 
-      // 1) scheduleSlot.id가 있으면 직접 UPDATE + 결과 검증
+      // 1단계: scheduleSlot.id가 있으면 직접 UPDATE
       if (scheduleSlot?.id) {
         try {
           const r = await supabase.from("schedule_slots")
@@ -1386,14 +1433,14 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
             .eq("id", scheduleSlot.id).select();
           if (!r.error && r.data && r.data.length > 0) {
             slotUpdated = true;
-            console.log("[v3.30.3] ✅ 시간표 직접 update 성공:", r.data.length + "건");
+            console.log("[v3.32.2] ✅ 1단계 직접 update 성공:", r.data.length + "건");
           } else {
-            console.warn("[v3.30.3] 시간표 직접 update 0건 또는 오류:", r.error?.message);
+            console.warn("[v3.32.2] 1단계 update 0건/오류:", r.error?.message);
           }
-        } catch (e) { console.warn("[v3.30.3] 시간표 직접 update 예외:", e); }
+        } catch (e) { console.warn("[v3.32.2] 1단계 예외:", e); }
       }
 
-      // 2) fallback: DB에서 직접 찾아 UPDATE + slot_id 수집
+      // 2단계 fallback: member_id + date + time_slot 조합으로 매칭
       if (!slotUpdated) {
         try {
           const nextD = (() => {
@@ -1410,32 +1457,71 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
             .is("deleted_at", null);
           if (timeSlot) q = q.eq("time_slot", timeSlot);
           const r = await q.select();
-          if (r.error) {
-            console.warn("[v3.30.3] fallback update 오류:", r.error);
-          } else if (r.data && r.data.length > 0) {
+          if (!r.error && r.data && r.data.length > 0) {
             slotUpdated = true;
             resolvedSlotId = r.data[0].id;
-            console.log("[v3.30.3] ✅ 시간표 fallback 동기화 성공:", r.data.length + "건 (slot_id=" + resolvedSlotId + ")");
+            console.log("[v3.32.2] ✅ 2단계 fallback update 성공:", r.data.length + "건 (slot_id=" + resolvedSlotId + ")");
           } else {
-            console.warn("[v3.30.3] fallback update 0건 - member_id/date/time_slot 매칭 실패");
+            console.warn("[v3.32.2] 2단계 update 0건/오류:", r.error?.message);
           }
-        } catch (e) { console.warn("[v3.30.3] 시간표 fallback 동기화 예외:", e); }
+        } catch (e) { console.warn("[v3.32.2] 2단계 예외:", e); }
       }
 
-      // 3) attendance.slot_id 강제 연결 (이후 삭제/동기화 가능하도록)
+      // ✨ 3단계 (v3.32.2 신규): 매칭되는 slot이 없으면 자동 생성 - 달력 연동 보증
+      if (!slotUpdated) {
+        try {
+          const timeSlot = basePayload.time_slot || "00:00";
+          const newSlot: any = {
+            member_id: member.id,
+            event_date: date,
+            time_slot: timeSlot,
+            status: newSlotStatus,
+            note: `[v3.32.2 사인 자동생성] ${finalStatus}`,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+          if (realOrgId) newSlot.org_id = realOrgId;
+          // 직원/지점 정보도 복사
+          if (scheduleSlot?.staff_id) newSlot.staff_id = scheduleSlot.staff_id;
+          if (scheduleSlot?.branch_id) newSlot.branch_id = scheduleSlot.branch_id;
+          if (scheduleSlot?.membership_id) newSlot.membership_id = scheduleSlot.membership_id;
+
+          // 누락 컬럼 자동 폴백 재시도
+          let insertTry = { ...newSlot };
+          let ok = false;
+          for (let i = 0; i < 6; i++) {
+            const r = await supabase.from("schedule_slots").insert(insertTry).select();
+            if (!r.error && r.data && r.data.length > 0) {
+              slotUpdated = true; ok = true;
+              resolvedSlotId = r.data[0].id;
+              console.log("[v3.32.2] ✅ 3단계 시간표 자동생성 성공:", resolvedSlotId);
+              break;
+            }
+            const msg = String(r.error?.message || "");
+            const m = /'([^']+)' column|column "([^"]+)"|column ([\w_]+) of|find the '([^']+)'/.exec(msg);
+            const missing = m?.[1] || m?.[2] || m?.[3] || m?.[4];
+            if (missing && missing in insertTry) { const rest = { ...insertTry }; delete rest[missing]; insertTry = rest; continue; }
+            console.warn("[v3.32.2] 3단계 INSERT 실패:", msg);
+            break;
+          }
+          if (!ok) console.warn("[v3.32.2] ❌ 3단계 시간표 자동생성 실패");
+        } catch (e) { console.warn("[v3.32.2] 3단계 예외:", e); }
+      }
+
+      // attendance.slot_id 강제 연결
       if (resolvedSlotId) {
         try {
-          const upR = await supabase.from("attendance")
+          await supabase.from("attendance")
             .update({ slot_id: resolvedSlotId })
             .eq("member_id", member.id)
             .eq("attend_date", date)
             .is("slot_id", null);
-          if (!upR.error) console.log("[v3.30.3] ✅ attendance.slot_id 자동 연결 완료");
+          console.log("[v3.32.2] ✅ attendance.slot_id 연결 완료:", resolvedSlotId);
         } catch (e) { /* ignore */ }
       }
 
       if (!slotUpdated) {
-        console.warn("[v3.30.3] ⚠️ 시간표 상태 갱신 실패 - 사인은 저장되었으나 시간표 상태는 예약 상태로 남음");
+        console.error("[v3.32.2] ❌ 시간표 동기화 완전 실패 - 달력에 반영되지 않음!");
       }
 
       const parts: string[] = ["✅ 사인 저장 완료"];
@@ -1464,6 +1550,87 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
         </div>
 
         <div className="p-5 space-y-4">
+          {/* ✨ v3.32.2: 회원권 잔여 + 보강필요 안내 카드 */}
+          {!memberInfo.loading && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {/* 회원권 잔여 */}
+              <div className={`aqu-card border-2 p-3 rounded-2xl ${
+                memberInfo.remain === 0 ? "bg-gradient-to-br from-rose-50 to-red-50 border-rose-300" :
+                memberInfo.remain <= 2 ? "bg-gradient-to-br from-amber-50 to-orange-50 border-amber-300" :
+                "bg-gradient-to-br from-emerald-50 to-teal-50 border-emerald-300"
+              }`}>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-lg">🎫</span>
+                  <span className="text-xs font-bold text-slate-700">회원권 잔여</span>
+                </div>
+                {memberInfo.activeMs ? (
+                  <>
+                    <div className="text-[11px] text-slate-600 font-medium mb-1 truncate">
+                      {memberInfo.activeMs.plan_name || "회원권"}
+                    </div>
+                    <div className="flex items-baseline gap-1">
+                      <span className={`text-2xl font-extrabold ${
+                        memberInfo.remain === 0 ? "text-rose-600" :
+                        memberInfo.remain <= 2 ? "text-amber-600" : "text-emerald-600"
+                      }`}>{memberInfo.remain}</span>
+                      <span className="text-sm text-slate-500 font-medium">/ {memberInfo.total}회</span>
+                    </div>
+                    {memberInfo.remain === 0 && (
+                      <div className="mt-1 text-[10px] font-bold text-rose-600 bg-white/70 px-2 py-0.5 rounded-full inline-block">
+                        ⚠️ 잔여 0 – 재결제 필요
+                      </div>
+                    )}
+                    {memberInfo.remain > 0 && memberInfo.remain <= 2 && (
+                      <div className="mt-1 text-[10px] font-bold text-amber-700 bg-white/70 px-2 py-0.5 rounded-full inline-block">
+                        ⚡ 만료 임박
+                      </div>
+                    )}
+                    {memberInfo.activeMs.end_date && (
+                      <div className="mt-1 text-[10px] text-slate-500">만료일: {memberInfo.activeMs.end_date}</div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-xs text-slate-500 italic">활성 회원권 없음</div>
+                )}
+              </div>
+
+              {/* 보강필요 안내 */}
+              <div className={`aqu-card border-2 p-3 rounded-2xl ${
+                memberInfo.needsMakeup === 0 ? "bg-gradient-to-br from-slate-50 to-gray-50 border-slate-200" :
+                "bg-gradient-to-br from-orange-50 via-amber-50 to-rose-50 border-orange-300"
+              }`}>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-lg">{memberInfo.needsMakeup === 0 ? "✅" : "🔔"}</span>
+                  <span className="text-xs font-bold text-slate-700">보강필요 (최근 60일)</span>
+                </div>
+                {memberInfo.needsMakeup === 0 ? (
+                  <div className="text-xs text-slate-500">보강 대상 없음</div>
+                ) : (
+                  <>
+                    <div className="flex items-baseline gap-1 mb-1">
+                      <span className="text-2xl font-extrabold text-orange-600">{memberInfo.needsMakeup}</span>
+                      <span className="text-sm text-slate-500 font-medium">건</span>
+                    </div>
+                    <div className="space-y-0.5 max-h-16 overflow-y-auto">
+                      {memberInfo.recentAbsences.slice(0, 3).map((a: any, i: number) => (
+                        <div key={i} className="text-[10px] text-slate-700 bg-white/70 rounded px-2 py-0.5 flex items-center gap-1">
+                          <span className={a.status === "sick" ? "text-rose-500" : "text-violet-500"}>
+                            {a.status === "sick" ? "🤒" : "📝"}
+                          </span>
+                          <b>{a.event_date}</b>
+                          {a.time_slot && <span className="text-slate-500">({a.time_slot})</span>}
+                        </div>
+                      ))}
+                      {memberInfo.recentAbsences.length > 3 && (
+                        <div className="text-[10px] text-orange-600 font-semibold">+{memberInfo.recentAbsences.length - 3}건 더</div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* 출결 상태 선택 */}
           <div>
             <div className="text-xs font-semibold text-gray-700 mb-2">출결 상태</div>

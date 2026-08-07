@@ -217,7 +217,7 @@ export default function SchedulePage() {
   async function loadAll() {
     setLoading(true);
     const branchId = getActiveBranchId();
-    console.log(`[v3.32.0] loadAll 시작 - branch_id=${branchId || "(없음)"} (build: v3.32.0 · 보강완료+이월 재설계 · UI 대마감)`);
+    console.log(`[v3.32.2] loadAll 시작 - branch_id=${branchId || "(없음)"} (build: v3.32.2 · 2025-00-01 400 차단 + 결제취소토글 + 사인카런더 강화동기화 + 보강안내)`);
     // ✅ branch_id 필터 (컴럼 미존재 시 폴백)
     const safeBranchQuery = async (baseFn: () => any, filterFn: (q: any) => any) => {
       if (!branchId) return await baseFn();
@@ -227,14 +227,20 @@ export default function SchedulePage() {
       }
       return r;
     };
-    // ✅ v3.28.3: 선택된 연/월 기준 범위 조회 (미리~다음달까지 여유 3개월 범위)
+    // ✨ v3.32.2: 2025-00-01 400 오류 근본 차단 - month0는 0기반(0~11), SQL/ISO는 1기반(01~12)
     const startY = year || new Date().getFullYear();
-    const startM = (month0 || 0);
-    // 이전달 1일 ~ 다음달 마지막일 (3개월 범위 - 이월/보강 파이프라인 고려)
-    const rangeStart = `${startY}-${String(startM).padStart(2, "0")}-01`;
-    const endD = new Date(startY, startM + 2, 0); // 다음달 마지막일
+    const startM0 = (typeof month0 === "number" && month0 >= 0 && month0 <= 11) ? month0 : new Date().getMonth();
+    // 매월 1일 ~ 다음달 마지막일 (2개월 범위 - 이월/보강 파이프라인 고려)
+    const rangeStart = `${startY}-${String(startM0 + 1).padStart(2, "0")}-01`; // 핵심: +1 반드시 적용
+    const endD = new Date(startY, startM0 + 2, 0); // 다음달 마지막일
     const rangeEnd = `${endD.getFullYear()}-${String(endD.getMonth()+1).padStart(2,"0")}-${String(endD.getDate()).padStart(2,"0")}`;
-    console.log(`[v3.32.0] fetch range: ${rangeStart} ~ ${rangeEnd}`);
+    // 안전 가드: rangeStart/End 유효성 검증
+    if (!/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(rangeStart) || !/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(rangeEnd)) {
+      console.error(`[v3.32.2] ❌ 잘못된 날짜 범위 감지! rangeStart=${rangeStart}, rangeEnd=${rangeEnd}, year=${year}, month0=${month0}`);
+      setLoading(false);
+      return;
+    }
+    console.log(`[v3.32.2] fetch range: ${rangeStart} ~ ${rangeEnd} (year=${startY}, month0=${startM0})`);
 
     const fetchSchedule = async () => {
       const attempts = [
@@ -282,7 +288,7 @@ export default function SchedulePage() {
     ]);
     // ✅ v3.29.2: State 실시간 sync 강화 - 로그 + 단순 배열 교체 + 버전 마커
     const rawSlots = Array.isArray(sRes?.data) ? sRes.data : [];
-    console.log(`[v3.32.0] schedule_slots 로드 완료: ${rawSlots.length}건 (build: v3.32.0)`);
+    console.log(`[v3.32.2] schedule_slots 로드 완료: ${rawSlots.length}건 (build: v3.32.2)`);
     if (rawSlots.length > 0 && rawSlots[0]) {
       console.log(`[v3.28.2] 샘플 row keys:`, Object.keys(rawSlots[0]));
     }
@@ -1679,8 +1685,8 @@ export default function SchedulePage() {
         </button>
       </div>
 
-      {/* 상단 KPI (컴팩트) */}
-      <div className="grid grid-cols-3 md:grid-cols-7 gap-2 mb-3 text-xs">
+      {/* ✨ v3.32.1: 상단 KPI - 8개 카드 한 줄 정렬 (총일정+7가지 상태) */}
+      <div className="grid grid-cols-4 md:grid-cols-8 gap-1.5 md:gap-2 mb-3 text-xs">
         <MonthKPI label="총 일정" val={monthStats.total + ""} color="text-aqu-700" />
         {STATUS_OPTIONS.map(s => (
           <MonthKPI key={s.value} label={s.label} val={(monthStats.byStatus[s.value]||0) + ""} color={s.textColor} />
@@ -2393,26 +2399,32 @@ function SelectedDayPanel({ date, slots, members, staff, staffName, onAdd, onEdi
                   )}
                 </div>
 
-                <div className="flex flex-wrap gap-0.5 mt-1.5 pt-1.5 border-t border-white/50">
-                  {STATUS_OPTIONS.map(st => (
-                    <button key={st.value} onClick={() => onQuickStatus(s, st.value)}
-                      className={`text-[9px] px-1 py-0.5 rounded ${s.status === st.value ? "bg-white/70 font-bold" : "bg-white/30 hover:bg-white/60"}`}
-                      title={st.label}>
-                      {st.label}
-                    </button>
-                  ))}
+                {/* ✨ v3.32.1: 중복 버튼 완전 제거 - 단일 드롭다운 + 삭제 1개만 유지 */}
+                <div className="flex items-center gap-1.5 mt-1.5 pt-1.5 border-t border-white/60">
+                  <select
+                    value={s.status || "scheduled"}
+                    onChange={(e) => onQuickStatus(s, e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex-1 text-[10px] font-bold px-2 py-1 rounded-full border border-white/70 bg-white/80 hover:bg-white cursor-pointer outline-none text-slate-700"
+                    title="상태 변경"
+                  >
+                    <option value="scheduled">🕒 예약</option>
+                    <option value="done">✅ 완료</option>
+                    <option value="sick">🤒 병결</option>
+                    <option value="personal">📝 개인사정</option>
+                    <option value="cancel">❌ 취소</option>
+                    <option value="noshow">🚩 노쇼</option>
+                    <option value="carryover">📅 이월</option>
+                  </select>
                   <button onClick={() => onEdit(s)}
-                    className="text-[9px] px-1 py-0.5 rounded bg-white/30 hover:bg-white/60 ml-auto" title="편집">
+                    className="text-[10px] px-2 py-1 rounded-full bg-white/70 hover:bg-white text-slate-600 border border-white/70"
+                    title="편집">
                     ✎
                   </button>
-                  <button onClick={() => onDelete(s.id)}
-                    className="text-[9px] px-1 py-0.5 rounded bg-red-100 text-red-600 hover:bg-red-200" title="소프트 삭제 (복구가능)">
-                    🗑
-                  </button>
-                  {/* ✅ v3.24.6: 완전 삭제 버튼 (DB에서 레코드 완전 DELETE, 복구 불가) */}
                   <button onClick={() => onDelete(s.id, { hard: true })}
-                    className="text-[9px] px-1 py-0.5 rounded bg-red-600 text-white hover:bg-red-800 font-bold" title="완전 삭제 (복구불가)">
-                    🚫
+                    className="text-[10px] px-2 py-1 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200"
+                    title="완전 삭제 (복구불가)">
+                    🗑️
                   </button>
                 </div>
               </div>
@@ -3207,9 +3219,9 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
 
 function MonthKPI({ label, val, color }: any) {
   return (
-    <div className="bg-white p-2 rounded-lg border border-aqu-100 text-center">
-      <div className="text-[10px] text-gray-500">{label}</div>
-      <div className={`text-sm md:text-base font-bold ${color}`}>{val}</div>
+    <div className="kpi-card bg-white px-1.5 py-2 rounded-xl border border-aqu-100 text-center hover:shadow-sm transition-shadow">
+      <div className="text-[10px] text-gray-500 truncate leading-tight">{label}</div>
+      <div className={`text-base md:text-lg font-extrabold leading-tight ${color}`}>{val}</div>
     </div>
   );
 }
@@ -3933,15 +3945,15 @@ function DayListModal({ date, slots, members, staff, memberships, onClose, onQui
             <button onClick={onClose} className="text-white/80 hover:text-white text-2xl leading-none px-2">×</button>
           </div>
         </div>
-        {/* ✨ v3.32.0: 리스트 - 세로 스택 time-slot-card 설계 */}
-        <div className="flex-1 overflow-y-auto p-5 bg-gradient-to-br from-slate-50 via-white to-sky-50/40">
+        {/* ✨ v3.32.1: 리스트 - 단일 가로줄(1 Line) time-slot-card + 중복 뱃지 제거 */}
+        <div className="flex-1 overflow-y-auto p-4 bg-gradient-to-br from-slate-50 via-white to-sky-50/40">
           {sortedSlots.length === 0 ? (
             <div className="text-center py-16 text-gray-400">
               <div className="text-4xl mb-2">📅</div>
               <p className="text-sm">등록된 일정이 없습니다.</p>
             </div>
           ) : (
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-2">
               {sortedSlots.map((s: any) => {
                 const mem: any = memberMap.get(s.member_id) || {};
                 const stf: any = staffMap.get(s.staff_id) || {};
@@ -3950,55 +3962,56 @@ function DayListModal({ date, slots, members, staff, memberships, onClose, onQui
                 const remain = memMs ? Math.max(0, (memMs.total_sessions||0) - (memMs.used_sessions||0)) : null;
 
                 return (
-                  <div key={s.id} className="time-slot-card aqu-card bg-white border border-slate-200 shadow-sm p-4 hover:shadow-lg hover:border-aqu-300 transition-all"
-                    style={{ borderRadius: "16px" }}>
-                    <div className="flex flex-col gap-3">
-                      {/* 상단: 시간 + 회원 정보 */}
-                      <div className="flex items-center gap-3">
-                        <div className="flex-shrink-0 bg-gradient-to-br from-teal-50 to-cyan-100 border border-teal-200 rounded-xl px-4 py-3 text-center min-w-[80px] shadow-sm">
-                          <div className="text-xl font-bold text-teal-700 tracking-tight">{s.time_slot || "-"}</div>
-                          <div className="text-[9px] text-teal-500 mt-0.5 font-medium">TIME</div>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                            <span className="font-bold text-slate-800 text-base truncate">{mem.name || "(회원없음)"}</span>
-                            {mem.member_type === "child" && <span className="text-[10px] bg-pink-100 text-pink-700 px-2 py-0.5 rounded-full font-semibold">아동</span>}
-                            {memMs && (
-                              <span className="text-[10px] bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full font-bold">
-                                {memMs.plan_name || "회원권"} {remain}/{memMs.total_sessions||0}
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-xs text-slate-500 flex items-center gap-2 flex-wrap">
-                            {stf.name && <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: stf.color || "#94a3b8" }} />👤 {stf.name}</span>}
-                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-semibold ${st.cls}`}>
-                              {st.icon} {st.label}
-                            </span>
-                          </div>
-                        </div>
+                  <div key={s.id} className="time-slot-card aqu-card bg-white border border-slate-200 shadow-sm px-3 py-2.5 hover:shadow-md hover:border-aqu-300 transition-all"
+                    style={{ borderRadius: "14px" }}>
+                    {/* ✨ 단 1줄 가로 배치: [시간] | [회원명 + 뱃지] | [드롭다운] | [🗑️] */}
+                    <div className="flex items-center gap-3">
+                      {/* 시간 배지 */}
+                      <div className="flex-shrink-0 bg-gradient-to-br from-teal-50 to-cyan-100 border border-teal-200 rounded-lg px-3 py-1.5 text-center min-w-[70px]">
+                        <div className="text-base font-bold text-teal-700 tracking-tight leading-tight">{s.time_slot || "-"}</div>
+                        <div className="text-[8px] text-teal-500 font-medium leading-none">TIME</div>
                       </div>
-                      {/* 하단: 상태 드롭다운 + 삭제 */}
-                      <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
-                        <select
-                          value={s.status || "scheduled"}
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={(e) => { e.stopPropagation(); onQuickStatus(s, e.target.value); }}
-                          className={`flex-1 px-3 py-2 text-xs font-bold rounded-full border-2 cursor-pointer outline-none ${st.cls}`}
-                        >
-                          <option value="scheduled">🕒 예약</option>
-                          <option value="present">🟢 출석</option>
-                          <option value="sick">🟡 병결</option>
-                          <option value="personal">🟠 개인사정</option>
-                          <option value="carryover">🔵 이월</option>
-                          <option value="noshow">🔴 노쇼</option>
-                          <option value="cancel">⚪ 예약취소</option>
-                        </select>
-                        <button onClick={(e) => { e.stopPropagation(); onDelete(s); }}
-                          className="px-3 py-2 text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-full border-2 border-rose-200 transition-colors"
-                          title="완전 삭제 (마스터 권한)">
-                          🗑️ 삭제
-                        </button>
+
+                      {/* 회원명 + 수강권 뱃지 (상태 중복 제거) */}
+                      <div className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
+                        <span className="font-bold text-slate-800 text-sm truncate">{mem.name || "(회원없음)"}</span>
+                        {mem.member_type === "child" && <span className="text-[10px] bg-pink-100 text-pink-700 px-1.5 py-0.5 rounded-full font-semibold">아동</span>}
+                        {memMs && (
+                          <span className="text-[10px] bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded-full font-bold">
+                            {memMs.plan_name || "회원권"} {remain}/{memMs.total_sessions||0}
+                          </span>
+                        )}
+                        {stf.name && (
+                          <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: stf.color || "#94a3b8" }} />
+                            {stf.name}
+                          </span>
+                        )}
                       </div>
+
+                      {/* 상태 드롭다운 (단일화) */}
+                      <select
+                        value={s.status || "scheduled"}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => { e.stopPropagation(); onQuickStatus(s, e.target.value); }}
+                        className={`flex-shrink-0 px-2.5 py-1.5 text-xs font-bold rounded-full border-2 cursor-pointer outline-none ${st.cls}`}
+                        style={{ minWidth: "115px" }}
+                      >
+                        <option value="scheduled">🕒 예약</option>
+                        <option value="present">🟢 출석</option>
+                        <option value="sick">🟡 병결</option>
+                        <option value="personal">🟠 개인사정</option>
+                        <option value="carryover">🔵 이월</option>
+                        <option value="noshow">🔴 노쇼</option>
+                        <option value="cancel">⚪ 예약취소</option>
+                      </select>
+
+                      {/* 삭제 */}
+                      <button onClick={(e) => { e.stopPropagation(); onDelete(s); }}
+                        className="flex-shrink-0 p-2 text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-full border-2 border-rose-200 transition-colors"
+                        title="완전 삭제 (마스터 권한)">
+                        🗑️
+                      </button>
                     </div>
                   </div>
                 );

@@ -56,6 +56,8 @@ export default function PaymentsPage() {
   const [tab, setTab]               = useState<"memberships" | "payments">("memberships");
   // ✅ v3.20.7: 회원 이름 검색 (회원권 · 결제 이력 공용)
   const [nameSearch, setNameSearch] = useState("");
+  // ✨ v3.32.2: 취소된 결제 숨김 토글 (기본: 숨김)
+  const [hideCancelled, setHideCancelled] = useState(true);
   // ✅ v3.16.0: 월별 필터 (기본값: 이번 달)
   const [filterMonth, setFilterMonth] = useState<string>(new Date().toISOString().slice(0, 7));
   const [showModal, setShowModal]   = useState(false);
@@ -772,10 +774,17 @@ export default function PaymentsPage() {
               {(() => {
                 const filtered = payments
                   .filter((p: any) => !filterMonth || (p.paid_at || "").startsWith(filterMonth))
-                  .filter((p: any) => !nameSearch.trim() || (p.members?.name || "").toLowerCase().includes(nameSearch.trim().toLowerCase()));
+                  .filter((p: any) => !nameSearch.trim() || (p.members?.name || "").toLowerCase().includes(nameSearch.trim().toLowerCase()))
+                  .filter((p: any) => !hideCancelled || p.status !== "cancelled");
                 const revenue = filtered.filter((p: any) => p.status !== "cancelled").reduce((s: number, p: any) => s + Math.max(0, (p.amount || 0) - (p.discount_amount || 0) - (p.refunded_amount || 0)), 0);
+                const cancelledCount = payments.filter((p: any) => (!filterMonth || (p.paid_at || "").startsWith(filterMonth)) && p.status === "cancelled").length;
                 return (
                   <div className="flex-1 flex items-center justify-end gap-3 text-xs">
+                    {/* ✨ v3.32.2: 취소된 결제 숨김 토글 */}
+                    <button onClick={() => setHideCancelled(!hideCancelled)}
+                      className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border-2 transition ${hideCancelled ? "bg-white text-slate-600 border-slate-300 hover:border-slate-400" : "bg-rose-100 text-rose-700 border-rose-300"}`}>
+                      {hideCancelled ? `👁️‍🗨️ 취소된 ${cancelledCount}건 숨김` : `👁️ 취소된 ${cancelledCount}건 표시중`}
+                    </button>
                     <span className="text-gray-500">조회 결과: <b className="text-aqu-700">{filtered.length}건</b></span>
                     <span className="text-gray-500">합계: <b className="text-green-600">₩{revenue.toLocaleString()}</b></span>
                   </div>
@@ -798,6 +807,7 @@ export default function PaymentsPage() {
                 {payments
                   .filter((p: any) => !filterMonth || (p.paid_at || "").startsWith(filterMonth))
                   .filter((p: any) => !nameSearch.trim() || (p.members?.name || "").toLowerCase().includes(nameSearch.trim().toLowerCase()))
+                  .filter((p: any) => !hideCancelled || p.status !== "cancelled") /* ✨ v3.32.2 */
                   .map(p => {
                   const isCancelled = p.status === "cancelled";
                   return (
