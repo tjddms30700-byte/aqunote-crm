@@ -217,7 +217,7 @@ export default function SchedulePage() {
   async function loadAll() {
     setLoading(true);
     const branchId = getActiveBranchId();
-    console.log(`[v3.32.2] loadAll 시작 - branch_id=${branchId || "(없음)"} (build: v3.32.2 · 2025-00-01 400 차단 + 결제취소토글 + 사인카런더 강화동기화 + 보강안내)`);
+    console.log(`[v3.34.0] loadAll 시작 - branch_id=${branchId || "(없음)"} (build: v3.34.0 · 카톡스마트배치 + 세션히스토리체인 + 계약서본문복구 + UX순서정돈)`);
     // ✅ branch_id 필터 (컴럼 미존재 시 폴백)
     const safeBranchQuery = async (baseFn: () => any, filterFn: (q: any) => any) => {
       if (!branchId) return await baseFn();
@@ -236,11 +236,11 @@ export default function SchedulePage() {
     const rangeEnd = `${endD.getFullYear()}-${String(endD.getMonth()+1).padStart(2,"0")}-${String(endD.getDate()).padStart(2,"0")}`;
     // 안전 가드: rangeStart/End 유효성 검증
     if (!/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(rangeStart) || !/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(rangeEnd)) {
-      console.error(`[v3.32.2] ❌ 잘못된 날짜 범위 감지! rangeStart=${rangeStart}, rangeEnd=${rangeEnd}, year=${year}, month0=${month0}`);
+      console.error(`[v3.34.0] ❌ 잘못된 날짜 범위 감지! rangeStart=${rangeStart}, rangeEnd=${rangeEnd}, year=${year}, month0=${month0}`);
       setLoading(false);
       return;
     }
-    console.log(`[v3.32.2] fetch range: ${rangeStart} ~ ${rangeEnd} (year=${startY}, month0=${startM0})`);
+    console.log(`[v3.34.0] fetch range: ${rangeStart} ~ ${rangeEnd} (year=${startY}, month0=${startM0})`);
 
     const fetchSchedule = async () => {
       const attempts = [
@@ -288,7 +288,7 @@ export default function SchedulePage() {
     ]);
     // ✅ v3.29.2: State 실시간 sync 강화 - 로그 + 단순 배열 교체 + 버전 마커
     const rawSlots = Array.isArray(sRes?.data) ? sRes.data : [];
-    console.log(`[v3.32.2] schedule_slots 로드 완료: ${rawSlots.length}건 (build: v3.32.2)`);
+    console.log(`[v3.34.0] schedule_slots 로드 완료: ${rawSlots.length}건 (build: v3.34.0)`);
     if (rawSlots.length > 0 && rawSlots[0]) {
       console.log(`[v3.28.2] 샘플 row keys:`, Object.keys(rawSlots[0]));
     }

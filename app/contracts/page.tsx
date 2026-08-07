@@ -127,10 +127,187 @@ const EMPLOYMENT_DAILY_TPL = `위례아쿠수중운동센터 근로계약서
 근로자: {{name}} · 연락처 {{phone}} (서명)
 `;
 
+// ✨ v3.34.0: 통합 4페이지 계약서 전문 본문 (누락 복구)
+const MEMBER_UNIFIED_TPL = `▶ 아쿠수중운동센터 회원 통합 이용계약서 (전 4페이지)
+───────────────────────────────────────────────
+
+═══════════════════════════════════════════════════
+【PAGE 1】회원 이용계약서 (상세)
+═══════════════════════════════════════════════════
+
+본 계약은 아쿠수중운동센터(이하 "센터")와 회원(보호자, 이하 "회원") 간에
+센터가 제공하는 맞춤형 수중재활 및 전문 운동 프로그램 이용과 관련한 제반 사항을 규정함을 목적으로 한다.
+
+제1조 【센터 정보】
+· 상호명: 아쿠수중운동센터
+· 대표자: 하유정
+· 사업자등록번호: 680-04-03475
+· 주소: 경기도 하남시 위례대로 190, 위례효성해링턴타워 203호
+
+제2조 【계약자 및 기본정보】
+· 회원명: {{name}}
+· 생년월일: {{birth}}
+· 보호자: {{guardian}} ({{guardian_relation}})
+· 연락처: {{phone}}
+· 주소: {{address}}
+
+제3조 【선택 요금제】
+회원은 아래 3개 요금제 중 1개를 선택하여 계약한다:
+
+  □ STANDARD  ·  회당 ₩130,000  ·  주 1회 고정
+     → 일대일 맞춤 수중재활 · 기초기능 회복 프로그램
+
+  □ ADVANCED  ·  회당 ₩122,500  ·  주 2회 고정
+     → 집중 재활 · 운동 효과 극대화 (회당 7,500원 할인 적용)
+
+  □ PREMIUM  ·  회당 ₩150,000  ·  주 2회 고정
+     → 마스터 전담 / 특수 맞춤 케어 및 프리미엄 솔루션
+
+선택 요금제: {{plan}}
+회당 수강료: ₩{{per_session_amount}}
+이용 회수: {{sessions}}회 (주 {{sessions_per_week}}회 고정)
+총 결제금액: ₩{{total_amount}}
+
+제4조 【계약기간】
+· 시작일: {{period_start}}
+· 종료일: {{period_end}}
+개인 사정으로 인한 기간 연장은 센터와 협의 후 결정한다.
+
+제5조 【월 정액 선납제 및 사전 재결제】
+1. 본 센터는 지정 요일·시간 고정제로 운영되며, 해당 달의 주차(월 4회 또는 5회)에 따라
+   월 수강료를 선납하는 방식으로 진행된다.
+2. 스케줄 우선 배정을 위해 수업 잔여 회차가 2회기 남은 시점에 다음 달 사전 재결제가 진행된다.
+3. 재결제 기간 내 미결제 시, 다음 대기 회원에게 순번이 자동 이관되어 기존 시간대 수강이 어려울 수 있다.
+
+제6조 【보강 및 차감 규정】
+1. 개인 사정, 병결 등으로 인한 결석 시 [다음 달(익월) 이내]에 사전 예약 후 보강을 완료해야 한다.
+2. 기한 내 미완료된 보강 회차는 자동 소멸(차감) 처리된다. (센터 사정 외 이월 불가)
+
+제7조 【출석률 관리】
+수중재활의 연속성과 효과적인 수업 관리를 위해 월 출석률 60% 미만 시 대기자로 전환될 수 있다.
+
+제8조 【서비스 성격】
+1. 센터에서 제공하는 모든 프로그램은 운동·교육·체험 서비스이며, 의료행위·치료·진단을 목적으로 하지 않는다.
+2. 회원은 본 서비스의 성격을 충분히 이해하고 계약을 체결한다.
+
+제9조 【계약의 해지】
+1. 회원이 계약을 해지하고자 할 경우 사전에 센터에 통지해야 하며, 환불 규정은 「소비자기본법」에 준한다.
+2. 회원이 센터의 이용규칙을 상습적으로 위반할 경우 센터는 계약을 해지할 수 있다.
+
+□ 본인은 상기 이용계약의 전 조항을 이해하였으며, 이에 동의합니다. (필수)
+
+
+═══════════════════════════════════════════════════
+【PAGE 2】개인정보 수집 및 이용 동의서
+═══════════════════════════════════════════════════
+
+아쿠수중운동센터는 「개인정보 보호법」에 따라 회원의 개인정보를 아래와 같이 수집·이용함에 동의를 요청합니다.
+
+제1조 【수집하는 개인정보 항목】
+[필수 항목]
+· 성명, 생년월일, 연락처, 주소
+· 보호자 성명·관계·연락처
+· 건강 문진정보 (기저질환, 복용 약물, 알레르기)
+· 응급 연락처
+
+[선택 항목]
+· 수업 사진/영상 (수업 개선 및 센터 홍보 목적)
+
+제2조 【수집·이용 목적】
+1. 회원 관리 및 수업 예약·출결 관리
+2. 수중재활 프로그램 설계 및 개인 맞춤 서비스 제공
+3. 응급상황 발생 시 응급처치 및 보호자 통지
+4. 요금 정산 및 세금계산서 발행
+
+제3조 【보유 · 이용 기간】
+회원 탈퇴 시까지(수집일로부터 최대 5년). 관계 법령이 정한 경우 해당 기간까지 보관.
+
+제4조 【동의를 거부할 권리】
+회원은 개인정보 수집·이용에 대한 동의를 거부할 권리가 있으나, 필수 항목을 거부할 경우 회원 등록 및 수업 제공이 제한될 수 있습니다.
+
+제5조 【개인정보 제3자 제공】
+복무지함으로 제공하지 않으며, 계약 이행을 위해 불가피하게 제3자에게 제공해야 하는 경우(대학·응급의료기관·세관 등) 반드시 사전에 회원의 동의를 받는다.
+
+□ [필수] 개인정보 수집·이용에 동의합니다. (미동의 시 회원 등록 불가)
+□ [선택] 수업 사진/영상 확보 및 센터 홍보 목적 사용에 동의합니다.
+
+
+═══════════════════════════════════════════════════
+【PAGE 3】안전 및 입수 동의서
+═══════════════════════════════════════════════════
+
+제1조 【수질 및 운영 환경】
+· 수온: 31~35℃ (재활·수중운동 특화 온도)
+· pH 5.8~8.6
+· 잔류염소 0.4~3.0 ppm
+· 여과기 압력 0.5~2.5 bar
+· 매일 관계 법령에 따른 수질 검사 및 안전장비 점검 시행
+
+제2조 【입수 전 준수 사항】
+1. 입수 전 반드시 샤워 및 화장실 사용을 완료해 주십시오.
+2. 수영복, 수영모, 안전마스크 등 지정 장비 착용이 필요합니다.
+3. 음주, 고열, 감염성 질환 보유, 피부 상처가 있는 경우 입수하지 마십시오.
+4. 수종 강사의 지시 없이 단독 프로그램 변경, 잠수, 과자 농승을 금지합니다.
+
+제3조 【보호자 동반 기준 (아동 회원)】
+1. 만 7세 미만: 보호자 동반 수업 (수중 동반 또는 대기실)
+2. 만 7세 이상: 대기실 대기 가능
+
+제4조 【백임 제한 사항】
+안전수칙을 준수하지 않은 결과 발생한 사고에 대한 책임은 회원(보호자)에게 있으며,
+센터는 통상적 안전관리 의무에 한하여 책임을 부담합니다.
+
+제5조 【보건생 및 위생 관리】
+· 수영장 내 음식물 반입 금지
+· 개인물품은 지정 락커에 보관 (유실물 발생 시 센터 책임 제한)
+· 샤워실/탈의실 물기를 준수해 주십시오.
+
+□ 본인은 상기 안전·입수 관련 사항을 이해하였으며, 이에 동의합니다. (필수)
+
+
+═══════════════════════════════════════════════════
+【PAGE 4】수중재활 안전 및 응급처치 동의서
+═══════════════════════════════════════════════════
+
+제1조 【기저질환·복용 약물·알레르기 기재】
+· 기저질환: {{health_note}}
+· 복용 약물: {{medications}}
+· 알레르기: {{allergies}}
+· 응급 연락처: {{emergency_contact}} ({{emergency_relation}})
+
+제2조 【수중재활 본인 위험 인지】
+1. 수중 환경은 유산소증, 이지통, 하지 핑감, 혼미, 익사 등의 상황이 발생할 수 있습니다.
+2. 심혈관 질환, 공황장애, 간질, 임산 예정자, 최근 수술력 보유자는 사전 고지 및 의사 소견서를 제출해 주십시오.
+3. 강사의 감시 하에도 돌발 상황은 발생할 수 있으며, 보호자는 이를 인지하고 동의합니다.
+
+제3조 【응급처치 표준 절차】
+응급상황 발생 시 센터는 아래와 같은 표준 응급처치를 진행합니다:
+1. 강사·직원에 의한 1차 응급처치 (심폐소생술 CPR, 기도 확보, 보온 등)
+2. 119 신고 및 인근 응급의료센터로의 이송
+3. 보호자 즉시 통지 및 상황 실시간 공유
+
+제4조 【응급처치 이송 동의】
+응급 상황이 발생하여 보호자와의 즉시 연락이 어려울 경우, 센터가 임의로 구급차를 호출하여
+응급의료센터로 이송하는 것에 동의하며, 발생하는 응급이송 비용은 회원(보호자) 부담을 원칙으로 합니다.
+
+제5조 【면적 조항】
+회원이 사전 고지하지 않은 기저질환·복용 약물·알레르기로 인해 발생하는 사고·부상에 대한 책임은 회원에게 있으며,
+센터는 통상적 안전관리 의무에 한하여 책임을 부담합니다.
+
+□ 본인은 수중재활의 위험을 인지하고 이에 동의합니다. (필수)
+□ 응급상황 발생 시 센터의 응급처치 및 구급차 이송 방침에 동의합니다. (필수)
+
+───────────────────────────────────────────────
+센터: 아쿠수중운동센터 · 대표 하유정 (서명/직인)
+회원(보호자): {{guardian}} · {{name}} · 연락처 {{phone}} (서명)
+서명일: {{contract_date}}
+`;
+
 // 기본 템플릿 문구
 const TEMPLATES: Record<string, string> = {
   employment_fixed: EMPLOYMENT_FIXED_TPL,
   employment_daily: EMPLOYMENT_DAILY_TPL,
+  member_unified: MEMBER_UNIFIED_TPL,
   employment: `위례아쿠수중운동센터 근로계약서
 (정규직 · 기간의 정함이 없는 경우)
 
@@ -2371,32 +2548,15 @@ function ContractsPage() {
                     </label>
                   </div>
 
-                  {/* 4페이지 동의 체크박스 */}
-                  <div className="bg-white border-2 border-purple-200 rounded-xl p-3">
-                    <div className="text-xs font-bold text-purple-800 mb-2">✅ 4페이지 동의 항목 (서명 전 체크)</div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 text-xs">
-                      {[
-                        { k: "agree_contract", label: "Page 1 · 이용계약 전체 조항 동의 (필수)" },
-                        { k: "agree_privacy_required", label: "Page 2 · 개인정보 수집·이용 (필수)" },
-                        { k: "agree_privacy_optional", label: "Page 2 · 사진·영상 홍보 사용 (선택)" },
-                        { k: "agree_safety", label: "Page 3 · 안전·입수 관련 사항 동의 (필수)" },
-                        { k: "agree_aqua_risk", label: "Page 4 · 수중재활 위험 인지 (필수)" },
-                        { k: "agree_emergency", label: "Page 4 · 응급처치 및 구급차 이송 동의 (필수)" },
-                      ].map(({ k, label }) => (
-                        <label key={k} className="flex items-start gap-1.5 cursor-pointer bg-slate-50 hover:bg-purple-50 rounded-lg px-2 py-1.5 border border-slate-200">
-                          <input type="checkbox" checked={!!editing.form_data[k]}
-                            onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, [k]: e.target.checked } })}
-                            className="w-4 h-4 accent-purple-600 mt-0.5" />
-                          <span className="text-slate-700">{label}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-
+                  {/* ✨ v3.34.0: 동의 체크박스는 본문 아래로 이동 - 여기서는 안내만 */}
                   <div className="bg-sky-50 border border-sky-200 rounded-lg p-3 text-xs text-sky-800">
-                    💡 <b>인쇄 안내:</b> 본 통합 계약서는 <b>4페이지 자동 구성</b>으로 인쇄됩니다.<br/>
-                    <span className="font-semibold">P1</span> 이용계약서 · <span className="font-semibold">P2</span> 개인정보 동의서 · <span className="font-semibold">P3</span> 안전·입수 동의서 · <span className="font-semibold">P4</span> 수중재활 응급처치 동의서
-                    <br/>서명 1회로 4페이지 일괄 적용 · DB 저장 · 인쇄됩니다.
+                    💡 <b>이용 안내:</b><br/>
+                    <b>1단계</b> 위 정보 입력 (회원/요금제/계약정보/기저질환) →
+                    <b>2단계</b> 아래 계약 본문(4페이지 전문) 정독 →
+                    <b>3단계</b> 본문 마지막에서 동의 체크 및 서명 진행
+                    <br/><br/>
+                    본 통합 계약서는 <b>4페이지 자동 구성</b>으로 인쇄됩니다.
+                    <span className="font-semibold">P1</span> 이용계약서 · <span className="font-semibold">P2</span> 개인정보 · <span className="font-semibold">P3</span> 안전·입수 · <span className="font-semibold">P4</span> 수중재활 응급처치
                   </div>
                 </div>
               )}
@@ -2417,25 +2577,70 @@ function ContractsPage() {
               </div>
 
               {(editing._view || "edit") === "edit" ? (
-                <textarea value={editing.body}
-                  onChange={e => {
-                    setEditing({ ...editing, body: e.target.value });
-                    // auto-resize (프린트 시 본문 잘림 방지)
-                    const el = e.target as HTMLTextAreaElement;
-                    el.style.height = "auto";
-                    el.style.height = Math.max(400, el.scrollHeight) + "px";
-                  }}
-                  rows={20}
-                  ref={(el) => {
-                    if (el && (!el.style.height || el.style.height === "auto")) {
-                      requestAnimationFrame(() => {
-                        el.style.height = "auto";
-                        el.style.height = Math.max(400, el.scrollHeight) + "px";
-                      });
-                    }
-                  }}
-                  className="contract-body w-full mt-1 px-4 py-3 border border-gray-200 rounded-lg bg-white"
-                  placeholder="계약서 본문을 입력하세요..." />
+                <>
+                  <textarea value={editing.body}
+                    onChange={e => {
+                      setEditing({ ...editing, body: e.target.value });
+                      // auto-resize (프린트 시 본문 잘림 방지)
+                      const el = e.target as HTMLTextAreaElement;
+                      el.style.height = "auto";
+                      el.style.height = Math.max(400, el.scrollHeight) + "px";
+                    }}
+                    rows={20}
+                    ref={(el) => {
+                      if (el && (!el.style.height || el.style.height === "auto")) {
+                        requestAnimationFrame(() => {
+                          el.style.height = "auto";
+                          el.style.height = Math.max(400, el.scrollHeight) + "px";
+                        });
+                      }
+                    }}
+                    className="contract-body w-full mt-1 px-4 py-3 border border-gray-200 rounded-lg bg-white"
+                    placeholder="계약서 본문을 입력하세요..." />
+
+                  {/* ✨ v3.34.0: 본문 최하단 동의 체크박스 (통합 계약서 전용) */}
+                  {editing.contract_type === "member_unified" && editing.form_data && (
+                    <div className="mt-4 aqu-card bg-gradient-to-br from-emerald-50 via-white to-teal-50 border-2 border-emerald-300 rounded-2xl p-4 shadow-md">
+                      <div className="flex items-center gap-2 mb-3 pb-2 border-b-2 border-emerald-200">
+                        <span className="text-xl">📝</span>
+                        <div>
+                          <div className="font-bold text-emerald-900 text-sm">3단계 · 최종 동의 및 서명</div>
+                          <div className="text-[10px] text-emerald-700">상기 4페이지 본문을 정독하셨다면, 아래 동의 항목을 체크해 주세요</div>
+                        </div>
+                      </div>
+                      <div className="bg-white border-2 border-emerald-200 rounded-xl p-3">
+                        <div className="text-xs font-bold text-emerald-800 mb-2">✅ 4페이지 동의 항목 (서명 전 체크)</div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 text-xs">
+                          {[
+                            { k: "agree_contract", label: "Page 1 · 이용계약 전체 조항 동의 (필수)", required: true },
+                            { k: "agree_privacy_required", label: "Page 2 · 개인정보 수집·이용 (필수)", required: true },
+                            { k: "agree_privacy_optional", label: "Page 2 · 사진·영상 홍보 사용 (선택)", required: false },
+                            { k: "agree_safety", label: "Page 3 · 안전·입수 관련 사항 동의 (필수)", required: true },
+                            { k: "agree_aqua_risk", label: "Page 4 · 수중재활 위험 인지 (필수)", required: true },
+                            { k: "agree_emergency", label: "Page 4 · 응급처치 및 구급차 이송 동의 (필수)", required: true },
+                          ].map(({ k, label, required }) => (
+                            <label key={k} className={`flex items-start gap-1.5 cursor-pointer rounded-lg px-2 py-1.5 border transition ${
+                              editing.form_data[k]
+                                ? "bg-emerald-100 border-emerald-400"
+                                : required
+                                  ? "bg-rose-50 border-rose-200 hover:bg-rose-100"
+                                  : "bg-slate-50 border-slate-200 hover:bg-slate-100"
+                            }`}>
+                              <input type="checkbox" checked={!!editing.form_data[k]}
+                                onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, [k]: e.target.checked } })}
+                                className="w-4 h-4 accent-emerald-600 mt-0.5" />
+                              <span className="text-slate-800">{label}</span>
+                            </label>
+                          ))}
+                        </div>
+                        <div className="mt-3 pt-2 border-t border-emerald-100 text-[11px] text-emerald-700 flex items-center gap-2">
+                          <span>🔏</span>
+                          <span>필수 5항목 모두 체크 시 서명 및 저장이 활성화됩니다.</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : (
                 /* ✅ v3.20.18: 실계약서 A4 종이 스타일 + 서명·직인 실시간 반영 */
                 <div className="contract-body mt-1 px-8 py-10 md:px-12 md:py-14 bg-white border border-gray-300 shadow-sm rounded"

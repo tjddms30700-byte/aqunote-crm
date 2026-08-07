@@ -7,6 +7,7 @@ import HomeButton from "@/components/HomeButton";
 import WishScheduleCard from "@/components/WishScheduleCard";
 import KakaoImportModal from "@/components/KakaoImportModal";
 import QuickSessionNoteCard from "@/components/QuickSessionNoteCard";
+import KakaoSmartBatchCard from "@/components/KakaoSmartBatchCard";
 import {
   Waves, ArrowLeft, User, Phone, MapPin, Calendar, AlertCircle,
   Activity, Award, MessageCircle, Save, Plus, Star, Trash2, Edit,
@@ -1017,8 +1018,89 @@ export default function MemberDetail() {
           <div>
             <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
               <h3 className="text-lg font-bold text-aqu-900">📝 세션 기록 & 라벨링</h3>
-              {/* v3.21.4: 카톡 파일 자동 세션 등록 버튼 제거 – QuickSessionNoteCard의 [카톡 붙여넣기 자동 라벨링]으로 대체 */}
             </div>
+
+            {/* ✨ v3.34.0: 카톡 스마트 배치 입력 – 다중 날짜 붙여넣기 → 자동 태그 분석 */}
+            <KakaoSmartBatchCard
+              memberId={id as string}
+              memberName={member?.name || ""}
+              onSaved={async () => {
+                const { data: newSess } = await supabase
+                  .from("sessions").select("*").eq("member_id", id)
+                  .order("session_date", { ascending: false });
+                setSessions(newSess || []);
+              }}
+            />
+
+            {/* ✨ v3.34.0: 직전 세션 자동 연동 히스토리 체인 카드 */}
+            {sessions.length > 0 && (() => {
+              const lastSess = sessions[0]; // 가장 최근 세션
+              const acts = Array.isArray(lastSess.activities) ? lastSess.activities : [];
+              const memoPreview = String(lastSess.memo || "").slice(0, 200);
+              return (
+                <div className="mb-4 aqu-card bg-gradient-to-br from-sky-50 via-cyan-50 to-blue-50 border-2 border-sky-200 rounded-2xl p-4 shadow-sm">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">🔄</span>
+                      <div>
+                        <div className="font-bold text-sky-900 text-sm">지난 수업 내용 · 히스토리 연동</div>
+                        <div className="text-[10px] text-sky-700">직전 세션에서 자동으로 불러온 기록 · 다음 수업 계획 참고용</div>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-bold bg-sky-500 text-white px-2.5 py-1 rounded-full">
+                      {lastSess.session_date}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="bg-white/80 rounded-xl p-3 border border-sky-100">
+                      <div className="text-[10px] font-bold text-sky-700 mb-2">🏷️ 진행한 활동 ({acts.length}개)</div>
+                      {acts.length === 0 ? (
+                        <div className="text-xs text-slate-400 italic">기록된 활동 없음</div>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {acts.slice(0, 12).map((a: string, i: number) => (
+                            <span key={i} className="text-[10px] bg-cyan-100 text-cyan-800 px-2 py-0.5 rounded-full font-semibold border border-cyan-300">
+                              {a}
+                            </span>
+                          ))}
+                          {acts.length > 12 && (
+                            <span className="text-[10px] text-sky-500 font-semibold">+{acts.length - 12}개</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="bg-white/80 rounded-xl p-3 border border-sky-100">
+                      <div className="text-[10px] font-bold text-sky-700 mb-2">📝 관찰 메모</div>
+                      {memoPreview ? (
+                        <div className="text-xs text-slate-700 whitespace-pre-wrap line-clamp-6">
+                          {memoPreview}
+                          {String(lastSess.memo || "").length > 200 && <span className="text-sky-500 font-semibold">…더보기</span>}
+                        </div>
+                      ) : (
+                        <div className="text-xs text-slate-400 italic">메모 없음</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex items-center gap-2 flex-wrap">
+                    <button onClick={() => {
+                      // 이전 세션 활동 태그를 오늘 셀션에 가져오기 (newLabels prefill)
+                      const carried = Array.isArray(lastSess.activities) ? lastSess.activities : [];
+                      setNewLabels(Array.from(new Set([...(newLabels || []), ...carried])));
+                      alert(`✅ 지난 수업의 활동 태그 ${carried.length}개를 오늘 세션에 복사했습니다.`);
+                    }}
+                      className="text-[11px] px-3 py-1.5 bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-600 hover:to-cyan-600 text-white rounded-full font-bold shadow-sm">
+                      📋 오늘 세션에 활동 그대로 이어쓰기
+                    </button>
+                    <span className="text-[10px] text-slate-500">
+                      직전 세션 {sessions.length}건 중 최신건 기준
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* ✅ v3.17.0: 재활/수업 일지 (세션 노트) 원클릭 카드 */}
             <QuickSessionNoteCard
