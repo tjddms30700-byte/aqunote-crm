@@ -6,7 +6,8 @@ import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import WishScheduleCard from "@/components/WishScheduleCard";
 import KakaoImportModal from "@/components/KakaoImportModal";
-import QuickSessionNoteCard from "@/components/QuickSessionNoteCard";
+// 🚫 v3.34.4: import QuickSessionNoteCard 비활성화 (카톡 무더기 분할 원흉)
+// import QuickSessionNoteCard from "@/components/QuickSessionNoteCard";
 import KakaoSmartBatchCard from "@/components/KakaoSmartBatchCard";
 import {
   Waves, ArrowLeft, User, Phone, MapPin, Calendar, AlertCircle,
@@ -368,7 +369,24 @@ export default function MemberDetail() {
       }
       // 라벨 로드
       await loadLabels();
-      setSessions(m?.extra?.sessions || []);
+
+      // 🎯 v3.34.4 근본 해결: 세션은 sessions 테이블에서 직접 조회 (deleted_at 제외)
+      // 이전 버그: m?.extra?.sessions (JSONB) ← 카톡 저장은 sessions 테이블로 → 조회/저장 위치 불일치
+      const { data: sessData, error: sessErr } = await supabase
+        .from("sessions")
+        .select("*")
+        .eq("member_id", m.id)
+        .is("deleted_at", null)
+        .order("session_date", { ascending: false })
+        .order("created_at", { ascending: false });
+      if (sessErr) {
+        console.warn(`[v3.34.4] sessions 테이블 조회 실패, extra.sessions 폴백:`, sessErr.message);
+        setSessions(m?.extra?.sessions || []);
+      } else {
+        console.log(`[v3.34.4] ✅ sessions 테이블에서 ${(sessData || []).length}건 로드 (deleted_at 제외)`);
+        setSessions(sessData || []);
+      }
+
       setMemberMemo(m?.memo || "");
       setLoading(false);
     })();
@@ -1026,9 +1044,10 @@ export default function MemberDetail() {
               memberName={member?.name || ""}
               onSaved={async () => {
                 const { data: newSess } = await supabase
-                  .from("sessions").select("*").eq("member_id", id)
-                  .order("session_date", { ascending: false });
-                setSessions(newSess || []);
+                  .from("sessions").select("*").eq("member_id", id).is("deleted_at", null)
+                  .order("session_date", { ascending: false })
+                  .order("created_at", { ascending: false });
+                console.log(`[v3.34.4] 세션 재조회: ${(newSess || []).length}건 (deleted_at 제외)`); setSessions(newSess || []);
               }}
             />
 
@@ -1102,17 +1121,10 @@ export default function MemberDetail() {
               );
             })()}
 
-            {/* ✅ v3.17.0: 재활/수업 일지 (세션 노트) 원클릭 카드 */}
-            <QuickSessionNoteCard
-              memberId={id as string}
-              memberName={member?.name || ""}
-              onSaved={async () => {
-                const { data: newSess } = await supabase
-                  .from("sessions").select("*").eq("member_id", id)
-                  .order("session_date", { ascending: false });
-                setSessions(newSess || []);
-              }}
-            />
+            {/* 🚫 v3.34.4: QuickSessionNoteCard 완전 비활성화 - 카톡 무더기 분할 원흉 제거
+                이전 v3.17.0 카드는 카톡 텍스트를 여러 세션으로 분할 저장하는 버그가 있어
+                KakaoSmartBatchCard(v3.34.3)로 완전히 대체함. 렌더링 자체를 제거하여
+                사용자가 실수로 이 카드를 사용하지 못하도록 차단. */}
 
             <div className="mb-6 p-4 bg-aqu-50 rounded-xl">
               <div className="text-sm font-medium text-aqu-900 mb-3">🆕 오늘 세션 활동 선택</div>
@@ -1255,7 +1267,10 @@ export default function MemberDetail() {
                     .from("sessions")
                     .select("*")
                     .eq("member_id", member.id)
-                    .order("session_date", { ascending: false });
+                    .is("deleted_at", null)
+                    .order("session_date", { ascending: false })
+                    .order("created_at", { ascending: false });
+                  console.log(`[v3.34.4] 카톡 임포트 후 세션 재조회: ${(newSess || []).length}건`);
                   setSessions(newSess || []);
                 }}
               />
