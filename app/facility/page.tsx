@@ -13,8 +13,9 @@ import DirectorOnly from "@/components/DirectorOnly";
 import { Droplet, Download, Plus, X, Save, AlertTriangle, CheckCircle2, Thermometer, Gauge, ShieldCheck, Waves } from "lucide-react";
 
 // 관공서 권장 기준 (수영장 수질 관리 기준 · 체육시설의 설치·이용에 관한 법률 시행규칙)
+// ✨ v3.32.3: 아쿠 수중운동센터 실제 운영 온도(재활·수중운동 특화) 반영 - 수온 31~35℃
 const STANDARDS = {
-  temperature: { min: 26, max: 31, label: "수온(℃)", unit: "℃" },
+  temperature: { min: 31, max: 35, label: "수온(℃)", unit: "℃" },
   ph_level:    { min: 5.8, max: 8.6, label: "pH", unit: "" },
   chlorine_ppm:{ min: 0.4, max: 3.0, label: "잔류염소(ppm)", unit: "ppm" },
   pressure:    { min: 0.5, max: 2.5, label: "여과기 압력(bar)", unit: "bar" },
@@ -70,7 +71,7 @@ function FacilityPageInner() {
     pressure: 1.2,
     safety_equipment_status: true,
     emergency_exit_ok: true,
-    aed_ok: true,
+    aed_ok: false, // ✨ v3.32.3: AED는 필수 아님 - 기본값 false (미보유 상태)
     first_aid_ok: true,
     inspector_name: "",
     note: "",
@@ -284,7 +285,7 @@ function FacilityPageInner() {
 
         {/* 기준 안내 */}
         <div className="no-print bg-sky-50/60 border border-sky-200 rounded-xl p-3 mb-4 text-[11px] text-slate-700">
-          <b className="text-sky-800">📋 관공서 권장 기준</b> · 수온 26~31℃ · pH 5.8~8.6 · 잔류염소 0.4~3.0ppm · 여과기 압력 0.5~2.5bar
+          <b className="text-sky-800">📋 아쿠 수중운동센터 운영 기준</b> · 수온 31~35℃ · pH 5.8~8.6 · 잔류염소 0.4~3.0ppm · 여과기 압력 0.5~2.5bar
           <span className="ml-2 text-slate-500">(체육시설의 설치·이용에 관한 법률 시행규칙)</span>
         </div>
 
@@ -387,7 +388,7 @@ function FacilityPageInner() {
                 <div className="text-xs font-bold text-sky-800 mb-2">🛡️ 안전장비 점검</div>
                 <div className="grid grid-cols-2 gap-1.5 text-sm">
                   <CheckBox label="비상구 개방 상태" checked={!!form.emergency_exit_ok} onChange={(v) => setForm({ ...form, emergency_exit_ok: v })} />
-                  <CheckBox label="AED (자동제세동기)" checked={!!form.aed_ok} onChange={(v) => setForm({ ...form, aed_ok: v })} />
+                  <CheckBox label="AED (자동제세동기) · 선택" checked={!!form.aed_ok} onChange={(v) => setForm({ ...form, aed_ok: v })} hint="미보유 시 체크 해제 (필수 아님)" />
                   <CheckBox label="구급함 상태" checked={!!form.first_aid_ok} onChange={(v) => setForm({ ...form, first_aid_ok: v })} />
                   <CheckBox label="종합: 안전장비 정상" checked={!!form.safety_equipment_status} onChange={(v) => setForm({ ...form, safety_equipment_status: v })} />
                 </div>
@@ -475,12 +476,15 @@ function NumField({ label, v, k, step, onChange }: { label: string; v: any; k: k
   );
 }
 
-function CheckBox({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+function CheckBox({ label, checked, onChange, hint }: { label: string; checked: boolean; onChange: (v: boolean) => void; hint?: string }) {
   return (
-    <label className="flex items-center gap-1.5 cursor-pointer">
+    <label className="flex items-start gap-1.5 cursor-pointer">
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)}
-        className="w-4 h-4 accent-sky-600" />
-      <span className="text-xs text-slate-700">{label}</span>
+        className="w-4 h-4 accent-sky-600 mt-0.5" />
+      <span className="text-xs text-slate-700">
+        {label}
+        {hint && <span className="block text-[10px] text-slate-400 mt-0.5">{hint}</span>}
+      </span>
     </label>
   );
 }
