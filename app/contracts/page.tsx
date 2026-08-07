@@ -20,26 +20,21 @@ import ContractSignaturePad, { CenterSeal } from "@/components/ContractSignature
  * - 회원별 · 직원별 이력 관리
  */
 
-// ✅ v3.20.20: 회원용 4종 + 직원용 4종 = 8개 양식 (센터 공식 폼)
+// ✨ v3.33.0: 통합 회원이용계약서 (4페이지) + 파편 3종 삭제
 const CONTRACT_TYPES = [
-  // v3.20.24: 직원용 – 근로계약서 3종 세분화
+  // 직원용 – 근로계약서 3종 세분화
   { v: "employment",         l: "📄 근로계약서 (정규직)",  cat: "staff",  color: "bg-blue-100 text-blue-800 border-blue-300" },
   { v: "employment_fixed",   l: "📝 근로계약서 (계약직)",  cat: "staff",  color: "bg-indigo-100 text-indigo-800 border-indigo-300" },
   { v: "employment_daily",   l: "⏱️ 근로계약서 (일용·시급제)", cat: "staff",  color: "bg-cyan-100 text-cyan-800 border-cyan-300" },
   { v: "nda",            l: "🔒 비밀유지서약서",   cat: "staff",  color: "bg-slate-100 text-slate-800 border-slate-300" },
   { v: "apology",        l: "📝 시말서",             cat: "staff",  color: "bg-amber-100 text-amber-800 border-amber-300" },
   { v: "resignation",    l: "📬 사직서",             cat: "staff",  color: "bg-rose-100 text-rose-800 border-rose-300" },
-  // 회원용 4종
-  { v: "member_service", l: "📝 회원 이용계약서", cat: "member", color: "bg-purple-100 text-purple-800 border-purple-300" },
-  { v: "privacy",        l: "🛡️ 개인정보 동의서", cat: "member", color: "bg-emerald-100 text-emerald-800 border-emerald-300" },
-  { v: "safety",         l: "⚠️ 안전·백임 동의서",  cat: "member", color: "bg-orange-100 text-orange-800 border-orange-300" },
-  { v: "summary",        l: "📋 이용안내 요약서",     cat: "member", color: "bg-teal-100 text-teal-800 border-teal-300" },
-  // v3.20.35: 신규 보강 서식 4종 (수중재활 안전 / 초상권 / 연구용 / 직원 비밀유지)
-  { v: "aqua_safety",    l: "🏊‍♀️ 수중재활 안전·응급처치 동의서",   cat: "member", color: "bg-cyan-100 text-cyan-800 border-cyan-300" },
-  { v: "portrait",       l: "📸 초상권·영상 촬영 동의서",           cat: "member", color: "bg-pink-100 text-pink-800 border-pink-300" },
-  { v: "research",       l: "🎓 연구대상자 참여 동의서",             cat: "member", color: "bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300" },
   { v: "staff_privacy",  l: "🔒 개인정보·치료기록 비밀유지 서약서", cat: "staff",  color: "bg-lime-100 text-lime-800 border-lime-300" },
-  // 기타
+  // ✨ v3.33.0: 회원용 – 통합 이용계약서 4페이지로 단일화
+  { v: "member_unified", l: "📋 회원 이용계약서 · 통합 (4페이지)", cat: "member", color: "bg-purple-100 text-purple-800 border-purple-300" },
+  { v: "summary",        l: "📋 이용안내 요약서", cat: "member", color: "bg-teal-100 text-teal-800 border-teal-300" },
+  // ❌ v3.33.0 삭제: portrait, research, minor_guardian
+  // ❌ v3.33.0 삭제: member_service, privacy, safety, aqua_safety (전부 member_unified로 통합)
   { v: "other",          l: "📌 기타 계약서",         cat: "other",  color: "bg-gray-100 text-gray-800 border-gray-300" },
 ];
 
@@ -718,6 +713,26 @@ function ContractsPage() {
       guardian: "", phone: "", health_note: "",
       agree_risk: false, agree_emergency: false,
     };
+    // ✨ v3.33.0: 통합 회원이용계약서 4페이지 - 기본값
+    if (contractType === "member_unified") return {
+      plan: "STANDARD", // ✨ STANDARD | ADVANCED | PREMIUM
+      per_session_amount: 130000, // 회당 기본 (STANDARD)
+      sessions_per_week: 1, // 주 1회 고정
+      sessions: 4, // 월 총 회수
+      total_amount: 520000,
+      period_start: todayStr(),
+      period_end: "",
+      guardian: "", guardian_relation: "", phone: "", birth: "", address: "",
+      health_note: "", medications: "", allergies: "",
+      emergency_contact: "", emergency_relation: "",
+      // 4페이지 별 동의 체크박스
+      agree_contract: false, // Page 1: 이용계약
+      agree_privacy_required: false, // Page 2: 개인정보 필수
+      agree_privacy_optional: false, // Page 2: 선택 (목적 외 활용)
+      agree_safety: false, // Page 3: 안전·입수
+      agree_emergency: false, // Page 4: 응급처치 이송
+      agree_aqua_risk: false, // Page 4: 수중재활 위험 인지
+    };
     if (contractType === "consent_minor") return {
       guardian: "", relation: "부", phone: "", child_name: "", child_birth: "",
     };
@@ -942,7 +957,8 @@ function ContractsPage() {
   }), [contracts]);
 
   function openNew(subCat: "staff" | "member") {
-    const contractType = subCat === "staff" ? "employment" : "member_service";
+    // ✨ v3.33.0: 회원은 통합 4페이지 계약서를 기본으로 생성
+    const contractType = subCat === "staff" ? "employment" : "member_unified";
     setEditing({
       contract_type: contractType,
       subject_kind: subCat,
@@ -1146,14 +1162,281 @@ function ContractsPage() {
   }
 
   function handlePrint() {
+    // ✨ v3.33.0: 통합 회원이용계약서(4페이지) 전용 인쇄 분기
+    if (editing?.contract_type === "member_unified") {
+      const html = renderUnifiedContractHtml(editing);
+      const w = window.open("", "_blank", "width=900,height=1200");
+      if (!w) { alert("팝업 차단이 해제되어 있는지 확인해 주세요."); return; }
+      w.document.write(html);
+      w.document.close();
+      w.focus();
+      setTimeout(() => w.print(), 500);
+      return;
+    }
     // ✅ v3.20.18: 계약서로 보기 모드에서만 프린트 (편집 UI 숨김)
     if (editing?._view !== "preview") {
       setEditing({ ...editing, _view: "preview" });
-      // 대기 후 프린트
       setTimeout(() => window.print(), 300);
       return;
     }
     window.print();
+  }
+
+  // ✨ v3.33.0: 통합 회원이용계약서 4페이지 HTML 렌더링
+  function renderUnifiedContractHtml(ed: any): string {
+    const fd = ed?.form_data || {};
+    const plan: string = (fd.plan || "STANDARD").toUpperCase();
+    const isSTD = plan === "STANDARD";
+    const isADV = plan === "ADVANCED";
+    const isPREM = plan === "PREMIUM";
+    const check = (b: boolean) => (b ? "■" : "□");
+    const num = (n: any) => (n ? Number(n).toLocaleString() : "0");
+    const signImg = ed?.signature ? `<img class="sig" src="${ed.signature}" alt="sig"/>` : "";
+    const sealImg = `<img class="seal" src="/center_seal.png" alt="seal"/>`;
+    const today = new Date().toISOString().slice(0, 10);
+    const subject = ed?.subject_name || fd.name || "";
+    const contractDate = ed?.contract_date || today;
+    const perAmt = Number(fd.per_session_amount || (isSTD ? 130000 : isADV ? 122500 : 150000));
+    const sessions = Number(fd.sessions || 4);
+    const totalAmt = Number(fd.total_amount || (perAmt * sessions));
+
+    // 각 페이지 공통 헤더
+    const pageHeader = (n: number, title: string) => `
+      <div class="pg-hd">
+        <div class="pg-hd-l"><b>아쿠수중운동센터</b> · 회원 통합 이용계약서</div>
+        <div class="pg-hd-r">Page ${n} / 4 · ${title}</div>
+      </div>`;
+    const pageFooter = `<div class="pg-ft">생성일: ${today} · 아쿠수중운동센터 · 사업자등록번호 680-04-03475</div>`;
+    const signBlock = (roleLabel: string) => `
+      <div class="sign-block">
+        <div class="sign-row">
+          <div class="sign-cell">${roleLabel}: <b>${subject || "-"}</b> <span class="in">(서명)</span>${signImg}</div>
+          <div class="sign-cell">센터: <b>아쿠수중운동센터</b> 대표 서명 <span class="in">(인)</span>${sealImg}</div>
+        </div>
+        <div class="sign-date">서명일: ${contractDate}</div>
+      </div>`;
+
+    return `<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"/>
+<title>회원 이용계약서 · 통합 (${subject})</title>
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/variable/pretendardvariable.css" rel="stylesheet"/>
+<style>
+  @page { size: A4; margin: 12mm 14mm; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Pretendard Variable', Pretendard, 'Noto Sans KR', sans-serif; font-size: 10pt; line-height: 1.5; color: #111; margin: 0; word-break: keep-all; letter-spacing: -0.02em; }
+  .page { page-break-after: always; padding: 4mm 0; min-height: 260mm; position: relative; }
+  .page:last-child { page-break-after: auto; }
+  .pg-hd { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid #0284c7; padding-bottom: 4px; margin-bottom: 8mm; font-size: 9pt; color: #0f172a; }
+  .pg-hd-l { font-size: 11pt; }
+  .pg-hd-r { color: #0284c7; font-weight: 700; }
+  h1.doc-title { text-align: center; font-size: 18pt; font-weight: 800; margin: 0 0 3mm 0; letter-spacing: -0.03em; }
+  h2.sec { font-size: 12pt; font-weight: 700; margin: 4mm 0 2mm 0; padding: 3px 8px; background: linear-gradient(90deg, #e0f2fe, transparent); border-left: 4px solid #0284c7; }
+  h3.sub { font-size: 10.5pt; font-weight: 700; margin: 3mm 0 1mm 0; color: #0369a1; }
+  p { margin: 1.5mm 0; }
+  ul { margin: 1.5mm 0; padding-left: 6mm; }
+  li { margin: 0.5mm 0; }
+  table.info { width: 100%; border-collapse: collapse; margin: 3mm 0; }
+  table.info th, table.info td { border: 1px solid #cbd5e1; padding: 4px 8px; font-size: 9.5pt; text-align: left; }
+  table.info th { background: #f1f5f9; width: 25%; font-weight: 700; }
+  .plan-box { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6mm; margin: 4mm 0; }
+  .plan-card { border: 2px solid #cbd5e1; border-radius: 8px; padding: 4mm; text-align: center; background: #fff; }
+  .plan-card.selected { border-color: #0284c7; background: linear-gradient(180deg, #f0f9ff, #fff); box-shadow: 0 0 0 1px #0284c7 inset; }
+  .plan-card .plan-name { font-size: 11pt; font-weight: 800; color: #0369a1; margin-bottom: 2mm; }
+  .plan-card.selected .plan-name { color: #0284c7; }
+  .plan-card .plan-price { font-size: 13pt; font-weight: 800; color: #0f172a; }
+  .plan-card .plan-desc { font-size: 8.5pt; color: #64748b; margin-top: 2mm; }
+  .plan-check { font-size: 14pt; margin-right: 3px; color: #0284c7; }
+  .consent-item { border: 1px solid #e2e8f0; border-radius: 6px; padding: 3mm 4mm; margin: 2mm 0; background: #fafafa; }
+  .consent-item .head { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 10.5pt; margin-bottom: 1.5mm; }
+  .consent-item .box { display: inline-block; width: 12pt; text-align: center; }
+  .sign-block { position: absolute; bottom: 10mm; left: 0; right: 0; border-top: 2px solid #0284c7; padding-top: 4mm; }
+  .sign-row { display: flex; justify-content: space-around; gap: 12mm; }
+  .sign-cell { flex: 1; font-size: 10pt; padding: 2mm 4mm; text-align: center; }
+  .sign-cell .in { color: #94a3b8; font-size: 9pt; }
+  .sig { display: inline-block; vertical-align: middle; height: 32px; max-width: 26mm; object-fit: contain; margin-left: 2px; mix-blend-mode: multiply; }
+  .seal { display: inline-block; vertical-align: middle; height: 14mm; width: 14mm; object-fit: contain; margin-left: 2px; }
+  .sign-date { text-align: center; font-size: 9pt; color: #475569; margin-top: 3mm; }
+  .pg-ft { position: absolute; bottom: 3mm; left: 0; right: 0; text-align: center; font-size: 8pt; color: #94a3b8; }
+  .warn { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 3mm 4mm; border-radius: 4px; margin: 3mm 0; font-size: 9.5pt; }
+  .risk { background: #fee2e2; border-left: 4px solid #dc2626; padding: 3mm 4mm; border-radius: 4px; margin: 3mm 0; font-size: 9.5pt; }
+</style></head><body>
+
+<!-- ================== PAGE 1: 이용계약서 ================== -->
+<div class="page">
+  ${pageHeader(1, "이용계약서")}
+  <h1 class="doc-title">회원 이용계약서 (통합)</h1>
+
+  <h2 class="sec">제1조 (계약자 및 기본정보)</h2>
+  <table class="info">
+    <tr><th>회원명</th><td>${subject || "-"}</td><th>생년월일</th><td>${fd.birth || "-"}</td></tr>
+    <tr><th>보호자</th><td>${fd.guardian || "-"} (${fd.guardian_relation || "-"})</td><th>연락처</th><td>${fd.phone || "-"}</td></tr>
+    <tr><th>주소</th><td colspan="3">${fd.address || "-"}</td></tr>
+  </table>
+
+  <h2 class="sec">제2조 (선택 요금제)</h2>
+  <div class="plan-box">
+    <div class="plan-card ${isSTD ? "selected" : ""}">
+      <div><span class="plan-check">${check(isSTD)}</span> <span class="plan-name">STANDARD</span></div>
+      <div class="plan-price">₩130,000 / 회</div>
+      <div class="plan-desc">주 1회 고정<br/>일대일 맞춤 수중재활 · 기초기능 회복</div>
+    </div>
+    <div class="plan-card ${isADV ? "selected" : ""}">
+      <div><span class="plan-check">${check(isADV)}</span> <span class="plan-name">ADVANCED</span></div>
+      <div class="plan-price">₩122,500 / 회</div>
+      <div class="plan-desc">주 2회 고정<br/>집중 재활 · 회당 7,500원 할인</div>
+    </div>
+    <div class="plan-card ${isPREM ? "selected" : ""}">
+      <div><span class="plan-check">${check(isPREM)}</span> <span class="plan-name">PREMIUM</span></div>
+      <div class="plan-price">₩150,000 / 회</div>
+      <div class="plan-desc">주 2회 고정<br/>마스터 전담 · 프리미엄 솔루션</div>
+    </div>
+  </div>
+
+  <h2 class="sec">제3조 (계약기간 및 수강료)</h2>
+  <table class="info">
+    <tr><th>계약기간</th><td>${fd.period_start || "-"} ~ ${fd.period_end || "-"}</td><th>이용회수</th><td>총 ${sessions}회 (주 ${fd.sessions_per_week || (isSTD ? 1 : 2)}회 고정)</td></tr>
+    <tr><th>회당 수강료</th><td>₩${num(perAmt)}</td><th>총 결제금액</th><td><b style="color:#0284c7">₩${num(totalAmt)}</b></td></tr>
+  </table>
+
+  <h2 class="sec">제4조 (월 정액 선납제 및 사전 재결제)</h2>
+  <p>본 센터는 지정 요일·시간 고정제로 운영되며, 해당 달의 주차(월 4회 또는 5회)에 따라 월 수강료를 선납하는 방식입니다. 스케줄 우선 배정을 위해 수업 잔여 회차가 2회기 남은 시점에 다음 달 사전 재결제가 진행됩니다.</p>
+
+  <h2 class="sec">제5조 (보강 및 차감 규정)</h2>
+  <p>개인 사정, 병결 등으로 인한 결석 시, <b>[다음 달(익월) 이내]</b>에 사전 예약 후 보강을 완료하셔야 합니다. 기한 내 미완료된 보강 회차는 자동 소멸(차감) 처리됩니다. (센터 사정 외 이월 불가)</p>
+
+  <h2 class="sec">제6조 (출석률 관리)</h2>
+  <p>수중재활의 연속성과 효과적인 수업 관리를 위해 <b>월 출석률 60% 미만</b> 시 대기자로 전환될 수 있습니다.</p>
+
+  <div class="consent-item">
+    <div class="head"><span class="box">${check(fd.agree_contract)}</span> 본인은 상기 이용계약의 전 조항을 이해하였으며, 이에 동의합니다.</div>
+  </div>
+
+  ${signBlock("회원(보호자)")}
+  ${pageFooter}
+</div>
+
+<!-- ================== PAGE 2: 개인정보 동의서 ================== -->
+<div class="page">
+  ${pageHeader(2, "개인정보 동의서")}
+  <h1 class="doc-title">개인정보 수집 및 이용 동의서</h1>
+
+  <h2 class="sec">1. 수집하는 개인정보 항목</h2>
+  <ul>
+    <li>필수: 성명, 생년월일, 연락처, 주소, 보호자 성명·관계·연락처</li>
+    <li>필수: 건강 문진정보(기저질환, 압약, 알레르기), 응급 연락처</li>
+    <li>선택: 수업 사진/영상(수업 개선 및 홍보 목적)</li>
+  </ul>
+
+  <h2 class="sec">2. 수집 · 이용 목적</h2>
+  <ul>
+    <li>회원 관리 및 수업 예약·출결 관리</li>
+    <li>수중재활 프로그램 설계 및 암미에 따른 개인 맞춤 서비스 제공</li>
+    <li>응급상황 발생 시 응급처치 및 보호자 통지</li>
+    <li>요금 정산 및 세금계산서 발행</li>
+  </ul>
+
+  <h2 class="sec">3. 보유 · 이용 기간</h2>
+  <p>회원 탈퇴 시까지(수집일로부터 최대 5년). 관계 법령이 정한 경우 해당 기간까지 보관합니다.</p>
+
+  <h2 class="sec">4. 동의를 거부할 권리와 허용할 범위</h2>
+  <p>회원은 개인정보 수집·이용에 대한 동의를 거부할 권리가 있으나, 필수 항목을 거부할 경우 회원 등록 및 수업 제공이 제한될 수 있습니다.</p>
+
+  <div class="consent-item">
+    <div class="head"><span class="box">${check(fd.agree_privacy_required)}</span> [필수] 개인정보 수집·이용에 동의합니다.</div>
+    <p style="font-size:9pt;color:#64748b;margin:0;">미동의 시 회원 등록 불가</p>
+  </div>
+  <div class="consent-item">
+    <div class="head"><span class="box">${check(fd.agree_privacy_optional)}</span> [선택] 수업 사진/영상 확보 및 센터 홍보 목적 사용에 동의합니다.</div>
+    <p style="font-size:9pt;color:#64748b;margin:0;">미동의 시에도 회원 등록 및 수업 이용에는 지장 없음</p>
+  </div>
+
+  ${signBlock("회원(보호자)")}
+  ${pageFooter}
+</div>
+
+<!-- ================== PAGE 3: 안전 · 입수 동의서 ================== -->
+<div class="page">
+  ${pageHeader(3, "안전 · 입수 동의서")}
+  <h1 class="doc-title">안전 및 입수 동의서</h1>
+
+  <h2 class="sec">1. 수질 및 운영 환경</h2>
+  <ul>
+    <li>수온: 31~35℃ (재활·수중운동 특화 온도)</li>
+    <li>pH 5.8~8.6 · 잔류염소 0.4~3.0 ppm · 여과기 압력 0.5~2.5 bar</li>
+    <li>매일 관계 법령에 따른 수질 검사 및 안전장비 점검 시행</li>
+  </ul>
+
+  <h2 class="sec">2. 입수 전 준수 사항</h2>
+  <ul>
+    <li>입수 전 반드시 샤워 및 화장실 사용을 완료해 주십시오.</li>
+    <li>수영복, 수영모, 안전마스크 등 지정 장비 착용이 필요합니다.</li>
+    <li>음주 시, 고열 · 감염성 질환 보유 시, 피부 상처가 있는 경우 입수하지 마십시오.</li>
+    <li>수종 강사의 지시 없이 단독 프로그램 변경, 잠수, 과자 농승을 금지합니다.</li>
+  </ul>
+
+  <h2 class="sec">3. 보호자 동반 기준 (아동 회원)</h2>
+  <ul>
+    <li>만 7세 미만: 보호자 동반 수업 (수중 동반 또는 대기실)</li>
+    <li>만 7세 이상: 대기실 대기 가능</li>
+  </ul>
+
+  <div class="warn">
+    <b>⚠️ 백임 제한 사항</b><br/>
+    안전수칙을 준수하지 않은 결과 발생한 사고에 대한 책임은 회원(보호자)에게 있으며, 센터는 통상적 안전관리 의무에 한하여 책임을 부담합니다.
+  </div>
+
+  <div class="consent-item">
+    <div class="head"><span class="box">${check(fd.agree_safety)}</span> 본인은 상기 안전 · 입수 관련 사항을 이해하였으며, 이에 동의합니다.</div>
+  </div>
+
+  ${signBlock("회원(보호자)")}
+  ${pageFooter}
+</div>
+
+<!-- ================== PAGE 4: 수중재활 안전 · 응급처치 동의서 ================== -->
+<div class="page">
+  ${pageHeader(4, "수중재활 안전 · 응급처치 동의서")}
+  <h1 class="doc-title">수중재활 안전 및 응급처치 동의서</h1>
+
+  <h2 class="sec">1. 기저질환 · 복용 약물 · 알레르기 기재</h2>
+  <table class="info">
+    <tr><th>기저질환</th><td>${fd.health_note || "없음"}</td></tr>
+    <tr><th>복용 약물</th><td>${fd.medications || "없음"}</td></tr>
+    <tr><th>알레르기</th><td>${fd.allergies || "없음"}</td></tr>
+    <tr><th>응급 연락처</th><td>${fd.emergency_contact || "-"} (${fd.emergency_relation || "-"})</td></tr>
+  </table>
+
+  <h2 class="sec">2. 수중재활 본인 위험 인지</h2>
+  <ul>
+    <li>수중 환경은 유산소증, 이지통, 하지 핑감, 혼미, 익사 등의 상황이 발생할 수 있습니다.</li>
+    <li>심혈관 질환, 공황장애, 간질, 임산 예정자, 최근 수술력 보유자는 사전 고지 및 의사 소견 서를 제출해 주십시오.</li>
+    <li>강사의 감시 하에도 돌발 상황은 발생할 수 있으며, 보호자는 이를 인지하고 동의합니다.</li>
+  </ul>
+
+  <h2 class="sec">3. 응급처치 및 이송 동의</h2>
+  <p>응급상황 발생 시 센터는 아래와 같은 표준 응급처치를 진행합니다.</p>
+  <ul>
+    <li>강사 · 직원에 의한 1차 응급처치 (심폐소생술 CPR, 기도 확보, 충분한 보온 등)</li>
+    <li>119 신고 및 인근 응급의료센터로의 이송 (증상에 따라 자가 이송 또는 구급차 호출)</li>
+    <li>보호자 즉시 통지 및 상황 실시간 공유</li>
+  </ul>
+
+  <div class="risk">
+    <b>🚨 응급처치 이송 동의</b><br/>
+    응급 상황이 발생하여 보호자와의 즉시 연락이 어려울 경우, 센터가 임의로 구급차를 호출하여 응급의료센터로 이송하는 것에 동의합니다. 발생하는 응급이송 비용은 회원(보호자) 부담을 원칙으로 합니다.
+  </div>
+
+  <div class="consent-item">
+    <div class="head"><span class="box">${check(fd.agree_aqua_risk)}</span> 본인은 수중재활의 위험을 인지하고 이에 동의합니다.</div>
+  </div>
+  <div class="consent-item">
+    <div class="head"><span class="box">${check(fd.agree_emergency)}</span> 응급상황 발생 시 센터의 응급처치 및 구급차 이송 방침에 동의합니다.</div>
+  </div>
+
+  ${signBlock("회원(보호자)")}
+  ${pageFooter}
+</div>
+
+</body></html>`;
   }
 
   // v3.20.22: 계약서를 자체 완결형 HTML 문서로 렌더링 (Storage 저장용)
@@ -1951,6 +2234,170 @@ function ContractsPage() {
                       onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, pledge: e.target.value } })}
                       className="w-full mt-1 px-2 py-1.5 border border-gray-200 rounded text-sm" />
                   </label>
+                </div>
+              )}
+
+              {/* ✨ v3.33.0: 통합 회원이용계약서(4페이지) - 요금제 라디오 + 기본정보 + 4페이지 동의 */}
+              {editing.contract_type === "member_unified" && editing.form_data && (
+                <div className="no-print border-2 border-purple-200 rounded-2xl p-4 bg-gradient-to-br from-purple-50 via-fuchsia-50/40 to-blue-50/40 space-y-4">
+                  <div className="flex items-center gap-2 text-sm font-bold text-purple-900">
+                    <span className="text-lg">📋</span> 통합 회원이용계약서
+                    <span className="text-[10px] bg-purple-600 text-white px-2 py-0.5 rounded-full ml-1">4페이지 자동 구성</span>
+                  </div>
+
+                  {/* ✨ 요금제 라디오 선택 */}
+                  <div>
+                    <div className="text-xs font-bold text-slate-700 mb-2">🎯 요금제 선택 (필수)</div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                      {[
+                        { v: "STANDARD", label: "STANDARD", price: 130000, desc: "주 1회 고정 · 일대일 수중재활", color: "blue" },
+                        { v: "ADVANCED", label: "ADVANCED", price: 122500, desc: "주 2회 고정 · 7,500원 할인", color: "emerald" },
+                        { v: "PREMIUM",  label: "PREMIUM",  price: 150000, desc: "주 2회 고정 · 마스터 전담", color: "orange" },
+                      ].map(opt => {
+                        const sel = (editing.form_data.plan || "STANDARD") === opt.v;
+                        const spw = opt.v === "STANDARD" ? 1 : 2;
+                        return (
+                          <label key={opt.v}
+                            className={`cursor-pointer border-2 rounded-xl p-3 transition ${
+                              sel ? `border-${opt.color}-500 bg-${opt.color}-50 shadow-md` : "border-slate-200 bg-white hover:border-slate-400"
+                            }`}
+                            style={sel ? { borderColor: opt.color === "blue" ? "#3b82f6" : opt.color === "emerald" ? "#10b981" : "#f97316" } : {}}>
+                            <div className="flex items-center gap-2">
+                              <input type="radio" name="plan" value={opt.v} checked={sel}
+                                onChange={() => setEditing({ ...editing,
+                                  form_data: { ...editing.form_data,
+                                    plan: opt.v,
+                                    per_session_amount: opt.price,
+                                    sessions_per_week: spw,
+                                    total_amount: (opt.price * (editing.form_data.sessions || 4)),
+                                  }
+                                })}
+                                className="w-4 h-4 accent-purple-600" />
+                              <span className="font-bold text-slate-800">{opt.label}</span>
+                            </div>
+                            <div className="mt-1.5 text-lg font-extrabold text-slate-900">₩{opt.price.toLocaleString()}<span className="text-xs font-normal text-slate-500"> / 회</span></div>
+                            <div className="text-[10px] text-slate-500 mt-0.5">{opt.desc}</div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 계약 기간 · 회수 · 금액 */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    <label className="text-xs"><span className="text-slate-600 font-semibold">계약 시작일</span>
+                      <input type="date" value={editing.form_data.period_start || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, period_start: e.target.value } })}
+                        className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
+                    </label>
+                    <label className="text-xs"><span className="text-slate-600 font-semibold">계약 종료일</span>
+                      <input type="date" value={editing.form_data.period_end || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, period_end: e.target.value } })}
+                        className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
+                    </label>
+                    <label className="text-xs"><span className="text-slate-600 font-semibold">총 회수</span>
+                      <input type="number" min={1} max={100} value={editing.form_data.sessions || 4}
+                        onChange={e => {
+                          const sess = Number(e.target.value) || 0;
+                          const perAmt = Number(editing.form_data.per_session_amount || 130000);
+                          setEditing({ ...editing, form_data: { ...editing.form_data, sessions: sess, total_amount: perAmt * sess } });
+                        }}
+                        className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
+                    </label>
+                    <label className="text-xs"><span className="text-slate-600 font-semibold">총 결제금액</span>
+                      <div className="w-full mt-1 px-2 py-1.5 border-2 border-purple-300 rounded-lg text-sm font-bold text-purple-700 bg-white">
+                        ₩{Number(editing.form_data.total_amount || 0).toLocaleString()}
+                      </div>
+                    </label>
+                  </div>
+
+                  {/* 보호자 · 연락처 · 주소 */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    <label className="text-xs"><span className="text-slate-600 font-semibold">보호자</span>
+                      <input type="text" value={editing.form_data.guardian || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, guardian: e.target.value } })}
+                        className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
+                    </label>
+                    <label className="text-xs"><span className="text-slate-600 font-semibold">관계</span>
+                      <input type="text" placeholder="모·부·본인 등" value={editing.form_data.guardian_relation || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, guardian_relation: e.target.value } })}
+                        className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
+                    </label>
+                    <label className="text-xs"><span className="text-slate-600 font-semibold">연락처</span>
+                      <input type="tel" value={editing.form_data.phone || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, phone: e.target.value } })}
+                        className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
+                    </label>
+                    <label className="text-xs"><span className="text-slate-600 font-semibold">생년월일</span>
+                      <input type="date" value={editing.form_data.birth || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, birth: e.target.value } })}
+                        className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
+                    </label>
+                  </div>
+                  <label className="text-xs block"><span className="text-slate-600 font-semibold">주소</span>
+                    <input type="text" value={editing.form_data.address || ""}
+                      onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, address: e.target.value } })}
+                      className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
+                  </label>
+
+                  {/* 응급 이송 · 건강정보 */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <label className="text-xs"><span className="text-slate-600 font-semibold">기저질환</span>
+                      <input type="text" value={editing.form_data.health_note || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, health_note: e.target.value } })}
+                        className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
+                    </label>
+                    <label className="text-xs"><span className="text-slate-600 font-semibold">복용 약물</span>
+                      <input type="text" value={editing.form_data.medications || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, medications: e.target.value } })}
+                        className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
+                    </label>
+                    <label className="text-xs"><span className="text-slate-600 font-semibold">알레르기</span>
+                      <input type="text" value={editing.form_data.allergies || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, allergies: e.target.value } })}
+                        className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="text-xs"><span className="text-slate-600 font-semibold">응급 연락처</span>
+                      <input type="tel" value={editing.form_data.emergency_contact || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, emergency_contact: e.target.value } })}
+                        className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
+                    </label>
+                    <label className="text-xs"><span className="text-slate-600 font-semibold">응급연락 관계</span>
+                      <input type="text" value={editing.form_data.emergency_relation || ""}
+                        onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, emergency_relation: e.target.value } })}
+                        className="w-full mt-1 px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
+                    </label>
+                  </div>
+
+                  {/* 4페이지 동의 체크박스 */}
+                  <div className="bg-white border-2 border-purple-200 rounded-xl p-3">
+                    <div className="text-xs font-bold text-purple-800 mb-2">✅ 4페이지 동의 항목 (서명 전 체크)</div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 text-xs">
+                      {[
+                        { k: "agree_contract", label: "Page 1 · 이용계약 전체 조항 동의 (필수)" },
+                        { k: "agree_privacy_required", label: "Page 2 · 개인정보 수집·이용 (필수)" },
+                        { k: "agree_privacy_optional", label: "Page 2 · 사진·영상 홍보 사용 (선택)" },
+                        { k: "agree_safety", label: "Page 3 · 안전·입수 관련 사항 동의 (필수)" },
+                        { k: "agree_aqua_risk", label: "Page 4 · 수중재활 위험 인지 (필수)" },
+                        { k: "agree_emergency", label: "Page 4 · 응급처치 및 구급차 이송 동의 (필수)" },
+                      ].map(({ k, label }) => (
+                        <label key={k} className="flex items-start gap-1.5 cursor-pointer bg-slate-50 hover:bg-purple-50 rounded-lg px-2 py-1.5 border border-slate-200">
+                          <input type="checkbox" checked={!!editing.form_data[k]}
+                            onChange={e => setEditing({ ...editing, form_data: { ...editing.form_data, [k]: e.target.checked } })}
+                            className="w-4 h-4 accent-purple-600 mt-0.5" />
+                          <span className="text-slate-700">{label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="bg-sky-50 border border-sky-200 rounded-lg p-3 text-xs text-sky-800">
+                    💡 <b>인쇄 안내:</b> 본 통합 계약서는 <b>4페이지 자동 구성</b>으로 인쇄됩니다.<br/>
+                    <span className="font-semibold">P1</span> 이용계약서 · <span className="font-semibold">P2</span> 개인정보 동의서 · <span className="font-semibold">P3</span> 안전·입수 동의서 · <span className="font-semibold">P4</span> 수중재활 응급처치 동의서
+                    <br/>서명 1회로 4페이지 일괄 적용 · DB 저장 · 인쇄됩니다.
+                  </div>
                 </div>
               )}
 
