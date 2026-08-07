@@ -136,13 +136,23 @@ export default function DashboardPage() {
     const todayPresent = todayAttendance.filter((a: any) => a.status === "present").length;
     const todayAbsent = todayAttendance.filter((a: any) => a.status === "absent" || a.status === "sick").length;
 
+    // ✨ v3.34.2: 근무 직원 카운트 버그 수정 - 퇴사자 제외
+    const activeStaff = (data.staff || []).filter((s: any) => {
+      if (s.is_resigned === true) return false;
+      if (s.deleted_at) return false;
+      if (s.status && ["resigned", "inactive", "terminated"].includes(String(s.status).toLowerCase())) return false;
+      if (s.is_active === false) return false;
+      if (s.resign_date && new Date(s.resign_date) <= new Date()) return false;
+      return true;
+    });
+
     return {
       totalMembers: data.members.length,
       regularMembers, waitingMembers, trialMembers, childMembers, adultMembers,
       monthlyRevenue, lastMonthRevenue, revenueGrowth,
       newLeadsThisWeek, paymentDueMembers,
       todaySlots: todaySlots.length, todayPresent, todayAbsent,
-      totalStaff: data.staff.length,
+      totalStaff: activeStaff.length, // ✨ v3.34.2: 퇴사자 제외된 재직 만 카운트
     };
   }, [data]);
 
@@ -184,42 +194,38 @@ export default function DashboardPage() {
         <HomeButton />
       </div>
 
-      {/* 최상단 4개 핵심 KPI */}
+      {/* ✨ v3.34.2: 최상단 4개 핵심 KPI - 라이트 모드 */}
       <div className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <BigKPI
-          icon={<DollarSign className="w-6 h-6" />}
+          icon={<DollarSign className="w-5 h-5" />}
           label="이번 달 매출"
           value={`₩${stats.monthlyRevenue.toLocaleString()}`}
           sub={`전월 대비 ${Number(stats.revenueGrowth) >= 0 ? "▲" : "▼"} ${Math.abs(Number(stats.revenueGrowth))}%`}
-          subColor={Number(stats.revenueGrowth) >= 0 ? "text-emerald-100" : "text-red-100"}
-          gradient="from-emerald-500 to-teal-500"
+          accent={{ iconBg: "bg-emerald-50", iconColor: "text-emerald-600", subText: Number(stats.revenueGrowth) >= 0 ? "text-emerald-600" : "text-rose-600" }}
           href="/dashboard/revenue"
         />
         <BigKPI
-          icon={<Users className="w-6 h-6" />}
+          icon={<Users className="w-5 h-5" />}
           label="정규 회원"
           value={`${stats.regularMembers}명`}
           sub={`전체 ${stats.totalMembers}명 · 아동 ${stats.childMembers} / 성인 ${stats.adultMembers}`}
-          subColor="text-purple-100"
-          gradient="from-purple-500 to-pink-500"
+          accent={{ iconBg: "bg-violet-50", iconColor: "text-violet-600", subText: "text-slate-500" }}
           href="/members"
         />
         <BigKPI
-          icon={<MessageCircle className="w-6 h-6" />}
+          icon={<MessageCircle className="w-5 h-5" />}
           label="대기자"
           value={`${stats.waitingMembers}명`}
           sub={`이번 주 신규 ${stats.newLeadsThisWeek}건`}
-          subColor="text-amber-100"
-          gradient="from-amber-500 to-orange-500"
+          accent={{ iconBg: "bg-amber-50", iconColor: "text-amber-600", subText: "text-amber-600" }}
           href="/consultations"
         />
         <BigKPI
-          icon={<Calendar className="w-6 h-6" />}
+          icon={<Calendar className="w-5 h-5" />}
           label="오늘 수업"
           value={`${stats.todaySlots}건`}
           sub={`출석 ${stats.todayPresent} · 결석 ${stats.todayAbsent}`}
-          subColor="text-blue-100"
-          gradient="from-blue-500 to-cyan-500"
+          accent={{ iconBg: "bg-sky-50", iconColor: "text-sky-600", subText: "text-sky-600" }}
           href="/schedule"
         />
       </div>
@@ -252,35 +258,46 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* 오늘의 요약 */}
-        <div className="bg-gradient-to-br from-aqu-500 to-cyan-500 rounded-xl p-5 text-white">
-          <h2 className="font-bold flex items-center gap-2 mb-3">
-            <Activity className="w-5 h-5" /> 오늘의 현황
+        {/* ✨ v3.34.2: 오늘의 현황 - 라이트 모드 (흰색 카드 + 파스텔 포인트) */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+          <h2 className="font-bold text-slate-800 flex items-center gap-2 mb-4">
+            <div className="bg-sky-50 text-sky-600 p-1.5 rounded-lg">
+              <Activity className="w-4 h-4" />
+            </div>
+            오늘의 현황
           </h2>
           <div className="space-y-3">
-            <div className="flex justify-between items-center">
-              <span className="text-sm opacity-90">예약된 수업</span>
-              <span className="text-2xl font-bold">{stats.todaySlots}</span>
+            <div className="flex justify-between items-center py-1">
+              <span className="text-sm text-slate-600 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-sky-400" /> 예약된 수업
+              </span>
+              <span className="text-2xl font-extrabold text-sky-600">{stats.todaySlots}</span>
             </div>
-            <div className="flex justify-between items-center">
-              <span className="text-sm opacity-90 flex items-center gap-1"><UserCheck className="w-4 h-4" /> 출석</span>
-              <span className="text-2xl font-bold">{stats.todayPresent}</span>
+            <div className="flex justify-between items-center py-1">
+              <span className="text-sm text-slate-600 flex items-center gap-1.5">
+                <UserCheck className="w-3.5 h-3.5 text-emerald-500" /> 출석
+              </span>
+              <span className="text-2xl font-extrabold text-emerald-600">{stats.todayPresent}</span>
             </div>
-            <div className="flex justify-between items-center">
-              <span className="text-sm opacity-90 flex items-center gap-1"><UserX className="w-4 h-4" /> 결석/병결</span>
-              <span className="text-2xl font-bold">{stats.todayAbsent}</span>
+            <div className="flex justify-between items-center py-1">
+              <span className="text-sm text-slate-600 flex items-center gap-1.5">
+                <UserX className="w-3.5 h-3.5 text-rose-500" /> 결석/병결
+              </span>
+              <span className="text-2xl font-extrabold text-rose-600">{stats.todayAbsent}</span>
             </div>
-            <div className="pt-3 border-t border-white/20 flex justify-between items-center">
-              <span className="text-sm opacity-90">근무 직원</span>
-              <span className="text-xl font-bold">{stats.totalStaff}명</span>
+            <div className="pt-3 border-t border-slate-100 flex justify-between items-center">
+              <span className="text-sm text-slate-600 font-medium">근무 직원</span>
+              <span className="text-xl font-bold text-slate-700 bg-slate-50 px-3 py-0.5 rounded-full border border-slate-200">{stats.totalStaff}명</span>
             </div>
           </div>
-          <div className="mt-4 flex gap-2">
-            <Link href="/attendance" className="flex-1 bg-white/20 hover:bg-white/30 rounded-lg py-2 text-center text-xs font-medium">
-              출결 관리
+          <div className="mt-5 flex gap-2">
+            <Link href="/attendance"
+              className="flex-1 bg-gradient-to-r from-emerald-50 to-teal-50 hover:from-emerald-100 hover:to-teal-100 border border-emerald-200 text-emerald-700 rounded-xl py-2 text-center text-xs font-semibold transition-all hover:shadow-sm">
+              ✅ 출결 관리
             </Link>
-            <Link href="/schedule" className="flex-1 bg-white/20 hover:bg-white/30 rounded-lg py-2 text-center text-xs font-medium">
-              시간표
+            <Link href="/schedule"
+              className="flex-1 bg-gradient-to-r from-sky-50 to-cyan-50 hover:from-sky-100 hover:to-cyan-100 border border-sky-200 text-sky-700 rounded-xl py-2 text-center text-xs font-semibold transition-all hover:shadow-sm">
+              🗓️ 시간표
             </Link>
           </div>
         </div>
@@ -379,15 +396,22 @@ export default function DashboardPage() {
   );
 }
 
-function BigKPI({ icon, label, value, sub, subColor, gradient, href }: any) {
+// ✨ v3.34.2: BigKPI 라이트 모드 리뉴얼 - 흥색 그라데이션 → 흰색 카드 + 파스텔 아이콘
+function BigKPI({ icon, label, value, sub, subColor, gradient, href, accent }: any) {
+  // accent: iconBg, iconColor, subColor 파스텔 톤 (기본값 제공)
+  const acc = accent || { iconBg: "bg-emerald-50", iconColor: "text-emerald-600", subText: "text-emerald-600" };
   return (
-    <Link href={href} className={`bg-gradient-to-br ${gradient} rounded-xl p-5 text-white shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all`}>
-      <div className="flex justify-between items-start mb-2">
-        <div className="opacity-90">{icon}</div>
+    <Link href={href}
+      className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md hover:border-slate-300 hover:-translate-y-0.5 transition-all group">
+      <div className="flex items-start justify-between mb-3">
+        <div className={`${acc.iconBg} ${acc.iconColor} p-2.5 rounded-xl`}>
+          {icon}
+        </div>
+        <div className="text-[10px] text-slate-400 group-hover:text-slate-600 transition-colors">↗</div>
       </div>
-      <div className="text-xs opacity-90">{label}</div>
-      <div className="text-2xl font-bold mt-1">{value}</div>
-      {sub && <div className={`text-[11px] mt-1 ${subColor}`}>{sub}</div>}
+      <div className="text-xs text-slate-500 font-medium">{label}</div>
+      <div className="text-2xl font-extrabold mt-1 text-slate-800 tracking-tight">{value}</div>
+      {sub && <div className={`text-[11px] mt-1.5 ${acc.subText} font-medium`}>{sub}</div>}
     </Link>
   );
 }

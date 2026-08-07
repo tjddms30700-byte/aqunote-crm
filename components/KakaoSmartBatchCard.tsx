@@ -132,14 +132,19 @@ export default function KakaoSmartBatchCard({ memberId, memberName, onSaved }: P
       alert("저장할 카톡 내용을 하나 이상 입력해 주세요.");
       return;
     }
+    // ✨ v3.34.1: 무더기 세션 분할 방지 - 사용자 확인 안내
+    console.log(`[v3.34.1] 🔒 카톡 배치 저장: ${valid.length}개 텍스트 → 정확히 ${valid.length}개 세션만 생성 (텍스트 내 시간/줄바꿈 분할 없음)`);
     setSaving(true);
     let ok = 0, fail = 0;
     const errors: string[] = [];
     try {
       const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
+      // ✨ v3.34.1: 정확히 rows.length만큼만 INSERT (1행 = 1세션 원칙)
       for (const r of valid) {
-        const analyzed = analyzeText(r.text);
-        const status = detectStatus(r.text);
+        // ⚠️ r.text 통째로 저장 (텍스트 내 시간/줄바꿈으로 절대 분할하지 않음)
+        const fullText = r.text.trim();
+        const analyzed = analyzeText(fullText); // 전체 텍스트에서 활동 태그만 감지
+        const status = detectStatus(fullText);
         const payload: any = {
           org_id: orgId,
           member_id: memberId,
@@ -148,9 +153,9 @@ export default function KakaoSmartBatchCard({ memberId, memberName, onSaved }: P
           duration_min: 30,
           activities: analyzed.activities,
           tags: [status, ...analyzed.activities].filter(Boolean),
-          memo: r.text.trim(),
+          memo: fullText, // 💡 통째로 저장 (오후 6:24 등 시간 표기 그대로 유지)
           status,
-          source: "kakao_batch_v3340",
+          source: "kakao_batch_v3341_single",
         };
         let tryPayload = { ...payload };
         let saved = false;
