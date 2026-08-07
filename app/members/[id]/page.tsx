@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { recommendIepGoals, detectBehaviors } from "@/lib/sessionAnalyzer";
 import { useParams, useRouter } from "next/navigation";

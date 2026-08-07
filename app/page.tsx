@@ -63,8 +63,7 @@ const GROUPS = [
     directorOnly: false,
     items: [
       { href: "/dashboard", icon: BarChart3, title: "통합 대시보드",    desc: "전체 현황 KPI + D+400 처리" },
-      { href: "/reports",   icon: FileText,  title: "보고서 생성",      desc: "IEP·일지·행동 보고서" },
-      // v3.20.23: 계약서/문서 관리를 대시보드·보고서 섹션으로 이동
+      // ✅ v3.35.3: "보고서 생성" 카드 제거 → 회원·수업 섹션의 "📊 보고서 · IEP" 카드에 통합됨
       { href: "/reports?tab=forms", icon: FileText, title: "📝 계약서·서식 작성", desc: "근로계약·회원계약·NDA·사직서 자동생성" },
       { href: "/contracts", icon: FileText,  title: "📂 계약서 관리",   desc: "서명 완료 계약·자동연장·PDF 저장" },
       { href: "/documents", icon: FileText,  title: "📄 문서 관리",       desc: "센터 관련 서류 (사업자등록증 등)" },
