@@ -6,7 +6,7 @@
  * - 지정 날짜(session_date)로 개별 세션 자동 저장
  * - 저장된 기록은 세션 히스토리 체인으로 자동 연동
  * ============================================================ */
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { Sparkles, Plus, Trash2, Loader2, ClipboardPaste, Calendar } from "lucide-react";
 
@@ -106,6 +106,10 @@ export default function KakaoSmartBatchCard({ memberId, memberName, onSaved }: P
   ]);
   const [saving, setSaving] = useState(false);
   const [expanded, setExpanded] = useState(true);
+  // 🛡️ v3.34.3: 이중저장 방어 삼중벽 - useRef로 렌더 사이클과 무관하게 잠금
+  const inFlightRef = useRef<boolean>(false);
+  const lastSaveHashRef = useRef<string>("");
+  const lastSaveAtRef = useRef<number>(0);
 
   function addRow() {
     setRows([...rows, { id: crypto.randomUUID(), date: todayStr(), text: "" }]);
@@ -127,13 +131,33 @@ export default function KakaoSmartBatchCard({ memberId, memberName, onSaved }: P
   }
 
   async function saveAll() {
+    // 🛡️ v3.34.3 방어벽 #1: 이미 저장 중이면 즉시 리턴 (useRef 잠금)
+    if (inFlightRef.current || saving) {
+      console.warn("[v3.34.3] ⛔ 이미 저장 진행 중 - 중복 클릭 차단");
+      return;
+    }
     const valid = rows.filter(r => r.text.trim().length > 0 && r.date);
     if (valid.length === 0) {
       alert("저장할 카톡 내용을 하나 이상 입력해 주세요.");
       return;
     }
-    // ✨ v3.34.1: 무더기 세션 분할 방지 - 사용자 확인 안내
-    console.log(`[v3.34.1] 🔒 카톡 배치 저장: ${valid.length}개 텍스트 → 정확히 ${valid.length}개 세션만 생성 (텍스트 내 시간/줄바꿈 분할 없음)`);
+    // 🛡️ v3.34.3 방어벽 #2: 같은 내용 3초 내 재저장 차단 (해시 지문)
+    const contentHash = valid.map(r => `${r.date}|${r.text.trim().slice(0, 200)}`).join("§");
+    const now = Date.now();
+    if (contentHash === lastSaveHashRef.current && now - lastSaveAtRef.current < 3000) {
+      console.warn("[v3.34.3] ⛔ 동일 내용 3초 내 재저장 차단");
+      alert("방금 저장한 내용과 동일합니다. 3초 후 다시 시도해 주세요.");
+      return;
+    }
+    // 🛡️ v3.34.3 방어벽 #3: 사용자 확인 (2건 이상일 때)
+    if (valid.length >= 2) {
+      const ok = confirm(`총 ${valid.length}개의 카톡 세션을 저장합니다. 계속할까요?\n\n(1개 카톡 = 1개 세션으로 저장되며, 시간 표기로 인한 분할은 없습니다.)`);
+      if (!ok) return;
+    }
+    inFlightRef.current = true;
+    lastSaveHashRef.current = contentHash;
+    lastSaveAtRef.current = now;
+    console.log(`[v3.34.3] 🔒 카톡 배치 저장: ${valid.length}개 텍스트 → 정확히 ${valid.length}개 세션 (이중저장 방어 ON)`);
     setSaving(true);
     let ok = 0, fail = 0;
     const errors: string[] = [];
@@ -155,7 +179,7 @@ export default function KakaoSmartBatchCard({ memberId, memberName, onSaved }: P
           tags: [status, ...analyzed.activities].filter(Boolean),
           memo: fullText, // 💡 통째로 저장 (오후 6:24 등 시간 표기 그대로 유지)
           status,
-          source: "kakao_batch_v3341_single",
+          source: "kakao_batch_v3343_dedup",
         };
         let tryPayload = { ...payload };
         let saved = false;
@@ -185,6 +209,7 @@ export default function KakaoSmartBatchCard({ memberId, memberName, onSaved }: P
       alert("저장 중 오류: " + (e?.message || e));
     } finally {
       setSaving(false);
+      inFlightRef.current = false; // 🛡️ v3.34.3: 잠금 해제
     }
   }
 
@@ -285,6 +310,8 @@ export default function KakaoSmartBatchCard({ memberId, memberName, onSaved }: P
             </span>
             <button
               onClick={saveAll}
+              type="button"
+              disabled={saving || inFlightRef.current}
               disabled={saving || totalValid === 0}
               className="text-xs px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg font-bold shadow-sm flex items-center gap-1.5">
               {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
