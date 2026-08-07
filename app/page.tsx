@@ -31,7 +31,8 @@ const GROUPS = [
       // ✅ v3.24.2: 회원 DB의 보강 필요 알림 배지 제거 (상담 리드 신규 유입 시에만 알림 표시)
       { href: "/members",         icon: Users,          title: "회원 DB · 출결",   desc: "아동·성인 + 출석 이력" },
       { href: "/schedule",        icon: Calendar,       title: "통합 시간표",       desc: "월·주·일 + 더블클릭 새 일정" },
-      { href: "/iep-behavior",    icon: Target,         title: "IEP · 행동중재",   desc: "목표·ABC·수업일지" },
+      // ✅ v3.35.2: /iep-behavior 허브 페이지 제거 → 회원 상세 탭으로 통합 (/reports가 자동 생성 전담)
+      { href: "/reports",         icon: Target,         title: "📊 보고서 · IEP",   desc: "세션→일지/주간/IEP/행동 자동" },
       { href: "/incidents",       icon: AlertTriangle,  title: "🚨 안전사고",       desc: "응급기록 · 선생님도 사용 가능" },
     ],
   },

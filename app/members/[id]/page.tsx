@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { recommendIepGoals, detectBehaviors } from "@/lib/sessionAnalyzer";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
@@ -104,7 +105,7 @@ export default function MemberDetail() {
   const id = params?.id as string;
   const [member, setMember] = useState<Member | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"info" | "consult_form" | "chart" | "history" | "assessment" | "bodymap" | "sessions" | "documents">("info");
+  const [tab, setTab] = useState<"info" | "consult_form" | "chart" | "history" | "assessment" | "bodymap" | "sessions" | "iep_behavior" | "documents">("info");
 
   // Documents state
   const [docs, setDocs] = useState<any[]>([]);
@@ -719,6 +720,7 @@ export default function MemberDetail() {
           { k: "history", label: "💰 결제·회원권·출석" },
           { k: "assessment", label: "🩺 수중기능평가" },
           { k: "sessions", label: "📝 세션기록" },
+          { k: "iep_behavior", label: "🎯 IEP·행동중재" },
           { k: "documents", label: "📄 문서" },
         ].map((t) => (
           <button key={t.k} onClick={() => setTab(t.k as any)}
@@ -1055,6 +1057,11 @@ export default function MemberDetail() {
 
         {tab === "assessment" && (
           <AquaAssessmentPanel memberId={id as string} skills={skills} setSkills={setSkills} onSaveBasic={saveAssessment} />
+        )}
+
+        {/* ✅ v3.35.2: IEP·행동중재 통합 탭 - 세션기록 기반 자동 추천 + 개별 관리 */}
+        {tab === "iep_behavior" && (
+          <MemberIepBehaviorPanel memberId={id as string} memberName={member?.name || ""} />
         )}
 
         {/* ✅ v3.17.0: Body Map 탭 제거 → 상담차트에 통합됨 */}
@@ -3563,6 +3570,265 @@ function ConsultFormPanel({ member }: { member: any }) {
           {JSON.stringify(form, null, 2)}
         </pre>
       </details>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 🎯 v3.35.2 회원 상세 – IEP·행동중재 통합 패널
+// 세션기록 기반 자동 추천 + 회원별 목표/문제행동 개별 관리
+// ═══════════════════════════════════════════════════════════════
+function MemberIepBehaviorPanel({ memberId, memberName }: { memberId: string; memberName: string }) {
+  const [subtab, setSubtab] = useState<"iep" | "behavior">("iep");
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [goals, setGoals] = useState<any[]>([]);
+  const [behaviors, setBehaviors] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      const threeMonthsAgo = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+      const [sRes, gRes, bRes] = await Promise.all([
+        supabase.from("sessions").select("*")
+          .eq("member_id", memberId)
+          .gte("session_date", threeMonthsAgo)
+          .is("deleted_at", null)
+          .order("session_date", { ascending: false }).limit(60),
+        supabase.from("iep_goals").select("*").eq("member_id", memberId)
+          .order("created_at", { ascending: false }),
+        supabase.from("problem_behaviors").select("*").eq("member_id", memberId)
+          .order("created_at", { ascending: false }),
+      ]);
+      setSessions(sRes.data || []);
+      setGoals(gRes.data || []);
+      setBehaviors(bRes.data || []);
+      setLoading(false);
+      console.log(`[v3.35.2] IEP·행동중재 로드: 세션 ${(sRes.data || []).length}, 목표 ${(gRes.data || []).length}, 행동 ${(bRes.data || []).length}`);
+    })();
+  }, [memberId]);
+
+  const recommendedGoals = useMemo(() => recommendIepGoals(sessions), [sessions]);
+  const detectedBehaviors = useMemo(() => detectBehaviors(sessions), [sessions]);
+
+  async function saveGoal(area: string, areaLabel: string, title: string, isLong: boolean, sessionCount: number) {
+    setSaving(true);
+    const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
+    const domainCode = area === "aqua_rehab" || area === "physical_therapy" ? "gross_motor"
+                     : area === "occupational_therapy" ? "fine_motor"
+                     : area === "sensory_integration" ? "sensory"
+                     : area === "cognitive_behavior" ? "cognitive" : "gross_motor";
+    const targetDate = new Date(Date.now() + (isLong ? 180 : 42) * 86400000).toISOString().slice(0, 10);
+    const { error } = await supabase.from("iep_goals").insert({
+      org_id: orgId,
+      member_id: memberId,
+      domain_code: domainCode,
+      goal_type: isLong ? "long" : "short",
+      title,
+      description: `[자동 추천] ${areaLabel} 영역 - 최근 ${sessionCount}건 세션 활동 기반`,
+      target_criteria: "80% 이상 성공률 · 3회 연속 달성",
+      target_date: targetDate,
+      status: "in_progress",
+      progress_percent: 0,
+    });
+    setSaving(false);
+    if (error) { alert("목표 저장 실패: " + error.message); return; }
+    const { data } = await supabase.from("iep_goals").select("*").eq("member_id", memberId).order("created_at", { ascending: false });
+    setGoals(data || []);
+    alert(`✅ IEP 목표 저장 완료`);
+  }
+
+  async function saveBehavior(det: any) {
+    setSaving(true);
+    const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
+    const excerpt = det.occurrences[0]?.excerpt?.slice(0, 80) || "";
+    const { error } = await supabase.from("problem_behaviors").insert({
+      org_id: orgId,
+      member_id: memberId,
+      name: det.targetBehavior,
+      operational_definition: `[자동 감지] 세션기록 ${det.occurrences.length}건에서 감지됨. 예: "${excerpt}"`,
+      severity: det.severity,
+      measurement_method: "abc",
+      intervention_plan: det.intervention,
+    });
+    setSaving(false);
+    if (error) { alert("문제행동 저장 실패: " + error.message); return; }
+    const { data } = await supabase.from("problem_behaviors").select("*").eq("member_id", memberId).order("created_at", { ascending: false });
+    setBehaviors(data || []);
+    alert(`✅ 문제행동 저장 완료`);
+  }
+
+  async function deleteGoal(id: string) {
+    if (!confirm("이 목표를 삭제하시겠습니까?")) return;
+    await supabase.from("iep_goals").delete().eq("id", id);
+    setGoals(goals.filter(g => g.id !== id));
+  }
+
+  async function deleteBehavior(id: string) {
+    if (!confirm("이 문제행동을 삭제하시겠습니까?")) return;
+    await supabase.from("problem_behaviors").delete().eq("id", id);
+    setBehaviors(behaviors.filter(b => b.id !== id));
+  }
+
+  if (loading) {
+    return <div className="text-center py-10 text-gray-500">로딩 중...</div>;
+  }
+
+  return (
+    <div>
+      <div className="flex gap-2 mb-4 flex-wrap">
+        <button onClick={() => setSubtab("iep")}
+          className={`px-4 py-2 rounded-full text-sm font-semibold transition ${subtab === "iep" ? "bg-purple-600 text-white shadow" : "bg-white border border-purple-200 text-purple-700 hover:bg-purple-50"}`}>
+          🎯 IEP 목표 ({goals.length})
+        </button>
+        <button onClick={() => setSubtab("behavior")}
+          className={`px-4 py-2 rounded-full text-sm font-semibold transition ${subtab === "behavior" ? "bg-rose-600 text-white shadow" : "bg-white border border-rose-200 text-rose-700 hover:bg-rose-50"}`}>
+          🚨 행동중재 ({behaviors.length})
+        </button>
+        <div className="ml-auto text-xs text-gray-500 self-center">
+          최근 90일 세션 {sessions.length}건 분석 결과
+        </div>
+      </div>
+
+      {subtab === "iep" && (
+        <div className="space-y-4">
+          {recommendedGoals.length > 0 && (
+            <div className="aqu-card bg-gradient-to-br from-cyan-50 via-sky-50 to-blue-50 border-2 border-cyan-200 rounded-2xl p-4 shadow-sm">
+              <h3 className="text-sm font-bold text-cyan-900 mb-3">🤖 세션 기반 IEP 목표 자동 추천</h3>
+              <p className="text-xs text-cyan-800/70 mb-3">활동 태그 분석 결과, 다음 영역이 주력 영역으로 감지되었습니다. 원클릭으로 목표를 등록하세요.</p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {recommendedGoals.map((rec: any, idx: number) => (
+                  <div key={idx} className="bg-white rounded-xl border border-cyan-200 p-3 shadow-sm">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-bold text-cyan-800">{rec.areaLabel}</span>
+                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">{rec.sessionCount}건</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1 mb-2">
+                      {rec.activities.slice(0, 4).map((a: string, i: number) => (
+                        <span key={i} className="text-[10px] px-1.5 py-0.5 bg-cyan-100 text-cyan-700 rounded">{a}</span>
+                      ))}
+                    </div>
+                    <div className="space-y-1.5">
+                      {rec.shortGoals.slice(0, 2).map((g: string, i: number) => (
+                        <button key={i}
+                          disabled={saving}
+                          onClick={() => saveGoal(rec.area, rec.areaLabel, g, false, rec.sessionCount)}
+                          className="w-full text-left text-[11px] p-2 bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-lg text-sky-800 transition disabled:opacity-50">
+                          <span className="text-emerald-600 font-bold">＋</span> {g}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="aqu-card bg-white rounded-2xl border border-slate-200 p-4">
+            <h3 className="text-sm font-bold text-slate-800 mb-3">📋 {memberName} 등록된 IEP 목표 ({goals.length})</h3>
+            {goals.length === 0 ? (
+              <p className="text-sm text-gray-400 py-6 text-center">등록된 목표가 없습니다. 위의 자동 추천에서 원클릭 등록하세요.</p>
+            ) : (
+              <div className="space-y-2">
+                {goals.map((g: any) => (
+                  <div key={g.id} className="flex items-start justify-between gap-2 p-3 bg-slate-50 rounded-lg hover:bg-slate-100">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <span className={`text-[10px] px-2 py-0.5 rounded ${g.goal_type === "long" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"}`}>
+                          {g.goal_type === "long" ? "장기" : "단기"}
+                        </span>
+                        <span className={`text-[10px] px-2 py-0.5 rounded ${g.status === "achieved" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                          {g.status === "achieved" ? "달성" : "진행중"}
+                        </span>
+                        {g.target_date && <span className="text-[10px] text-gray-500">🎯 {g.target_date}</span>}
+                        <span className="text-[10px] text-gray-500">진도: {g.progress_percent || 0}%</span>
+                      </div>
+                      <div className="text-sm text-slate-800 font-medium">{g.title}</div>
+                      {g.description && <div className="text-xs text-slate-600 mt-1">{g.description}</div>}
+                    </div>
+                    <button onClick={() => deleteGoal(g.id)}
+                      className="p-1.5 text-red-500 hover:bg-red-50 rounded" title="삭제">
+                      🗑️
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="mt-3 pt-3 border-t border-slate-100 text-xs text-slate-500">
+              💡 상세 진도 기록·촉구 수준 관리는 <a href="/iep" className="text-aqu-600 hover:underline">IEP 전용 페이지</a>에서 진행하실 수 있습니다.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {subtab === "behavior" && (
+        <div className="space-y-4">
+          {detectedBehaviors.length > 0 && (
+            <div className="aqu-card bg-gradient-to-br from-rose-50 via-orange-50 to-amber-50 border-2 border-rose-200 rounded-2xl p-4 shadow-sm">
+              <h3 className="text-sm font-bold text-rose-900 mb-3">🤖 세션 기반 표적행동 자동 감지</h3>
+              <p className="text-xs text-rose-800/70 mb-3">세션 메모·카톡 대화록에서 감지된 표적행동입니다. 원클릭으로 등록하세요.</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {detectedBehaviors.map((det: any, idx: number) => {
+                  const sevColor = det.severity === "high" ? "border-red-400 bg-red-50"
+                                 : det.severity === "medium" ? "border-orange-400 bg-orange-50"
+                                 : "border-blue-400 bg-blue-50";
+                  const sevBadge = det.severity === "high" ? "bg-red-100 text-red-700"
+                                 : det.severity === "medium" ? "bg-orange-100 text-orange-700"
+                                 : "bg-blue-100 text-blue-700";
+                  return (
+                    <div key={idx} className={`rounded-xl border-2 ${sevColor} p-3 shadow-sm`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-bold text-gray-800">{det.targetBehavior}</span>
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${sevBadge}`}>{det.severity.toUpperCase()}</span>
+                      </div>
+                      <p className="text-[11px] text-gray-600 mb-2"><b>발생 {det.occurrences.length}회</b> · {det.occurrences.slice(0, 2).map((o: any) => o.date).join(", ")}</p>
+                      <div className="text-[11px] p-2 bg-white/70 rounded-lg mb-2 whitespace-pre-wrap text-gray-700 border border-gray-200 max-h-24 overflow-y-auto">
+                        {det.intervention}
+                      </div>
+                      <button onClick={() => saveBehavior(det)} disabled={saving}
+                        className="w-full text-[11px] py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg font-medium transition disabled:opacity-50">
+                        ＋ 이 행동으로 등록
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className="aqu-card bg-white rounded-2xl border border-slate-200 p-4">
+            <h3 className="text-sm font-bold text-slate-800 mb-3">🚨 {memberName} 등록된 문제행동 ({behaviors.length})</h3>
+            {behaviors.length === 0 ? (
+              <p className="text-sm text-gray-400 py-6 text-center">등록된 문제행동이 없습니다. 위의 자동 감지에서 원클릭 등록하세요.</p>
+            ) : (
+              <div className="space-y-2">
+                {behaviors.map((b: any) => (
+                  <div key={b.id} className="flex items-start justify-between gap-2 p-3 bg-slate-50 rounded-lg hover:bg-slate-100">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
+                        <span className={`text-[10px] px-2 py-0.5 rounded ${b.severity === "high" || b.severity === "crisis" ? "bg-red-100 text-red-700" : b.severity === "medium" ? "bg-orange-100 text-orange-700" : "bg-yellow-100 text-yellow-700"}`}>
+                          {b.severity}
+                        </span>
+                      </div>
+                      <div className="text-sm text-slate-800 font-medium">{b.name}</div>
+                      {b.operational_definition && <div className="text-xs text-slate-600 mt-1">{b.operational_definition}</div>}
+                      {b.intervention_plan && <div className="text-xs text-slate-700 mt-1 whitespace-pre-wrap"><b>중재:</b> {b.intervention_plan.slice(0, 200)}{b.intervention_plan.length > 200 ? "…" : ""}</div>}
+                    </div>
+                    <button onClick={() => deleteBehavior(b.id)}
+                      className="p-1.5 text-red-500 hover:bg-red-50 rounded" title="삭제">
+                      🗑️
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="mt-3 pt-3 border-t border-slate-100 text-xs text-slate-500">
+              💡 ABC·빈도·지속시간 세부 기록은 <a href="/behavior" className="text-aqu-600 hover:underline">행동중재 전용 페이지</a>에서 진행하실 수 있습니다.
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
