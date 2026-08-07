@@ -157,7 +157,7 @@ export default function KakaoSmartBatchCard({ memberId, memberName, onSaved }: P
     inFlightRef.current = true;
     lastSaveHashRef.current = contentHash;
     lastSaveAtRef.current = now;
-    console.log(`[v3.34.3] 🔒 카톡 배치 저장: ${valid.length}개 텍스트 → 정확히 ${valid.length}개 세션 (이중저장 방어 ON)`);
+    console.log(`[v3.34.6] 🔒 카톡 배치 저장 시작: ${valid.length}개 세션 → 실제 수업 날짜 목록:`, valid.map(r => r.date));
     setSaving(true);
     let ok = 0, fail = 0;
     const errors: string[] = [];
@@ -179,7 +179,7 @@ export default function KakaoSmartBatchCard({ memberId, memberName, onSaved }: P
           tags: [status, ...analyzed.activities].filter(Boolean),
           memo: fullText, // 💡 통째로 저장 (오후 6:24 등 시간 표기 그대로 유지)
           status,
-          source: "kakao_batch_v3343_dedup",
+          source: "kakao_batch_v3346",
         };
         let tryPayload = { ...payload };
         let saved = false;
@@ -244,15 +244,18 @@ export default function KakaoSmartBatchCard({ memberId, memberName, onSaved }: P
           <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
             {rows.map((row, idx) => (
               <div key={row.id} className="bg-white rounded-xl border border-amber-200 p-3 shadow-sm">
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex flex-wrap items-center gap-2 mb-2">
                   <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">#{idx + 1}</span>
-                  <div className="flex items-center gap-1.5">
+                  {/* ✅ v3.34.6: 실제 수업/상담 나눈 날짜를 명시적으로 표기 */}
+                  <div className="flex items-center gap-1.5 bg-amber-50 px-2 py-1 rounded-lg border border-amber-300">
                     <Calendar className="w-3.5 h-3.5 text-amber-600" />
+                    <span className="text-[11px] font-semibold text-amber-700">실제 수업 날짜:</span>
                     <input
                       type="date"
                       value={row.date}
                       onChange={(e) => updateRow(row.id, { date: e.target.value })}
-                      className="text-xs px-2 py-1 border border-amber-200 rounded-lg focus:border-amber-500 focus:outline-none"
+                      title="실제 수업/상담을 나눈 날짜를 선택하세요 (저장일 아님)"
+                      className="text-xs px-2 py-0.5 border border-amber-200 rounded focus:border-amber-500 focus:outline-none bg-white font-medium"
                     />
                   </div>
                   <div className="flex-1" />

@@ -1230,7 +1230,9 @@ export default function MemberDetail() {
                 sessions.map((s: any, i: number) => {
                   // ✅ v3.34.5: sessions 테이블 / 레거시 extra.sessions 필드 모두 대응
                   const dateStr = s.session_date || s.date || "";
-                  const timeStr = s.session_time || s.time || "";
+                  // ✅ v3.34.6: '00:00' 같은 기본값 시간은 표시 안 함 (실제 수업 날짜가 진짜 핵심)
+                  const rawTime = s.session_time || s.time || "";
+                  const timeStr = (rawTime === "00:00" || rawTime === "00:00:00") ? "" : rawTime;
                   const labels: string[] = Array.isArray(s.activities) ? s.activities
                     : Array.isArray(s.labels) ? s.labels
                     : Array.isArray(s.tags) ? s.tags.filter((t: string) => !t.startsWith("status:")) : [];
@@ -1241,7 +1243,7 @@ export default function MemberDetail() {
                   <div key={s.id || i} className="p-3 bg-gray-50 rounded-lg text-sm hover:bg-gray-100 transition group">
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2">
-                        <span className="font-medium text-aqu-900">{dateStr}</span>
+                        <span className="font-semibold text-aqu-900 text-base" title="실제 수업/상담 날짜">📅 {dateStr}</span>
                         {timeStr && <span className="text-xs text-gray-500">{timeStr}</span>}
                         <span className="text-xs text-gray-500">· {labels.length}개 활동</span>
                       </div>
