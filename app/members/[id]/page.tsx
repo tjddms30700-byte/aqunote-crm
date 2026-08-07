@@ -553,21 +553,49 @@ export default function MemberDetail() {
   }
 
   async function deleteSession(idx: number) {
-    if (!confirm(`이 세션을 삭제하시겠습니까?\n(${sessions[idx].date} · ${sessions[idx].labels?.length || 0}개 활동)`)) return;
-    const updated = sessions.filter((_, i) => i !== idx);
-    const newExtra = { ...(member.extra || {}), sessions: updated };
-    const { error } = await supabase.from("members").update({ extra: newExtra }).eq("id", member.id);
-    if (!error) {
+    const target: any = sessions[idx];
+    const sessionId = target?.id;
+    const dateLabel = target?.session_date || target?.date;
+    const labelCount = (target?.activities?.length ?? target?.labels?.length ?? 0);
+    if (!confirm(`이 세션을 삭제하시겠습니까?\n(${dateLabel} · ${labelCount}개 활동)`)) return;
+
+    // ✅ v3.34.5: sessions 테이블 soft-delete (deleted_at = now())
+    if (sessionId) {
+      const { error } = await supabase.from("sessions")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("id", sessionId);
+      if (error) {
+        // hard-delete 폴백
+        const { error: e2 } = await supabase.from("sessions").delete().eq("id", sessionId);
+        if (e2) {
+          alert("삭제 실패: " + e2.message);
+          console.error("[v3.34.5] 세션 삭제 실패:", error, e2);
+          return;
+        }
+      }
+      const updated = sessions.filter((_, i) => i !== idx);
       setSessions(updated);
       setSaveStatus("🗑️ 세션 삭제됨");
+      setTimeout(() => setSaveStatus(""), 2500);
+      console.log(`[v3.34.5] ✅ 세션 삭제 완료: id=${sessionId}`);
+    } else {
+      // 레거시 (id 없는 경우): 로컬만 제거
+      const updated = sessions.filter((_, i) => i !== idx);
+      setSessions(updated);
+      setSaveStatus("🗑️ 세션 삭제됨 (로컬)");
       setTimeout(() => setSaveStatus(""), 2500);
     }
   }
 
   async function updateSessionMemo(idx: number, memo: string) {
-    const updated = sessions.map((s, i) => (i === idx ? { ...s, memo } : s));
-    const newExtra = { ...(member.extra || {}), sessions: updated };
-    await supabase.from("members").update({ extra: newExtra }).eq("id", member.id);
+    // ✅ v3.34.5: sessions 테이블 memo 컬럼 직접 UPDATE
+    const target: any = sessions[idx];
+    const sessionId = target?.id;
+    if (sessionId) {
+      const { error } = await supabase.from("sessions").update({ memo }).eq("id", sessionId);
+      if (error) { alert("메모 저장 실패: " + error.message); return; }
+    }
+    const updated = sessions.map((s: any, i: number) => (i === idx ? { ...s, memo } : s));
     setSessions(updated);
     setEditingIdx(null);
     setSaveStatus("✏️ 메모 수정됨");
@@ -1199,13 +1227,23 @@ export default function MemberDetail() {
                   아직 기록된 세션이 없습니다. 위에서 첫 세션을 추가해보세요!
                 </div>
               ) : (
-                sessions.map((s: any, i: number) => (
-                  <div key={i} className="p-3 bg-gray-50 rounded-lg text-sm hover:bg-gray-100 transition group">
+                sessions.map((s: any, i: number) => {
+                  // ✅ v3.34.5: sessions 테이블 / 레거시 extra.sessions 필드 모두 대응
+                  const dateStr = s.session_date || s.date || "";
+                  const timeStr = s.session_time || s.time || "";
+                  const labels: string[] = Array.isArray(s.activities) ? s.activities
+                    : Array.isArray(s.labels) ? s.labels
+                    : Array.isArray(s.tags) ? s.tags.filter((t: string) => !t.startsWith("status:")) : [];
+                  const memoStr = (s.memo || "").toString();
+                  // memo 요약: 120자 이내 (지난수업내용 카드처럼 짧게)
+                  const memoPreview = memoStr.length > 120 ? memoStr.slice(0, 120) + "…" : memoStr;
+                  return (
+                  <div key={s.id || i} className="p-3 bg-gray-50 rounded-lg text-sm hover:bg-gray-100 transition group">
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2">
-                        <span className="font-medium text-aqu-900">{s.date}</span>
-                        {s.time && <span className="text-xs text-gray-500">{s.time}</span>}
-                        <span className="text-xs text-gray-500">· {s.labels?.length || 0}개 활동</span>
+                        <span className="font-medium text-aqu-900">{dateStr}</span>
+                        {timeStr && <span className="text-xs text-gray-500">{timeStr}</span>}
+                        <span className="text-xs text-gray-500">· {labels.length}개 활동</span>
                       </div>
                       <div className="flex items-center gap-1">
                         <button
@@ -1232,26 +1270,27 @@ export default function MemberDetail() {
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-1 mb-1">
-                      {s.labels?.map((l: string) => (
-                        <span key={l} className="px-2 py-0.5 bg-aqu-100 text-aqu-700 rounded text-xs">{l}</span>
+                      {labels.map((l: string, li: number) => (
+                        <span key={`${l}-${li}`} className="px-2 py-0.5 bg-aqu-100 text-aqu-700 rounded text-xs">{l}</span>
                       ))}
                     </div>
                     {editingIdx === i ? (
                       <div className="mt-2">
                         <textarea
-                          defaultValue={s.memo || ""}
-                          rows={2}
+                          defaultValue={memoStr}
+                          rows={3}
                           onBlur={(e) => updateSessionMemo(i, e.target.value)}
                           className="w-full text-xs p-2 rounded border border-aqu-200"
                           autoFocus
-                          placeholder="메모 (Tab 또는 밖 클릭으로 저장)"
+                          placeholder="관찰 메모 (Tab 또는 밖 클릭으로 저장)"
                         />
                       </div>
                     ) : (
-                      s.memo && <div className="text-gray-600 text-xs mt-1">📝 {s.memo}</div>
+                      memoPreview && <div className="text-gray-600 text-xs mt-1 whitespace-pre-wrap">📝 {memoPreview}</div>
                     )}
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
 
@@ -1518,7 +1557,8 @@ function AquaAssessmentPanel({ memberId, skills, setSkills, onSaveBasic }: any) 
 
   async function saveProAssessment() {
     setSaving(true);
-    const payload = {
+    // ✅ v3.34.5: 컬럼 화이트리스트 - 존재하지 않는 컬럼은 자동 제거하며 400 재시도
+    const rawPayload: any = {
       ...assess,
       member_id: memberId,
       assessed_at: assess.assessed_at || new Date().toISOString().split("T")[0],
@@ -1528,19 +1568,36 @@ function AquaAssessmentPanel({ memberId, skills, setSkills, onSaveBasic }: any) 
       recommended_content: recommendedContents.map(c => ({ code: c.code, title: c.title })),
       updated_at: new Date().toISOString(),
     };
-    delete payload.id; delete payload.created_at;
+    delete rawPayload.id; delete rawPayload.created_at;
 
-    let error;
-    if (assess.id) {
-      ({ error } = await supabase.from("aqua_assessments").update(payload).eq("id", assess.id));
-    } else {
-      const { data: memberData } = await supabase.from("members").select("org_id").eq("id", memberId).single();
-      const { data, error: e } = await supabase.from("aqua_assessments").insert({ ...payload, org_id: memberData?.org_id }).select().single();
-      if (data) setAssess(data);
-      error = e;
+    // ✅ v3.34.5: 최대 10회 재시도 - 스키마 캐시가 없는 컬럼 자동 제거
+    async function safeSave(payload: any, attempt = 0): Promise<any> {
+      if (attempt > 10) return { error: { message: "저장 실패: 최대 재시도 초과" } };
+      let result;
+      if (assess.id) {
+        result = await supabase.from("aqua_assessments").update(payload).eq("id", assess.id);
+      } else {
+        const { data: memberData } = await supabase.from("members").select("org_id").eq("id", memberId).single();
+        result = await supabase.from("aqua_assessments").insert({ ...payload, org_id: memberData?.org_id }).select().single();
+        if (result.data) setAssess(result.data);
+      }
+      if (result.error) {
+        const msg = result.error.message || "";
+        // "Could not find the 'xxx' column" 패턴 → 해당 컬럼 제거 후 재시도
+        const m = msg.match(/Could not find the '([^']+)' column/) || msg.match(/column "([^"]+)" of relation/);
+        if (m && m[1] && payload[m[1]] !== undefined) {
+          console.warn(`[v3.34.5] 컬럼 '${m[1]}' 자동 제거 후 재시도`);
+          const { [m[1]]: _drop, ...rest } = payload;
+          return safeSave(rest, attempt + 1);
+        }
+        return result;
+      }
+      return result;
     }
+
+    const { error } = await safeSave(rawPayload);
     setSaving(false);
-    if (error) { alert("저장 실패: " + error.message); return; }
+    if (error) { alert("저장 실패: " + (error.message || JSON.stringify(error))); return; }
     alert(`✅ 저장 완료! 자동 산정 등급: ${levelInfo.label} (${grade.confidence})`);
     // 히스토리 갱신
     const { data } = await supabase.from("aqua_assessments").select("*").eq("member_id", memberId).order("assessed_at", { ascending: false });
