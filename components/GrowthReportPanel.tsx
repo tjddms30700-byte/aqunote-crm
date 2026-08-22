@@ -53,6 +53,12 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
 
   // AI 코멘트 (편집 가능)
   const [activityView, setActivityView] = useState<"donut" | "monthly">("donut"); // ✅ v3.46.8
+  // ✅ v3.46.9: 담당 치료사 선택 + 서명
+  const [staffList, setStaffList] = useState<any[]>([]);
+  const [therapistId, setTherapistId] = useState<string>("");
+  const [therapistName, setTherapistName] = useState<string>("");
+  const [therapistSignature, setTherapistSignature] = useState<string>(""); // dataURL
+  const [showSignPad, setShowSignPad] = useState(false);
   const [aiComment, setAiComment] = useState<string>("");
   const [aiLoading, setAiLoading] = useState(false);
   const [aiEdited, setAiEdited] = useState(false);
@@ -159,6 +165,16 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
     })();
   }, [memberId, startDate, endDate]);
 
+  // ✅ v3.46.9: 치료사(직원) 목록 로드
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase.from("staff").select("id, name, position, department").order("name");
+        setStaffList(data || []);
+      } catch (e) { /* silent */ }
+    })();
+  }, []);
+
   // ✅ v3.46.2: 6축 레이더 데이터 (세션이 없어도 기본 축 렌더링 보장)
   const radarData = useMemo(() => {
     const scores = computeRadarScores(sessions || [], memberLevel);
@@ -176,7 +192,7 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
 
   // ✅ v3.46.2: 시계열/스택바 데이터 빈 배열 방지 (Recharts 렌더링 안정화)
   const timeSeriesData = useMemo(() => {
-    const data = buildFilledTimeSeries(sessions || [], period === "yearly" ? "year" : "month");  // ✅ v3.46.4: mode는 month|year만
+    const data = buildFilledTimeSeries(sessions || [], period === "yearly" ? "year" : "month", memberLevel, startDate, endDate);  // ✅ v3.46.9: 다년 강제 포함
     if (!data || data.length === 0) {
       // 빈 상태에서도 X축 라벨 표시
       const now = new Date();
@@ -399,7 +415,13 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
 
         {/* 시계열 라인 그래프 */}
         <div className="mb-6">
-          <h2 className="text-base font-bold text-slate-800 mb-2 flex items-center gap-1.5">📈 성장 추이 <span className="text-[10px] font-normal text-slate-400">(LOCF 보정 · 스플라인)</span></h2>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-base font-bold text-slate-800 flex items-center gap-1.5">
+              📈 성장 추이
+              <span className="text-[10px] font-normal text-slate-400">(LOCF 보정 · 스플라인 · 다년 비교)</span>
+            </h2>
+            <span className="print-hide text-[10px] text-slate-400">💡 범례 클릭 시 축 숨김</span>
+          </div>
           <div className="no-break border border-slate-200/70 rounded-2xl p-4 bg-gradient-to-br from-white to-slate-50/40 shadow-sm">
             <ResponsiveContainer width="100%" height={260}>
               <AreaChart data={timeSeriesData} margin={{ top: 10, right: 20, left: -10, bottom: 5 }}>
@@ -566,32 +588,107 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
           </div>
         </div>
 
-        {/* AI 자동 코멘트 (편집 가능) */}
+        {/* ✅ v3.46.9: AI 자동 코멘트 - 인쇄용 미러 div (textarea 잘림 방지) */}
         <div className="mb-6">
-          <h2 className="text-base font-bold text-aqu-900 mb-2 flex items-center gap-2">
+          <h2 className="text-base font-bold text-slate-800 mb-2 flex items-center gap-2">
             💬 치료사 종합 코멘트
             {aiEdited && <span className="text-[10px] px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">직접 편집됨</span>}
             {!aiEdited && aiComment && <span className="text-[10px] px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full">AI 초안</span>}
           </h2>
+          {/* 화면용 편집 textarea (인쇄 시 숨김) */}
           <textarea
             value={aiComment}
             onChange={(e) => { setAiComment(e.target.value); setAiEdited(true); }}
-            className="w-full min-h-[280px] p-3 border border-gray-200 rounded-xl text-sm leading-relaxed focus:ring-2 focus:ring-aqu-400 focus:outline-none print:border-0 print:p-0 whitespace-pre-line"
+            className="print-hide w-full min-h-[280px] p-3.5 border border-slate-200 rounded-2xl text-sm leading-relaxed focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 focus:outline-none whitespace-pre-line bg-white"
             placeholder={aiLoading ? "AI 코멘트를 생성하는 중..." : "치료사가 종합 소견을 작성해 주세요."}
           />
+          {/* 인쇄용 미러 div - 전체 텍스트 잘림 없이 표시 */}
+          <div className="ai-comment-print hidden text-sm leading-relaxed whitespace-pre-line text-slate-800 mt-1">
+            {aiComment || "(코멘트 없음)"}
+          </div>
         </div>
 
-        {/* 푸터 */}
-        <div className="border-t border-gray-200 pt-3 mt-4 flex justify-between items-end text-[10px] text-gray-500">
-          <div>
-            📅 발행일: {new Date().toISOString().slice(0, 10)}<br/>
-            💧 이 보고서는 세션 태그와 정밀 수치를 자동 집계하여 생성됩니다.
+        {/* ✅ v3.46.9: 프리미엄 푸터 - 담당 치료사 드롭다운 + 태블릿 서명 */}
+        <div className="border-t-2 border-slate-100 pt-4 mt-6 no-break">
+          {/* 담당 치료사 선택 + 서명 (화면용) */}
+          <div className="print-hide mb-4 p-4 rounded-2xl bg-gradient-to-br from-slate-50 to-indigo-50/30 border border-slate-200/70">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] font-semibold text-slate-600 mb-1.5 block">👤 담당 치료사 선택</label>
+                <select
+                  value={therapistId}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    setTherapistId(id);
+                    const s = staffList.find(x => x.id === id);
+                    setTherapistName(s?.name || "");
+                  }}
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none">
+                  <option value="">-- 담당 치료사 선택 --</option>
+                  {staffList.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}{s.position ? ` (${s.position})` : ""}{s.department ? ` · ${s.department}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-slate-600 mb-1.5 block">✍️ 서명 (태블릿/마우스)</label>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowSignPad(true)}
+                    className="flex-1 px-3 py-2.5 rounded-xl text-sm font-semibold bg-white border border-slate-200 hover:border-indigo-400 hover:bg-indigo-50 transition text-slate-700 flex items-center justify-center gap-1.5">
+                    {therapistSignature ? "✏️ 서명 다시하기" : "🖊️ 서명 입력"}
+                  </button>
+                  {therapistSignature && (
+                    <button
+                      onClick={() => setTherapistSignature("")}
+                      className="px-3 py-2.5 rounded-xl text-xs font-semibold bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 transition">
+                      🗑️
+                    </button>
+                  )}
+                </div>
+                {therapistSignature && (
+                  <div className="mt-2 p-2 bg-white rounded-lg border border-slate-200">
+                    <img src={therapistSignature} alt="서명" className="h-12 mx-auto object-contain" />
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
-          <div className="text-right">
-            <div className="mb-6">담당 치료사: __________ (인)</div>
-            <div>{orgSettings?.center_name || "위례아쿠수중운동센터"}</div>
+
+          {/* 발행 정보 + 서명 영역 (인쇄에도 나옴) */}
+          <div className="flex justify-between items-end text-[10px] text-slate-500">
+            <div>
+              📅 발행일: {new Date().toISOString().slice(0, 10)}<br/>
+              💧 이 보고서는 세션 태그와 정밀 수치를 자동 집계하여 생성됩니다.
+            </div>
+            <div className="text-right">
+              <div className="mb-2 min-h-[60px] flex flex-col items-end justify-end">
+                {therapistSignature ? (
+                  <div className="relative">
+                    <img src={therapistSignature} alt="서명" className="h-14 object-contain" style={{ mixBlendMode: "multiply" }} />
+                    <div className="absolute -bottom-1 right-0 text-[9px] text-slate-400">(인)</div>
+                  </div>
+                ) : (
+                  <div className="text-slate-300 text-[10px]">(서명란)</div>
+                )}
+              </div>
+              <div className="text-[11px] font-semibold text-slate-700">
+                담당 치료사: {therapistName || "__________"}
+              </div>
+              <div className="mt-1">{orgSettings?.center_name || "위례아쿠수중운동센터"}</div>
+            </div>
           </div>
         </div>
+
+        {/* ✅ v3.46.9: 서명 캔버스 모달 */}
+        {showSignPad && (
+          <SignaturePadModal
+            onClose={() => setShowSignPad(false)}
+            onSave={(dataUrl) => { setTherapistSignature(dataUrl); setShowSignPad(false); }}
+          />
+        )}
       </div>
 
       {/* ✅ v3.46.8: 인쇄용 CSS 근본 재설계 (visibility 방식으로 백지 문제 해결) */}
@@ -616,13 +713,132 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
             background: #fff !important;
           }
           .print\\:hidden, .print-hide { display: none !important; }
-          textarea { border: none !important; padding: 0 !important; resize: none !important;
-            background: transparent !important; height: auto !important; overflow: visible !important; }
+          /* ✅ v3.46.9: textarea 숨기고 미러 div로 대체 (잘림 근본 해결) */
+          .ai-comment-print { display: block !important; }
+          textarea { display: none !important; }
+          /* 서명 이미지는 반드시 인쇄 */
+          img { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           /* Recharts SVG 인쇄 색상 유지 */
           svg, svg * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           .no-break { page-break-inside: avoid !important; break-inside: avoid !important; }
         }
       `}</style>
+    </div>
+  );
+}
+
+
+// ✅ v3.46.9: 태블릿/마우스 서명 캔버스 모달
+function SignaturePadModal({ onClose, onSave }: { onClose: () => void; onSave: (dataUrl: string) => void }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [drawing, setDrawing] = useState(false);
+  const [empty, setEmpty] = useState(true);
+
+  useEffect(() => {
+    const c = canvasRef.current;
+    if (!c) return;
+    // HiDPI 지원
+    const dpr = window.devicePixelRatio || 1;
+    const rect = c.getBoundingClientRect();
+    c.width = rect.width * dpr;
+    c.height = rect.height * dpr;
+    const ctx = c.getContext("2d");
+    if (ctx) {
+      ctx.scale(dpr, dpr);
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = "#1e293b";
+      ctx.lineWidth = 2.5;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, rect.width, rect.height);
+    }
+  }, []);
+
+  function getPos(e: any) {
+    const c = canvasRef.current!;
+    const rect = c.getBoundingClientRect();
+    if (e.touches && e.touches[0]) {
+      return { x: e.touches[0].clientX - rect.left, y: e.touches[0].clientY - rect.top };
+    }
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+
+  function start(e: any) {
+    e.preventDefault();
+    setDrawing(true);
+    const ctx = canvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    const { x, y } = getPos(e);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+  }
+  function move(e: any) {
+    if (!drawing) return;
+    e.preventDefault();
+    const ctx = canvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    const { x, y } = getPos(e);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    setEmpty(false);
+  }
+  function end() { setDrawing(false); }
+
+  function clear() {
+    const c = canvasRef.current;
+    if (!c) return;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+    const rect = c.getBoundingClientRect();
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, rect.width, rect.height);
+    setEmpty(true);
+  }
+
+  function save() {
+    if (!canvasRef.current || empty) return;
+    const dataUrl = canvasRef.current.toDataURL("image/png");
+    onSave(dataUrl);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl shadow-2xl p-5 w-full max-w-lg">
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-base font-bold text-slate-800 flex items-center gap-2">
+            🖊️ 서명 입력
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="text-[11px] text-slate-500 mb-2">태블릿에서 손가락/펜, PC에서 마우스로 서명하세요.</div>
+        <div className="border-2 border-dashed border-slate-300 rounded-2xl overflow-hidden bg-white" style={{ touchAction: "none" }}>
+          <canvas
+            ref={canvasRef}
+            className="w-full block"
+            style={{ height: 220, cursor: "crosshair", touchAction: "none" }}
+            onMouseDown={start} onMouseMove={move} onMouseUp={end} onMouseLeave={end}
+            onTouchStart={start} onTouchMove={move} onTouchEnd={end}
+          />
+        </div>
+        <div className="flex justify-between mt-4 gap-2">
+          <button onClick={clear}
+            className="px-4 py-2.5 rounded-xl text-sm font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 transition">
+            🗑️ 지우기
+          </button>
+          <div className="flex gap-2">
+            <button onClick={onClose}
+              className="px-4 py-2.5 rounded-xl text-sm font-semibold bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 transition">
+              취소
+            </button>
+            <button onClick={save} disabled={empty}
+              className="px-5 py-2.5 rounded-xl text-sm font-bold bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-600 hover:to-indigo-600 text-white transition disabled:opacity-40 shadow-md shadow-indigo-200/40">
+              ✓ 저장
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

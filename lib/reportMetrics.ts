@@ -191,10 +191,10 @@ export interface TimeSeriesPoint {
 export function buildFilledTimeSeries(
   sessions: any[],
   mode: "month" | "year",
-  fallbackLevel: number = 2
+  fallbackLevel: number = 2,
+  rangeStart?: string,  // ✅ v3.46.9: YYYY-MM-DD, 강제 시작
+  rangeEnd?: string     // ✅ v3.46.9: YYYY-MM-DD, 강제 종료
 ): TimeSeriesPoint[] {
-  if (sessions.length === 0) return [];
-
   // 1) 세션들을 버킷별로 그룹핑
   const buckets = new Map<string, any[]>();
   for (const s of sessions) {
@@ -204,6 +204,30 @@ export function buildFilledTimeSeries(
     if (!buckets.has(bucket)) buckets.set(bucket, []);
     buckets.get(bucket)!.push(s);
   }
+
+  // ✅ v3.46.9: mode="year" + rangeStart/End 있으면 다년(예: 2024,2025,2026) 강제 포함
+  if (rangeStart && rangeEnd) {
+    const sy = parseInt(rangeStart.slice(0, 4));
+    const ey = parseInt(rangeEnd.slice(0, 4));
+    if (mode === "year") {
+      for (let y = sy; y <= ey; y++) {
+        const k = String(y);
+        if (!buckets.has(k)) buckets.set(k, []);
+      }
+    } else {
+      // month 모드: 시작월~종료월 사이 모든 YYYY-MM 버킷 채우기
+      const start = new Date(rangeStart);
+      const end = new Date(rangeEnd);
+      const cur = new Date(start.getFullYear(), start.getMonth(), 1);
+      while (cur <= end) {
+        const k = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}`;
+        if (!buckets.has(k)) buckets.set(k, []);
+        cur.setMonth(cur.getMonth() + 1);
+      }
+    }
+  }
+
+  if (buckets.size === 0) return [];
 
   // 2) 정렬된 버킷 배열
   const sortedBuckets = Array.from(buckets.keys()).sort();
