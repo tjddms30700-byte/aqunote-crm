@@ -52,6 +52,7 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
   const [orgSettings, setOrgSettings] = useState<any>(null);
 
   // AI 코멘트 (편집 가능)
+  const [activityView, setActivityView] = useState<"donut" | "monthly">("donut"); // ✅ v3.46.8
   const [aiComment, setAiComment] = useState<string>("");
   const [aiLoading, setAiLoading] = useState(false);
   const [aiEdited, setAiEdited] = useState(false);
@@ -312,7 +313,7 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
   return (
     <div className="growth-report-container">
       {/* 상단 툴바 (인쇄 시 숨김) */}
-      <div className="print:hidden flex items-center justify-between mb-4 p-3 bg-white rounded-xl border border-aqu-200 shadow-sm">
+      <div className="print:hidden print-hide flex items-center justify-between mb-4 px-4 py-3 bg-gradient-to-r from-white via-sky-50/40 to-indigo-50/30 rounded-2xl border border-slate-200/70 shadow-sm">
         <div className="flex items-center gap-2">
           <span className="text-sm font-bold text-aqu-900">
             📄 {periodLabel} 성장보고서 - {memberName}
@@ -360,19 +361,19 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
           </div>
         </div>
 
-        {/* KPI 요약 카드 */}
-        <div className="grid grid-cols-5 gap-2 mb-6">
-          <KpiCard label="총 세션" value={summary.totalSessions} unit="회" color="aqu" />
-          <KpiCard label="실측 세션" value={`${Math.round(summary.measuredRatio * 100)}`} unit="%" color="emerald" />
-          <KpiCard label="출석일" value={summary.attendanceDays} unit="일" color="blue" />
-          <KpiCard label="주력 축" value={summary.dominantAxis?.label || "-"} unit="" color="purple" />
-          <KpiCard label="노쇼/취소" value={summary.noshowCount} unit="건" color="red" />
+        {/* ✅ v3.46.8: KPI 요약 카드 프리미엄화 */}
+        <div className="grid grid-cols-5 gap-2 mb-6 no-break">
+          <KpiCard label="총 세션" value={summary.totalSessions} unit="회" color="sky" icon="🌊" />
+          <KpiCard label="실측 세션" value={`${Math.round(summary.measuredRatio * 100)}`} unit="%" color="emerald" icon="🎯" />
+          <KpiCard label="출석일" value={summary.attendanceDays} unit="일" color="indigo" icon="📅" />
+          <KpiCard label="주력 축" value={summary.dominantAxis?.label || "-"} unit="" color="purple" icon="⭐" />
+          <KpiCard label="노쇼/취소" value={summary.noshowCount} unit="건" color="rose" icon="🚫" />
         </div>
 
         {/* 6축 레이더 차트 */}
         <div className="mb-6">
-          <h2 className="text-base font-bold text-aqu-900 mb-2">📊 6축 성장 프로필</h2>
-          <div className="border border-gray-200 rounded-xl p-3 bg-gray-50/30">
+          <h2 className="text-base font-bold text-slate-800 mb-2 flex items-center gap-1.5">📊 6축 성장 프로필</h2>
+          <div className="no-break border border-slate-200/70 rounded-2xl p-4 bg-gradient-to-br from-white to-slate-50/40 shadow-sm">
             <ResponsiveContainer width="100%" height={280}>
               <RadarChart data={radarData}>
                 <PolarGrid strokeDasharray="3 3" stroke="#cbd5e1" />
@@ -398,8 +399,8 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
 
         {/* 시계열 라인 그래프 */}
         <div className="mb-6">
-          <h2 className="text-base font-bold text-aqu-900 mb-2">📈 성장 추이 (LOCF 보정)</h2>
-          <div className="border border-gray-200 rounded-xl p-3 bg-gray-50/30">
+          <h2 className="text-base font-bold text-slate-800 mb-2 flex items-center gap-1.5">📈 성장 추이 <span className="text-[10px] font-normal text-slate-400">(LOCF 보정 · 스플라인)</span></h2>
+          <div className="no-break border border-slate-200/70 rounded-2xl p-4 bg-gradient-to-br from-white to-slate-50/40 shadow-sm">
             <ResponsiveContainer width="100%" height={260}>
               <AreaChart data={timeSeriesData} margin={{ top: 10, right: 20, left: -10, bottom: 5 }}>
                 <defs>
@@ -430,11 +431,25 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
           </div>
         </div>
 
-        {/* 활동량 스택바 */}
-        <div className="mb-6">
-          <h2 className="text-base font-bold text-aqu-900 mb-2">🏊 활동량 분포</h2>
-          <div className="border border-gray-200 rounded-xl p-3 bg-gray-50/30">
-            {(() => {
+        {/* ✅ v3.46.8: 활동량 분포 - 도넛/월별막대 탭 전환 */}
+        <div className="mb-6 no-break">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-base font-bold text-slate-800 flex items-center gap-1.5">🏊 활동량 분포</h2>
+            <div className="print-hide inline-flex rounded-full bg-slate-100 p-0.5 text-[10px] font-semibold">
+              <button
+                onClick={() => setActivityView("donut")}
+                className={`px-2.5 py-1 rounded-full transition ${activityView==="donut" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+                🍩 비중
+              </button>
+              <button
+                onClick={() => setActivityView("monthly")}
+                className={`px-2.5 py-1 rounded-full transition ${activityView==="monthly" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+                📊 월별
+              </button>
+            </div>
+          </div>
+          <div className="border border-slate-200/70 rounded-2xl p-4 bg-gradient-to-br from-white to-slate-50/40 shadow-sm">
+            {activityView === "donut" ? (() => {
               // ✅ v3.46.7: 스택바 → 도넛 차트 (총 활동 비중 시각화)
               const axisKeys = Object.keys(RADAR_AXIS_META) as RadarAxis[];
               const donutData = axisKeys.map(axis => {
@@ -504,7 +519,50 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
                   </div>
                 </div>
               );
-            })()}
+            })() : (
+              // ✅ v3.46.8: 월별 12분할 둥근 막대 뷰
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart
+                  data={(() => {
+                    // period 가 yearly 면 12개월, monthly 면 activityData bucket 사용
+                    if (period === "yearly") {
+                      const y = new Date(startDate).getFullYear();
+                      const months = Array.from({ length: 12 }, (_, i) => {
+                        const mm = String(i + 1).padStart(2, "0");
+                        const label = `${i + 1}월`;
+                        const row: any = { bucket: label };
+                        (Object.keys(RADAR_AXIS_META) as RadarAxis[]).forEach(ax => (row[ax] = 0));
+                        // activityData 에서 해당 월 매치
+                        activityData.forEach((d: any) => {
+                          const b = String(d.bucket || "");
+                          if (b.includes(`-${mm}`) || b.startsWith(`${y}-${mm}`) || b.startsWith(`${i + 1}월`) || b === label) {
+                            (Object.keys(RADAR_AXIS_META) as RadarAxis[]).forEach(ax => {
+                              row[ax] += Number(d[ax]) || 0;
+                            });
+                          }
+                        });
+                        return row;
+                      });
+                      return months;
+                    }
+                    return activityData;
+                  })()}
+                  margin={{ top: 10, right: 12, left: -10, bottom: 5 }}
+                  barCategoryGap="20%">
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                  <XAxis dataKey="bucket" tick={{ fontSize: 10, fill: "#64748b" }} axisLine={{ stroke: "#e2e8f0" }} tickLine={false} />
+                  <YAxis tick={{ fontSize: 10, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ fontSize: 11, borderRadius: 12, border: "1px solid #e2e8f0", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }} formatter={(v: any) => `${v}회`} />
+                  <Legend wrapperStyle={{ fontSize: 10, paddingTop: 6 }} iconType="circle" />
+                  {(Object.keys(RADAR_AXIS_META) as RadarAxis[]).map((axis, i, arr) => (
+                    <Bar key={axis} dataKey={axis} stackId="axis"
+                      name={RADAR_AXIS_META[axis].label}
+                      fill={RADAR_AXIS_META[axis].color}
+                      radius={i === arr.length - 1 ? [8, 8, 0, 0] : [0, 0, 0, 0]} />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
 
@@ -536,41 +594,61 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
         </div>
       </div>
 
-      {/* 인쇄용 CSS */}
+      {/* ✅ v3.46.8: 인쇄용 CSS 근본 재설계 (visibility 방식으로 백지 문제 해결) */}
       <style jsx global>{`
         @media print {
-          @page { size: A4; margin: 12mm 10mm; }
-          body > *:not(.growth-report-container) { display: none !important; }
-          .growth-report-container { position: static !important; }
+          @page { size: A4; margin: 10mm 8mm; }
+          /* 전체를 숨기지 않고 visibility 로 인쇄 영역만 노출 */
+          html, body { background: #fff !important; margin: 0 !important; padding: 0 !important; }
+          body * { visibility: hidden !important; }
+          .growth-report-print, .growth-report-print * { visibility: visible !important; }
           .growth-report-print {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
             max-width: none !important;
             min-height: auto !important;
-            padding: 0 !important;
+            padding: 12mm 10mm !important;
+            margin: 0 !important;
             box-shadow: none !important;
             border: none !important;
+            background: #fff !important;
           }
-          .print\\:hidden { display: none !important; }
-          textarea { border: none !important; padding: 0 !important; resize: none !important; }
+          .print\\:hidden, .print-hide { display: none !important; }
+          textarea { border: none !important; padding: 0 !important; resize: none !important;
+            background: transparent !important; height: auto !important; overflow: visible !important; }
+          /* Recharts SVG 인쇄 색상 유지 */
+          svg, svg * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          .no-break { page-break-inside: avoid !important; break-inside: avoid !important; }
         }
       `}</style>
     </div>
   );
 }
 
-function KpiCard({ label, value, unit, color }: any) {
-  const colorMap: Record<string, string> = {
-    aqu: "bg-aqu-50 border-aqu-200 text-aqu-900",
-    emerald: "bg-emerald-50 border-emerald-200 text-emerald-900",
-    blue: "bg-blue-50 border-blue-200 text-blue-900",
-    purple: "bg-purple-50 border-purple-200 text-purple-900",
-    red: "bg-red-50 border-red-200 text-red-900",
+function KpiCard({ label, value, unit, color, icon }: any) {
+  // ✅ v3.46.8: 그라디언트 + 아이콘 + 프리미엄 디자인
+  const gradMap: Record<string, { from: string; to: string; text: string; ring: string }> = {
+    sky:     { from: "from-sky-50",     to: "to-sky-100/60",     text: "text-sky-800",     ring: "ring-sky-200" },
+    emerald: { from: "from-emerald-50", to: "to-emerald-100/60", text: "text-emerald-800", ring: "ring-emerald-200" },
+    indigo:  { from: "from-indigo-50",  to: "to-indigo-100/60",  text: "text-indigo-800",  ring: "ring-indigo-200" },
+    purple:  { from: "from-purple-50",  to: "to-purple-100/60",  text: "text-purple-800",  ring: "ring-purple-200" },
+    rose:    { from: "from-rose-50",    to: "to-rose-100/60",    text: "text-rose-800",    ring: "ring-rose-200" },
+    aqu:     { from: "from-sky-50",     to: "to-cyan-100/60",    text: "text-sky-800",     ring: "ring-sky-200" },
+    blue:    { from: "from-indigo-50",  to: "to-indigo-100/60",  text: "text-indigo-800",  ring: "ring-indigo-200" },
+    red:     { from: "from-rose-50",    to: "to-rose-100/60",    text: "text-rose-800",    ring: "ring-rose-200" },
   };
+  const g = gradMap[color] || gradMap.sky;
   return (
-    <div className={`p-2 rounded-xl border text-center ${colorMap[color] || colorMap.aqu}`}>
-      <div className="text-[9px] opacity-70">{label}</div>
-      <div className="text-base font-bold mt-0.5">
+    <div className={`relative p-3 rounded-2xl bg-gradient-to-br ${g.from} ${g.to} ring-1 ${g.ring} shadow-sm hover:shadow-md transition-shadow overflow-hidden`}>
+      {icon && (
+        <div className="absolute -right-1 -top-1 text-2xl opacity-20 select-none">{icon}</div>
+      )}
+      <div className={`text-[10px] font-semibold ${g.text} opacity-70`}>{label}</div>
+      <div className={`text-lg font-bold mt-1 ${g.text} leading-tight`}>
         {value}
-        {unit && <span className="text-[10px] opacity-70 ml-0.5">{unit}</span>}
+        {unit && <span className="text-[11px] font-medium opacity-70 ml-0.5">{unit}</span>}
       </div>
     </div>
   );

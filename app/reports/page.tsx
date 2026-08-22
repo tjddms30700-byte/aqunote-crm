@@ -339,28 +339,35 @@ function ReportsPage() {
   }
 
   return (
-    <main className="max-w-5xl mx-auto px-3 md:px-6 py-6 md:py-10 bg-gradient-to-br from-sky-50 via-white to-cyan-50 min-h-screen">
+    <main className="max-w-6xl mx-auto px-3 md:px-6 py-6 md:py-10 bg-gradient-to-br from-slate-50 via-sky-50/40 to-indigo-50/30 min-h-screen">
+      {/* ✅ v3.46.8: 프리미엄 헬스케어 대시보드 헤더 */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-        <h1 className="text-xl md:text-3xl font-bold text-aqu-900 flex items-center gap-2">
-          <FileText className="w-6 h-6 md:w-7 md:h-7 text-blue-500" /> 보고서 · 양식
-        </h1>
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-sky-400 to-indigo-500 flex items-center justify-center shadow-lg shadow-indigo-200/50">
+            <FileText className="w-5 h-5 md:w-6 md:h-6 text-white" />
+          </div>
+          <div>
+            <h1 className="text-xl md:text-2xl font-bold text-slate-800 leading-tight">보고서 · 양식</h1>
+            <div className="text-[11px] text-slate-500 mt-0.5">성장 종합보고서 · 계약서 · 발급 문서 통합 대시보드</div>
+          </div>
+        </div>
         <HomeButton />
       </div>
 
-      {/* v3.20.21: 상단 탭 */}
-      <div className="flex gap-2 mb-4 bg-white p-1.5 rounded-xl border border-aqu-100 shadow-sm">
+      {/* ✅ v3.46.8: 프리미엄 세그먼트 탭 (헬스케어 대시보드 스타일) */}
+      <div className="flex gap-1 mb-5 bg-white/70 backdrop-blur p-1 rounded-2xl border border-slate-200/70 shadow-sm max-w-md">
         <button onClick={() => setTopTab("report")}
-          className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-bold transition ${topTab==="report" ? "bg-gradient-to-r from-aqu-500 to-blue-600 text-white shadow" : "text-gray-600 hover:bg-gray-50"}`}>
+          className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${topTab==="report" ? "bg-gradient-to-r from-sky-500 to-indigo-500 text-white shadow-md shadow-indigo-200/40" : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"}`}>
           📊 보고서
         </button>
         <button onClick={() => setTopTab("forms")}
-          className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-bold transition ${topTab==="forms" ? "bg-gradient-to-r from-aqu-500 to-blue-600 text-white shadow" : "text-gray-600 hover:bg-gray-50"}`}>
+          className={`flex-1 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${topTab==="forms" ? "bg-gradient-to-r from-sky-500 to-indigo-500 text-white shadow-md shadow-indigo-200/40" : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"}`}>
           📋 양식
         </button>
       </div>
 
       {topTab === "forms" && (
-        <div className="bg-white rounded-2xl shadow-md border border-aqu-100 p-5 mb-5">
+        <div className="bg-white/90 backdrop-blur rounded-3xl shadow-sm ring-1 ring-slate-200/70 p-5 md:p-6 mb-5">
           {/* 양식 하위 탭 – 직원용 / 회원용 */}
           <div className="flex gap-2 mb-4">
             <button onClick={() => setFormsCat("staff")}
@@ -513,7 +520,7 @@ function ReportsPage() {
           {selectedFormType && selectedSubject && (
             <div className="mt-5 border-2 border-aqu-500 rounded-2xl bg-gradient-to-br from-aqu-50 to-blue-50 p-4">
               <div className="flex items-center justify-between mb-3">
-                <div className="text-sm font-bold text-aqu-900 flex flex-wrap items-center gap-1.5">
+                <div className="text-sm font-bold text-slate-800 flex flex-wrap items-center gap-1.5">
                   ✅ 선택: <span className="text-blue-700">{[...STAFF_FORMS, ...MEMBER_FORMS].find(x => x.v === selectedFormType)?.label}</span>
                   <span>×</span>
                   <span className="text-purple-700">{selectedSubject.name}</span>
@@ -570,16 +577,16 @@ function ReportsPage() {
       )}
 
       {topTab === "report" && (
-      <div className="bg-white rounded-2xl shadow-md border border-aqu-100 p-5 mb-5">
+      <div className="bg-white/90 backdrop-blur rounded-3xl shadow-sm ring-1 ring-slate-200/70 p-5 md:p-6 mb-5">
         {/* 보고서 종류 */}
         <div className="mb-4">
-          <label className="text-sm font-bold text-aqu-900 mb-2 block">1. 보고서 종류 선택</label>
+          <label className="text-sm font-bold text-slate-800 mb-2 block">1. 보고서 종류 선택</label>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             {REPORT_TYPES.map(t => (
               <button key={t.v} onClick={() => setType(t.v)}
-                className={`p-3 rounded-lg text-left border-2 transition ${type === t.v ? "border-aqu-500 bg-aqu-50" : "border-gray-200 hover:border-aqu-300"}`}>
-                <div className="text-sm font-bold">{t.label}</div>
-                <div className="text-[10px] text-gray-500 mt-0.5">{t.desc}</div>
+                className={`p-3.5 rounded-2xl text-left transition-all ${type === t.v ? "bg-gradient-to-br from-sky-50 to-indigo-50 ring-2 ring-indigo-400 shadow-sm" : "bg-white ring-1 ring-slate-200 hover:ring-indigo-300 hover:shadow-sm"}`}>
+                <div className={`text-sm font-bold ${type === t.v ? "text-indigo-700" : "text-slate-700"}`}>{t.label}</div>
+                <div className="text-[10px] text-slate-500 mt-0.5">{t.desc}</div>
               </button>
             ))}
           </div>
@@ -588,7 +595,7 @@ function ReportsPage() {
         {/* 회원 & 기간 */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
           <div>
-            <label className="text-xs font-semibold text-gray-600 mb-1 block">회원</label>
+            <label className="text-xs font-semibold text-slate-500 mb-1 block">회원</label>
             {/* ✅ v3.46.3: 검색 가능한 회원 콤보박스 */}
             <MemberSearchSelect
               members={members as any}
@@ -601,7 +608,7 @@ function ReportsPage() {
           {(type === "monthly" || type === "yearly") ? (
             <>
               <div>
-                <label className="text-xs font-semibold text-gray-600 mb-1 block">연도</label>
+                <label className="text-xs font-semibold text-slate-500 mb-1 block">연도</label>
                 <select
                   value={startDate.slice(0, 4)}
                   onChange={(e) => {
@@ -616,7 +623,7 @@ function ReportsPage() {
                       setEndDate(`${y}-12-31`);
                     }
                   }}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none">
                   {[2024, 2025, 2026, 2027, 2028].map(y => (
                     <option key={y} value={y}>{y}년</option>
                   ))}
@@ -624,7 +631,7 @@ function ReportsPage() {
               </div>
               {type === "monthly" ? (
                 <div>
-                  <label className="text-xs font-semibold text-gray-600 mb-1 block">월</label>
+                  <label className="text-xs font-semibold text-slate-500 mb-1 block">월</label>
                   <select
                     value={startDate.slice(5, 7)}
                     onChange={(e) => {
@@ -634,7 +641,7 @@ function ReportsPage() {
                       setStartDate(`${y}-${m}-01`);
                       setEndDate(`${y}-${m}-${String(lastDay).padStart(2, "0")}`);
                     }}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none">
                     {["01","02","03","04","05","06","07","08","09","10","11","12"].map(m => (
                       <option key={m} value={m}>{Number(m)}월</option>
                     ))}
@@ -651,12 +658,12 @@ function ReportsPage() {
           ) : (
             <>
               <div>
-                <label className="text-xs font-semibold text-gray-600 mb-1 block">시작일</label>
+                <label className="text-xs font-semibold text-slate-500 mb-1 block">시작일</label>
                 <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
               </div>
               <div>
-                <label className="text-xs font-semibold text-gray-600 mb-1 block">종료일</label>
+                <label className="text-xs font-semibold text-slate-500 mb-1 block">종료일</label>
                 <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
               </div>
@@ -666,13 +673,13 @@ function ReportsPage() {
 
         {/* ✅ v3.46.0: monthly/yearly 는 GrowthReportPanel 로 자동 렌더 (버튼 불필요) */}
         {(type === "monthly" || type === "yearly") ? (
-          <div className="text-[11px] text-aqu-700 bg-aqu-50 border border-aqu-200 rounded-lg p-3 text-center">
+          <div className="text-[11px] text-indigo-700 bg-gradient-to-r from-sky-50 via-indigo-50/60 to-purple-50/40 border border-indigo-200/60 rounded-2xl p-3.5 text-center shadow-sm">
             💡 회원을 선택하면 아래에 <b>성장보고서</b>가 자동 생성됩니다.
             AI 코멘트 초안이 자동 작성되며, 치료사가 직접 편집 후 <b>PDF 다운로드</b>·<b>인쇄</b>가 가능합니다.
           </div>
         ) : (
           <button onClick={generate} disabled={generating || !selectedMember}
-            className="w-full py-3 bg-gradient-to-r from-aqu-500 to-blue-600 hover:from-aqu-600 hover:to-blue-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50">
+            className="w-full py-3 bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-600 hover:to-indigo-600 text-white rounded-2xl font-bold flex items-center justify-center gap-2 disabled:opacity-50 shadow-md shadow-indigo-200/40">
             {generating ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileText className="w-5 h-5" />}
             {generating ? "생성 중..." : "보고서 생성"}
           </button>
@@ -699,7 +706,7 @@ function ReportsPage() {
       {reportHtml && (
         <div className="bg-white rounded-2xl shadow-md border border-aqu-100 overflow-hidden">
           <div className="flex items-center justify-between p-3 border-b bg-gray-50">
-            <div className="text-sm font-bold text-aqu-900">📄 미리보기</div>
+            <div className="text-sm font-bold text-slate-800">📄 미리보기</div>
             <div className="flex gap-2">
               <button onClick={printReport}
                 className="text-xs px-3 py-1.5 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 flex items-center gap-1">
