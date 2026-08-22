@@ -174,7 +174,7 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
 
   // ✅ v3.46.2: 시계열/스택바 데이터 빈 배열 방지 (Recharts 렌더링 안정화)
   const timeSeriesData = useMemo(() => {
-    const data = buildFilledTimeSeries(sessions || [], period === "yearly" ? "month" : "day");
+    const data = buildFilledTimeSeries(sessions || [], period === "yearly" ? "year" : "month");  // ✅ v3.46.4: mode는 month|year만
     if (!data || data.length === 0) {
       // 빈 상태에서도 X축 라벨 표시
       const now = new Date();
@@ -189,7 +189,7 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
   }, [sessions, period]);
 
   const activityData = useMemo(() => {
-    const data = buildActivityVolume(sessions || [], period === "yearly" ? "month" : "week");
+    const data = buildActivityVolume(sessions || [], period === "yearly" ? "year" : "month");  // ✅ v3.46.4: mode는 month|year만
     if (!data || data.length === 0) {
       const now = new Date();
       const label = period === "yearly" ? `${now.getMonth()+1}월` : `${now.getMonth()+1}/${now.getDate()}`;

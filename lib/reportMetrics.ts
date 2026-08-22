@@ -240,7 +240,11 @@ export function buildFilledTimeSeries(
         point[s.axis] = carryForward[s.axis];
         point.hasMeasured[s.axis] = false;
       }
+      // ✅ v3.46.4: 한글 라벨 필드도 함께 저장 (Recharts dataKey 매칭)
+      (point as any)[RADAR_AXIS_META[s.axis].label] = point[s.axis];
     }
+    // ✅ v3.46.4: label 필드 추가 (X축 표시용)
+    (point as any).label = bucket;
     points.push(point);
   }
 
@@ -283,9 +287,19 @@ export function buildActivityVolume(
     const tagCnt = countTagsByAxis(s);
     (Object.keys(tagCnt) as RadarAxis[]).forEach(axis => {
       entry[axis] += tagCnt[axis];
+      // ✅ v3.46.4: 한글 라벨 필드 병기
+      (entry as any)[RADAR_AXIS_META[axis].label] = entry[axis];
     });
   }
-  return Array.from(buckets.values()).sort((a, b) => a.bucket.localeCompare(b.bucket));
+  // ✅ v3.46.4: 각 entry에 label 필드 추가 + 한글 필드 최종 동기화
+  const result = Array.from(buckets.values()).sort((a, b) => a.bucket.localeCompare(b.bucket));
+  result.forEach((e: any) => {
+    e.label = e.bucket;
+    (Object.keys(RADAR_AXIS_META) as RadarAxis[]).forEach(axis => {
+      e[RADAR_AXIS_META[axis].label] = e[axis];
+    });
+  });
+  return result;
 }
 
 // ═══════════════════════════════════════════════════════════════
