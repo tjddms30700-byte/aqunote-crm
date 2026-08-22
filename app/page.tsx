@@ -32,7 +32,7 @@ const GROUPS = [
       { href: "/members",         icon: Users,          title: "회원 DB · 출결",   desc: "아동·성인 + 출석 이력" },
       { href: "/schedule",        icon: Calendar,       title: "통합 시간표",       desc: "월·주·일 + 더블클릭 새 일정" },
       // ✅ v3.35.2: /iep-behavior 허브 페이지 제거 → 회원 상세 탭으로 통합 (/reports가 자동 생성 전담)
-      { href: "/reports",         icon: Target,         title: "📊 보고서 · IEP",   desc: "세션→일지/주간/IEP/행동 자동" },
+      { href: "/reports",         icon: Target,         title: "📊 성장 종합보고서", desc: "월간·연간 6축 레이더 + A4 PDF 자동 생성" },  // ✅ v3.46.2: 성장보고서 안내로 변경
       { href: "/incidents",       icon: AlertTriangle,  title: "🚨 안전사고",       desc: "응급기록 · 선생님도 사용 가능" },
     ],
   },

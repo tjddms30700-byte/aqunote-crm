@@ -39,10 +39,12 @@ interface Props {
   memberName: string;
   memberLevel?: number;
   period: Period;
+  startDate?: string;  // ✅ v3.46.2: 부모 페이지에서 지정한 시작일
+  endDate?: string;    // ✅ v3.46.2: 부모 페이지에서 지정한 종료일
   onClose?: () => void;
 }
 
-export default function GrowthReportPanel({ memberId, memberName, memberLevel = 2, period, onClose }: Props) {
+export default function GrowthReportPanel({ memberId, memberName, memberLevel = 2, period, startDate: propStartDate, endDate: propEndDate, onClose }: Props) {
   const [loading, setLoading] = useState(true);
   const [sessions, setSessions] = useState<any[]>([]);
   const [attendance, setAttendance] = useState<any[]>([]);
@@ -59,8 +61,19 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
   // 인쇄 대상 ref
   const printRef = useRef<HTMLDivElement>(null);
 
-  // 기간 계산 (오늘 = 2026-08-22)
+  // ✅ v3.46.2: 부모에서 지정한 startDate/endDate가 있으면 그것을 우선 사용
   const { startDate, endDate, periodLabel } = useMemo(() => {
+    // 부모가 준 날짜가 있으면 그대로 사용
+    if (propStartDate && propEndDate) {
+      const s = new Date(propStartDate);
+      const e = new Date(propEndDate);
+      const monthsBetween = (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth());
+      const label = period === "yearly" || monthsBetween >= 6
+        ? `${s.getFullYear()}년 ${s.getMonth()+1}월 ~ ${e.getFullYear()}년 ${e.getMonth()+1}월`
+        : `${s.getFullYear()}년 ${s.getMonth()+1}월`;
+      return { startDate: propStartDate, endDate: propEndDate, periodLabel: label };
+    }
+    // 부모 미지정 시 기본값 (오늘 기준 2026-08-22)
     const now = new Date();
     const end = now.toISOString().slice(0, 10);
     let start: string;
@@ -75,7 +88,7 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
       label = `${now.getFullYear()}년`;
     }
     return { startDate: start, endDate: end, periodLabel: label };
-  }, [period]);
+  }, [period, propStartDate, propEndDate]);
 
   // 데이터 로드
   useEffect(() => {
@@ -108,24 +121,49 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
     })();
   }, [memberId, startDate, endDate]);
 
-  // 6축 레이더 데이터
+  // ✅ v3.46.2: 6축 레이더 데이터 (세션이 없어도 기본 축 렌더링 보장)
   const radarData = useMemo(() => {
-    const scores = computeRadarScores(sessions, memberLevel);
-    return (Object.keys(RADAR_AXIS_META) as RadarAxis[]).map(axis => ({
-      axis: RADAR_AXIS_META[axis].label,
-      점수: scores[axis]?.score || 0,
-      source: scores[axis]?.source || "default",
-    }));
+    const scores = computeRadarScores(sessions || [], memberLevel);
+    return (Object.keys(RADAR_AXIS_META) as RadarAxis[]).map(axis => {
+      const s = scores[axis];
+      // 세션이 없으면 memberLevel 기반 기본값 표시 (fallback)
+      const defaultScore = Math.max(15, memberLevel * 20);
+      return {
+        axis: RADAR_AXIS_META[axis].label,
+        점수: (s && typeof s.score === "number" && s.score > 0) ? s.score : defaultScore,
+        source: s?.source || "default",
+      };
+    });
   }, [sessions, memberLevel]);
 
-  // 시계열 라인 (LOCF fallback)
+  // ✅ v3.46.2: 시계열/스택바 데이터 빈 배열 방지 (Recharts 렌더링 안정화)
   const timeSeriesData = useMemo(() => {
-    return buildFilledTimeSeries(sessions, period === "yearly" ? "month" : "day");
+    const data = buildFilledTimeSeries(sessions || [], period === "yearly" ? "month" : "day");
+    if (!data || data.length === 0) {
+      // 빈 상태에서도 X축 라벨 표시
+      const now = new Date();
+      const label = period === "yearly" ? `${now.getMonth()+1}월` : now.toISOString().slice(5, 10);
+      const emptyPoint: any = { label };
+      (Object.keys(RADAR_AXIS_META) as RadarAxis[]).forEach(axis => {
+        emptyPoint[RADAR_AXIS_META[axis].label] = null;
+      });
+      return [emptyPoint];
+    }
+    return data;
   }, [sessions, period]);
 
-  // 활동량 스택바
   const activityData = useMemo(() => {
-    return buildActivityVolume(sessions, period === "yearly" ? "month" : "week");
+    const data = buildActivityVolume(sessions || [], period === "yearly" ? "month" : "week");
+    if (!data || data.length === 0) {
+      const now = new Date();
+      const label = period === "yearly" ? `${now.getMonth()+1}월` : `${now.getMonth()+1}/${now.getDate()}`;
+      const emptyPoint: any = { label };
+      (Object.keys(RADAR_AXIS_META) as RadarAxis[]).forEach(axis => {
+        emptyPoint[RADAR_AXIS_META[axis].label] = 0;
+      });
+      return [emptyPoint];
+    }
+    return data;
   }, [sessions, period]);
 
   // KPI 요약 (노쇼 횟수 포함)

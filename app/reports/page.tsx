@@ -608,11 +608,13 @@ function ReportsPage() {
       {topTab === "report" && selectedMember && (type === "monthly" || type === "yearly") && (
         <div className="mt-4">
           <GrowthReportPanel
-            key={`${selectedMember}-${type}`}
+            key={`${selectedMember}-${type}-${startDate}-${endDate}`}
             memberId={selectedMember}
             memberName={members.find(m => m.id === selectedMember)?.name || ""}
             memberLevel={(members.find(m => m.id === selectedMember) as any)?.computed_level || 2}
             period={type === "monthly" ? "monthly" : "yearly"}
+            startDate={startDate}
+            endDate={endDate}
           />
         </div>
       )}
