@@ -1160,9 +1160,10 @@ export async function POST(req: NextRequest) {
     case "clinical": return handleAiClinical(req);
     case "analyze":  return handleAnalyze(req);
     case "send":     return handleSend(req);
+    case "growth-report": return handleGrowthReport(req);   // ✅ v3.46.0
     default:
       return NextResponse.json(
-        { error: `Unknown action: ${action}. Use ?action=memo|message|clinical|analyze|send` },
+        { error: `Unknown action: ${action}. Use ?action=memo|message|clinical|analyze|send|growth-report` },
         { status: 400 }
       );
   }
@@ -1185,4 +1186,98 @@ function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
+// ═══════════════════════════════════════════════════════════════
+// ✅ v3.46.0 - 성장 종합보고서 AI 코멘트 자동 생성
+// POST /api/ai?action=growth-report
+// Body: { memberName, period, summary, radar, sessionCount }
+// ═══════════════════════════════════════════════════════════════
+async function handleGrowthReport(req: Request) {
+  try {
+    const body = await req.json();
+    const { memberName, period, summary, radar, sessionCount } = body || {};
+
+    if (!memberName) {
+      return NextResponse.json({ error: "memberName 필수" }, { status: 400 });
+    }
+
+    // 데이터 기반 분석
+    const totalSessions = summary?.totalSessions || 0;
+    const measuredRatio = Math.round((summary?.measuredRatio || 0) * 100);
+    const attendanceDays = summary?.attendanceDays || 0;
+    const dominantLabel = summary?.dominantAxis?.label || "균형";
+    const strongLabel = summary?.strongestAxis?.label || "";
+    const strongScore = summary?.strongestAxis?.score || 0;
+    const weakLabel = summary?.weakestAxis?.label || "";
+    const weakScore = summary?.weakestAxis?.score || 0;
+    const noshowCount = summary?.noshowCount || 0;
+
+    // 6축 점수 요약
+    const radarSummary = Array.isArray(radar)
+      ? radar.map((r: any) => `${r.axis} ${r.점수}점`).join(", ")
+      : "";
+
+    // ─── 오프닝 ───
+    const openings = [
+      `${memberName} 회원은 ${period} 동안 총 ${totalSessions}회의 수중 세션에 참여하며 꾸준한 성장세를 보였습니다.`,
+      `${period} 기간 ${memberName} 회원은 ${totalSessions}회 세션을 소화하며 전반적으로 안정적인 참여도를 유지했습니다.`,
+      `${memberName} 회원의 ${period} 활동을 종합하면, ${totalSessions}회 세션 중 다양한 영역에서 발전이 관찰되었습니다.`,
+    ];
+    const opening = openings[Math.floor(Math.random() * openings.length)];
+
+    // ─── 강점 분석 ───
+    let strengthPart = "";
+    if (strongLabel && strongScore >= 70) {
+      strengthPart = `\n\n【강점 영역】\n${strongLabel} 영역에서 ${strongScore}점의 우수한 수행을 보였습니다. 특히 ${dominantLabel} 활동에 활발히 참여하며 자신감 있는 모습을 관찰할 수 있었습니다.`;
+    } else if (dominantLabel) {
+      strengthPart = `\n\n【강점 영역】\n${dominantLabel} 활동에 주력하며 안정적인 수행을 보였습니다.`;
+    }
+
+    // ─── 개선 필요 ───
+    let weaknessPart = "";
+    if (weakLabel && weakScore < 50) {
+      weaknessPart = `\n\n【집중 개선 영역】\n${weakLabel} 영역이 ${weakScore}점으로 상대적으로 향상이 필요합니다. 다음 기간에는 해당 영역의 프로그램 비중을 늘려 균형 있는 발달을 도모하겠습니다.`;
+    }
+
+    // ─── 출석/참여 ───
+    let attendPart = `\n\n【출석 현황】\n총 ${attendanceDays}일 출석했으며`;
+    if (noshowCount === 0) {
+      attendPart += ", 결석·취소 없이 완벽한 참여도를 보였습니다. 🎉";
+    } else if (noshowCount <= 2) {
+      attendPart += `, 노쇼·취소가 ${noshowCount}건 있었습니다. 규칙적인 참여가 성장에 큰 도움이 됩니다.`;
+    } else {
+      attendPart += `, 노쇼·취소가 ${noshowCount}건 발생했습니다. 규칙적인 참여를 위해 스케줄 관리에 신경 써 주시길 부탁드립니다.`;
+    }
+
+    // ─── 실측 데이터 언급 ───
+    let measurePart = "";
+    if (measuredRatio >= 50) {
+      measurePart = `\n\n【정밀 측정】\n전체 세션 중 ${measuredRatio}%에 정밀 수치(Berg, 호흡, ROM 등)가 기록되어 신뢰도 높은 성장 추이 확인이 가능합니다.`;
+    } else if (measuredRatio >= 20) {
+      measurePart = `\n\n【정밀 측정】\n실측 수치 기록률이 ${measuredRatio}%입니다. 정밀 측정 빈도를 높이면 더 정확한 성장 추이 파악이 가능합니다.`;
+    }
+
+    // ─── 다음 기간 계획 ───
+    const closings = [
+      `\n\n【다음 기간 방향】\n${memberName} 회원의 개인 특성을 고려하여 ${dominantLabel} 활동을 유지하되, 균형 있는 6축 발달을 위한 프로그램을 병행하겠습니다. 가정에서도 물놀이 활동을 통한 자연스러운 감각 자극을 지속해 주시면 시너지 효과가 있을 것입니다. 감사합니다. 🌊`,
+      `\n\n【치료사 소견】\n지속적인 관찰과 개별화된 프로그램으로 ${memberName} 회원의 잠재력을 이끌어내겠습니다. 학부모님의 협조에 진심으로 감사드립니다. 🌊`,
+    ];
+    const closing = closings[Math.floor(Math.random() * closings.length)];
+
+    const comment = opening + strengthPart + weaknessPart + attendPart + measurePart + closing;
+
+    return NextResponse.json({
+      success: true,
+      comment,
+      metadata: {
+        totalSessions,
+        measuredRatio,
+        attendanceDays,
+        dominantLabel,
+        radarSummary,
+      },
+    });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message || "성장보고서 AI 코멘트 생성 실패" }, { status: 500 });
+  }
+}
 

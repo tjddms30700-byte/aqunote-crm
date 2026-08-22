@@ -24,11 +24,10 @@ const MEMBER_FORMS = [
   { v: "ground_care", label: "🏋️‍♂️ 지상재활·디바이스케어 이용계약서", desc: "자율 예약제 · 100% 회차권 즉시 차감 · 보강 없음 · 안전 사전 체크 필수" },
 ];
 
+// ✅ v3.46.0: 4탭 → 2탭 통폐합 (성장 종합보고서)
 const REPORT_TYPES = [
-  { v: "daily",    label: "📝 일일 수업일지",     desc: "특정 날짜의 세션·활동 요약" },
-  { v: "weekly",   label: "📅 주간 리포트",       desc: "1주일 활동·출결·행동 요약" },
-  { v: "iep",      label: "🎯 IEP 보고서",       desc: "회원별 목표 진도 종합" },
-  { v: "behavior", label: "🚨 행동중재 보고서",   desc: "문제행동 데이터·중재 효과" },
+  { v: "monthly", label: "📅 월간 성장보고서", desc: "이번 달 세션·6축·PDF 자동 생성" },
+  { v: "yearly",  label: "📊 연간 성장보고서", desc: "올해 성장 추이·연간 요약·PDF" },
 ];
 
 // v3.20.36: 체험/상담 리드의 상세 데이터까지 URL로 전달해 계약서 변수 자동 치환
@@ -59,6 +58,12 @@ function weekAgoStr() {
   return d.toISOString().slice(0,10);
 }
 
+// ✅ v3.46.0: GrowthReportPanel 동적 임포트 (Recharts SSR 우회)
+const GrowthReportPanel = dynamic(
+  () => import("@/components/GrowthReportPanel"),
+  { ssr: false, loading: () => (<div className="p-10 text-center text-gray-400">📊 성장보고서 로딩 중...</div>) }
+);
+
 export default function ReportsPageWrapper() {
   return (
     <Suspense fallback={<div className="p-8 text-center text-gray-500">로딩중...</div>}>
@@ -70,7 +75,7 @@ export default function ReportsPageWrapper() {
 function ReportsPage() {
   const [members, setMembers] = useState<any[]>([]);
   const [staffList, setStaffList] = useState<any[]>([]);
-  const [type, setType] = useState<string>("daily");
+  const [type, setType] = useState<string>("monthly");
   const [selectedMember, setSelectedMember] = useState<string>("");
   const [startDate, setStartDate] = useState(weekAgoStr());
   // ✅ v3.26.10: hydration mismatch 방지
@@ -582,12 +587,33 @@ function ReportsPage() {
           </div>
         </div>
 
-        <button onClick={generate} disabled={generating || !selectedMember}
-          className="w-full py-3 bg-gradient-to-r from-aqu-500 to-blue-600 hover:from-aqu-600 hover:to-blue-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50">
-          {generating ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileText className="w-5 h-5" />}
-          {generating ? "생성 중..." : "보고서 생성"}
-        </button>
+        {/* ✅ v3.46.0: monthly/yearly 는 GrowthReportPanel 로 자동 렌더 (버튼 불필요) */}
+        {(type === "monthly" || type === "yearly") ? (
+          <div className="text-[11px] text-aqu-700 bg-aqu-50 border border-aqu-200 rounded-lg p-3 text-center">
+            💡 회원을 선택하면 아래에 <b>성장보고서</b>가 자동 생성됩니다.
+            AI 코멘트 초안이 자동 작성되며, 치료사가 직접 편집 후 <b>PDF 다운로드</b>·<b>인쇄</b>가 가능합니다.
+          </div>
+        ) : (
+          <button onClick={generate} disabled={generating || !selectedMember}
+            className="w-full py-3 bg-gradient-to-r from-aqu-500 to-blue-600 hover:from-aqu-600 hover:to-blue-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50">
+            {generating ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileText className="w-5 h-5" />}
+            {generating ? "생성 중..." : "보고서 생성"}
+          </button>
+        )}
       </div>
+      )}
+
+      {/* ✅ v3.46.0: 월간/연간 성장 종합보고서 자동 렌더 */}
+      {topTab === "report" && selectedMember && (type === "monthly" || type === "yearly") && (
+        <div className="mt-4">
+          <GrowthReportPanel
+            key={`${selectedMember}-${type}`}
+            memberId={selectedMember}
+            memberName={members.find(m => m.id === selectedMember)?.name || ""}
+            memberLevel={(members.find(m => m.id === selectedMember) as any)?.computed_level || 2}
+            period={type === "monthly" ? "monthly" : "yearly"}
+          />
+        </div>
       )}
 
       {/* 미리보기 */}

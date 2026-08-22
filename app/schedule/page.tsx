@@ -1,4 +1,10 @@
 // ═══════════════════════════════════════════════════════════════
+// ✅ v3.46.0 (2026-08-22): 리포트 성장 종합보고서 + 취소 필터 근본 수정
+//   ⭐ 진짜 근본 원인: v3.40.3 방어 필터가 status='cancel' 슬롯을 UI에서 완전 제외
+//   - 방어 필터 수정: 개별 cancel 슬롯은 UI 유지, 취소된 회원권 소속만 배제
+//   - 리포트 탭 4→2 통폐합 (월간/연간 성장보고서)
+//   - 6축 레이더 + LOCF 시계열 + 활동량 스택바 + AI 자동 코멘트
+//   - A4 PDF 출력 (파일명: {회원명}_성장보고서_YYYY-MM.pdf)
 // ✅ v3.45.8 (2026-08-22): 취소 UI 완전 정정 - "빈 카드처럼 보이던 문제" 해결
 //   - QuickActionSheet 취소 버튼: "차감 없음" → "− 1회 차감" 표시
 //   - 취소 시 확인창 추가 (실수 방지)
@@ -326,9 +332,10 @@ export default function SchedulePage() {
     let rawSlots = Array.isArray(sRes?.data) ? sRes.data : [];
     console.log(`[v3.37.0] schedule_slots 로드 완료: ${rawSlots.length}건`);
 
-    // ✅ v3.40.3: 취소된 회원권 소속 슬롯을 클라이언트에서 방어적으로 제외
-    //   원인: v3.40.3 이전에 취소된 결제/회원권이 남긴 미래 슬롯이 달력에 그대로 표시되는 문제
-    //   membership 이 cancelled 상태거나 이미 slot.status=cancel 이면 렌더링 대상에서 배제
+    // ✅ v3.46.0: 방어 필터 수정 - 개별 status='cancel' 은 UI에 표시 (취소=노쇼 개념)
+    //   기존 v3.40.3 필터: 취소 슬롯을 화면에서 완전 제외 → 사용자가 "삭제된 것"으로 오인
+    //   변경: 취소된 회원권 소속 슬롯만 배제 (결제 취소된 미래 예약 방어)
+    //   개별 status='cancel' 슬롯은 취소선 배지로 UI에 남김 (v3.45.7 취소=노쇼 정책)
     const cancelledMembershipIds = new Set(
       ((msRes as any)?.data || [])
         .filter((m: any) => (m?.status || "").toLowerCase() === "cancelled")
@@ -336,9 +343,8 @@ export default function SchedulePage() {
     );
     const beforeCount = rawSlots.length;
     rawSlots = rawSlots.filter((slot: any) => {
-      // 이미 status=cancel 은 표시하지 않음 (이력은 DB 에 유지)
-      if ((slot?.status || "").toLowerCase() === "cancel") return false;
-      // 취소된 회원권과 연결된 슬롯은 배제
+      // ✅ v3.46.0: 개별 status='cancel' 은 표시 유지 (취소선 배지로 노쇼 이력 보존)
+      // 취소된 회원권과 연결된 슬롯은 배제 (결제 취소된 미래 예약 방어)
       if (slot?.membership_id && cancelledMembershipIds.has(slot.membership_id)) return false;
       return true;
     });
