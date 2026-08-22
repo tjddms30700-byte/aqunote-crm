@@ -1,4 +1,9 @@
 // ═══════════════════════════════════════════════════════════════
+// ✅ v3.45.8 (2026-08-22): 취소 UI 완전 정정 - "빈 카드처럼 보이던 문제" 해결
+//   - QuickActionSheet 취소 버튼: "차감 없음" → "− 1회 차감" 표시
+//   - 취소 시 확인창 추가 (실수 방지)
+//   - 취소 슬롯 시각화: 빨간 배지 + 취소선 (선명하게 남음)
+//   - 안내 문구: "취소=병결/이월과 동일" (잘못됨) → "취소=노쇼 (차감)" (정확)
 // ✅ v3.45.7 (2026-08-22): "취소" = "노쇼" 동일 개념으로 통합
 //   - COUNTS_AS_USED 에 "cancel" 추가 → 취소 시 회차 차감 유지
 //   - 완료 → 취소 전환 시 회차 복원되지 않음 (노쇼와 동일)
@@ -56,7 +61,7 @@ const STATUS_OPTIONS = [
   { value: "done",      label: "완료",     color: "bg-green-100 text-green-800 border-green-300", dot: "bg-green-500",  textColor: "text-green-700" },
   { value: "sick",      label: "병결",     color: "bg-gray-100 text-gray-500 border-gray-300",   dot: "bg-gray-400",   textColor: "text-gray-500" },
   { value: "personal",  label: "개인사정", color: "bg-gray-100 text-gray-500 border-gray-300",   dot: "bg-gray-400",   textColor: "text-gray-500" },
-  { value: "cancel",    label: "취소(노쇼)", color: "bg-gray-100 text-gray-500 border-gray-300",   dot: "bg-gray-400",   textColor: "text-gray-500" },  // ✅ v3.45.7: 취소는 노쇼와 동일 (차감 유지)
+  { value: "cancel",    label: "🚫 취소(노쇼)", color: "bg-red-50 text-red-700 border-red-300 line-through decoration-red-500", dot: "bg-red-500",    textColor: "text-red-700" },  // ✅ v3.45.8: 취소=노쇼, 취소 슬롯 명확하게 빨간색+취소선으로 표시
   { value: "noshow",    label: "노쇼",     color: "bg-gray-100 text-gray-500 border-gray-300",   dot: "bg-gray-400",   textColor: "text-gray-500" },
   { value: "carryover", label: "이월",     color: "bg-gray-100 text-gray-500 border-gray-300",   dot: "bg-gray-400",   textColor: "text-gray-500" },
 ];
@@ -3634,10 +3639,13 @@ function QuickActionSheet({ slot, members, staff, plans, payments, attendance, o
                   📅<br/>이월
                   <div className="text-[9px] mt-1 opacity-80">차감 없음</div>
                 </button>
-                <button onClick={() => onAttendance("cancel")}
-                  className={`py-4 rounded-xl border-2 font-medium text-sm ${currentSlotStatus === "cancel" ? "bg-gray-500 border-gray-500 text-white shadow-md" : "border-gray-200 text-gray-700 hover:bg-gray-50"}`}>
-                  ❌<br/>취소
-                  <div className="text-[9px] mt-1 opacity-80">차감 없음</div>
+                <button onClick={() => {
+                    if (!confirm("🚫 이 예약을 '취소(노쇼)' 처리합니다.\n\n⚠️ 회원권 1회가 차감되며, 스케줄은 삭제되지 않고 회색으로 남습니다.\n\n계속하시겠습니까?")) return;
+                    onAttendance("cancel");
+                  }}
+                  className={`py-4 rounded-xl border-2 font-medium text-sm ${currentSlotStatus === "cancel" ? "bg-gray-600 border-gray-600 text-white shadow-md" : "border-gray-300 text-gray-700 hover:bg-gray-50"}`}>
+                  🚫<br/>취소(노쇼)
+                  <div className="text-[9px] mt-1 opacity-80">− 1회 차감</div>
                 </button>
                 <button onClick={() => onAttendance("scheduled" as any)}
                   className={`py-4 rounded-xl border-2 font-medium text-sm ${currentSlotStatus === "scheduled" ? "bg-blue-500 border-blue-500 text-white shadow-md" : "border-blue-200 text-blue-700 hover:bg-blue-50"}`}>
@@ -3654,9 +3662,10 @@ function QuickActionSheet({ slot, members, staff, plans, payments, attendance, o
                 </button>
               )}
 
-              <div className="text-[11px] text-gray-500 mt-2 p-3 bg-gray-50 rounded-lg">
-                💡 <b>완료</b>·<b>노쇼</b>만 회원권을 1회 차감합니다.
-                <b>병결</b>·<b>이월</b>·<b>취소</b>는 예약 이력만 남기고 회차는 차감하지 않음으로 로직이 변경되었습니다.
+              <div className="text-[11px] text-gray-500 mt-2 p-3 bg-gray-50 rounded-lg leading-relaxed">
+                💡 <b className="text-green-700">완료</b>·<b className="text-red-700">노쇼</b>·<b className="text-gray-700">취소</b>는 회원권 <b>1회 차감</b> (오지 않은 것으로 처리).<br/>
+                <b className="text-orange-700">병결</b>·<b className="text-purple-700">이월</b>은 차감 없음 (다음 기회로 넘김).<br/>
+                <span className="text-blue-700">✅ 취소 처리 시 스케줄은 삭제되지 않고 회색으로 남습니다 (v3.45.8)</span>
               </div>
             </div>
           )}
