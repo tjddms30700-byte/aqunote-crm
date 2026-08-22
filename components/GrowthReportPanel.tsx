@@ -90,31 +90,67 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
     return { startDate: start, endDate: end, periodLabel: label };
   }, [period, propStartDate, propEndDate]);
 
-  // 데이터 로드
+  // ✅ v3.46.3: 데이터 로드 (컬럼명 자동 감지 + 안전 매칭)
   useEffect(() => {
     (async () => {
+      if (!memberId || !startDate || !endDate) { setLoading(false); return; }
       setLoading(true);
       try {
-        const [sRes, aRes, oRes] = await Promise.all([
-          supabase.from("sessions")
+        // 1) sessions - session_date 우선, 실패 시 필터 없이 전체 로드 후 클라이언트 필터
+        let sessionRows: any[] = [];
+        try {
+          const r1 = await supabase.from("sessions")
             .select("*")
             .eq("member_id", memberId)
             .gte("session_date", startDate)
             .lte("session_date", endDate)
             .is("deleted_at", null)
-            .order("session_date", { ascending: true }),
-          supabase.from("attendance")
-            .select("*")
-            .eq("member_id", memberId)
-            .gte("date", startDate)
-            .lte("date", endDate),
-          supabase.from("org_settings").select("*").limit(1).maybeSingle(),
-        ]);
-        setSessions(sRes.data || []);
-        setAttendance(aRes.data || []);
-        setOrgSettings(oRes.data || null);
+            .order("session_date", { ascending: true });
+          if (r1.error) throw r1.error;
+          sessionRows = r1.data || [];
+        } catch (e1) {
+          // 컬럼명 이슈 시 members.extra.sessions JSONB 사용 (기존 v3.34.x 폴백)
+          console.warn("[v3.46.3] sessions 테이블 로드 실패, extra.sessions 폴백", e1);
+          try {
+            const m = await supabase.from("members").select("extra").eq("id", memberId).maybeSingle();
+            const arr: any[] = (m.data as any)?.extra?.sessions || [];
+            sessionRows = arr.filter((s: any) => {
+              const d = s.date || s.session_date;
+              return d && d >= startDate && d <= endDate;
+            });
+          } catch {}
+        }
+
+        // 2) attendance - 컬럼명 자동 감지 (date / attend_date / attendance_date / session_date)
+        let attendanceRows: any[] = [];
+        const attendCols = ["attend_date", "date", "attendance_date", "session_date"];
+        for (const col of attendCols) {
+          try {
+            const r = await supabase.from("attendance")
+              .select("*")
+              .eq("member_id", memberId)
+              .gte(col, startDate)
+              .lte(col, endDate);
+            if (!r.error && r.data) {
+              attendanceRows = r.data;
+              break;
+            }
+          } catch {}
+        }
+
+        // 3) org_settings
+        let orgRow = null;
+        try {
+          const oRes = await supabase.from("org_settings").select("*").limit(1).maybeSingle();
+          orgRow = oRes.data || null;
+        } catch {}
+
+        console.log(`[v3.46.3] 성장보고서 로드: sessions=${sessionRows.length}건, attendance=${attendanceRows.length}건 (${startDate}~${endDate})`);
+        setSessions(sessionRows);
+        setAttendance(attendanceRows);
+        setOrgSettings(orgRow);
       } catch (e) {
-        console.error("[v3.46.0] 성장보고서 데이터 로드 실패:", e);
+        console.error("[v3.46.3] 성장보고서 데이터 로드 실패:", e);
       } finally {
         setLoading(false);
       }
@@ -174,7 +210,9 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
       const st = String(s?.status || "").toLowerCase();
       return st === "noshow" || st === "cancel";
     }).length;
-    const attendCount = attendance.filter(a => a?.status === "present").length;
+    // ✅ v3.46.3: status='present' 없으면 전체 출석 레코드 개수로 폴백
+    const presentCount = attendance.filter(a => a?.status === "present").length;
+    const attendCount = presentCount > 0 ? presentCount : attendance.length;
     return { ...base, noshowCount, attendCount };
   }, [sessions, attendance, memberLevel]);
 

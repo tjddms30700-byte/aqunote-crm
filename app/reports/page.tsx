@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, Suspense } from "react";
 import dynamic from "next/dynamic";
+import MemberSearchSelect from "@/components/MemberSearchSelect";  // ✅ v3.46.3
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -571,10 +572,13 @@ function ReportsPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
           <div>
             <label className="text-xs font-semibold text-gray-600 mb-1 block">회원</label>
-            <select value={selectedMember} onChange={e => setSelectedMember(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
-              {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
+            {/* ✅ v3.46.3: 검색 가능한 회원 콤보박스 */}
+            <MemberSearchSelect
+              members={members as any}
+              value={selectedMember}
+              onChange={setSelectedMember}
+              placeholder="이름/전화번호로 검색..."
+            />
           </div>
           <div>
             <label className="text-xs font-semibold text-gray-600 mb-1 block">시작일</label>
