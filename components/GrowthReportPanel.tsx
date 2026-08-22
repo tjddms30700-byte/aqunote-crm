@@ -190,21 +190,64 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
     });
   }, [sessions, memberLevel]);
 
-  // ✅ v3.46.2: 시계열/스택바 데이터 빈 배열 방지 (Recharts 렌더링 안정화)
+  // ✅ v3.46.10: X축 고정 렌더링 (월간=1~12월, 연간=시작연도~현재연도)
   const timeSeriesData = useMemo(() => {
-    const data = buildFilledTimeSeries(sessions || [], period === "yearly" ? "year" : "month", memberLevel, startDate, endDate);  // ✅ v3.46.9: 다년 강제 포함
-    if (!data || data.length === 0) {
-      // 빈 상태에서도 X축 라벨 표시
-      const now = new Date();
-      const label = period === "yearly" ? `${now.getMonth()+1}월` : now.toISOString().slice(5, 10);
-      const emptyPoint: any = { label };
-      (Object.keys(RADAR_AXIS_META) as RadarAxis[]).forEach(axis => {
-        emptyPoint[RADAR_AXIS_META[axis].label] = null;
-      });
-      return [emptyPoint];
+    const raw = buildFilledTimeSeries(sessions || [], period === "yearly" ? "year" : "month", memberLevel, startDate, endDate);
+    const axisKeys = Object.keys(RADAR_AXIS_META) as RadarAxis[];
+
+    // 데이터 맵 (raw 의 bucket → 점수 매핑)
+    const dataMap = new Map<string, any>();
+    (raw || []).forEach((d: any) => dataMap.set(d.bucket, d));
+
+    if (period === "monthly") {
+      // ── 월간: 1~12월 모두 12개 포인트 강제 렌더링
+      const y = (startDate || new Date().toISOString().slice(0, 10)).slice(0, 4);
+      const points: any[] = [];
+      const carry: Record<string, number> = {};
+      axisKeys.forEach(ax => { carry[ax] = Math.max(15, memberLevel * 20); });
+
+      for (let m = 1; m <= 12; m++) {
+        const mm = String(m).padStart(2, "0");
+        const key = `${y}-${mm}`;
+        const found = dataMap.get(key);
+        const point: any = { bucket: `${m}월` };
+        axisKeys.forEach(ax => {
+          if (found && typeof found[ax] === "number" && found[ax] > 0) {
+            carry[ax] = found[ax];
+            point[ax] = found[ax];
+          } else {
+            point[ax] = carry[ax];  // LOCF
+          }
+        });
+        points.push(point);
+      }
+      return points;
+    } else {
+      // ── 연간: 시작연도 ~ 현재연도 고정
+      const sy = parseInt((startDate || `${new Date().getFullYear()}-01-01`).slice(0, 4));
+      const cy = new Date().getFullYear();
+      const ey = Math.max(cy, parseInt((endDate || `${cy}-12-31`).slice(0, 4)));
+      const points: any[] = [];
+      const carry: Record<string, number> = {};
+      axisKeys.forEach(ax => { carry[ax] = Math.max(15, memberLevel * 20); });
+
+      for (let y = sy; y <= ey; y++) {
+        const key = String(y);
+        const found = dataMap.get(key);
+        const point: any = { bucket: `${y}년` };
+        axisKeys.forEach(ax => {
+          if (found && typeof found[ax] === "number" && found[ax] > 0) {
+            carry[ax] = found[ax];
+            point[ax] = found[ax];
+          } else {
+            point[ax] = carry[ax];  // LOCF
+          }
+        });
+        points.push(point);
+      }
+      return points;
     }
-    return data;
-  }, [sessions, period]);
+  }, [sessions, period, startDate, endDate, memberLevel]);
 
   const activityData = useMemo(() => {
     const data = buildActivityVolume(sessions || [], period === "yearly" ? "year" : "month");  // ✅ v3.46.4: mode는 month|year만
@@ -592,8 +635,8 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
         <div className="mb-6">
           <h2 className="text-base font-bold text-slate-800 mb-2 flex items-center gap-2">
             💬 치료사 종합 코멘트
-            {aiEdited && <span className="text-[10px] px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">직접 편집됨</span>}
-            {!aiEdited && aiComment && <span className="text-[10px] px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full">AI 초안</span>}
+            {aiEdited && <span className="print-hide text-[10px] px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">직접 편집됨</span>}
+            {!aiEdited && aiComment && <span className="print-hide text-[10px] px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full">AI 초안</span>}
           </h2>
           {/* 화면용 편집 textarea (인쇄 시 숨김) */}
           <textarea
@@ -649,35 +692,52 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
                   )}
                 </div>
                 {therapistSignature && (
-                  <div className="mt-2 p-2 bg-white rounded-lg border border-slate-200">
-                    <img src={therapistSignature} alt="서명" className="h-12 mx-auto object-contain" />
+                  <div className="mt-2 p-2 bg-white/60 rounded-lg border border-dashed border-slate-200 relative">
+                    <div className="text-[9px] text-slate-400 mb-0.5">✓ 저장된 서명 (실제 인쇄 시 도장 스타일로 출력)</div>
+                    <img src={therapistSignature} alt="서명" className="h-12 mx-auto object-contain" style={{ mixBlendMode: "multiply" }} />
                   </div>
                 )}
               </div>
             </div>
           </div>
 
-          {/* 발행 정보 + 서명 영역 (인쇄에도 나옴) */}
+          {/* ✅ v3.46.10: 발행 정보 + 서명 영역 (직인 스타일 · 박스/테두리 없음) */}
           <div className="flex justify-between items-end text-[10px] text-slate-500">
             <div>
               📅 발행일: {new Date().toISOString().slice(0, 10)}<br/>
               💧 이 보고서는 세션 태그와 정밀 수치를 자동 집계하여 생성됩니다.
             </div>
             <div className="text-right">
-              <div className="mb-2 min-h-[60px] flex flex-col items-end justify-end">
-                {therapistSignature ? (
-                  <div className="relative">
-                    <img src={therapistSignature} alt="서명" className="h-14 object-contain" style={{ mixBlendMode: "multiply" }} />
-                    <div className="absolute -bottom-1 right-0 text-[9px] text-slate-400">(인)</div>
-                  </div>
-                ) : (
-                  <div className="text-slate-300 text-[10px]">(서명란)</div>
-                )}
+              {/* 서명 이미지 + "담당 치료사: 이름 (인)" 텍스트 겹침 */}
+              <div className="relative inline-block pr-2" style={{ minHeight: 60 }}>
+                <div className="text-[12px] font-semibold text-slate-800 whitespace-nowrap">
+                  담당 치료사: <span className="mx-1">{therapistName || "__________"}</span>
+                  <span className="relative inline-block align-middle" style={{ width: 22, height: 22 }}>
+                    {therapistSignature ? (
+                      // 서명 이미지가 (인) 자리에 겹쳐서 출력 - 배경 투명, 테두리 없음
+                      <img
+                        src={therapistSignature}
+                        alt="서명"
+                        className="absolute"
+                        style={{
+                          left: "50%",
+                          top: "50%",
+                          transform: "translate(-50%, -50%) rotate(-4deg)",
+                          height: 44,
+                          width: "auto",
+                          maxWidth: 90,
+                          mixBlendMode: "multiply",
+                          filter: "contrast(1.15)",
+                          pointerEvents: "none",
+                        }}
+                      />
+                    ) : (
+                      <span className="text-slate-400">(인)</span>
+                    )}
+                  </span>
+                </div>
               </div>
-              <div className="text-[11px] font-semibold text-slate-700">
-                담당 치료사: {therapistName || "__________"}
-              </div>
-              <div className="mt-1">{orgSettings?.center_name || "위례아쿠수중운동센터"}</div>
+              <div className="mt-1 text-[10px] text-slate-500">{orgSettings?.center_name || "위례아쿠수중운동센터"}</div>
             </div>
           </div>
         </div>
