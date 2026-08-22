@@ -22,37 +22,37 @@ export const RADAR_AXIS_META: Record<RadarAxis, {
 }> = {
   respiration: {
     label: "호흡·적응",
-    color: "#06b6d4",
+    color: "#38BDF8",
     tagPatterns: [/얼굴 침수|버블|리드믹|숨 참기|잠수|호흡|물속 이름|눈 뜨기/],
     weight: 10,
   },
   strength: {
     label: "근력",
-    color: "#ef4444",
+    color: "#818CF8",
     tagPatterns: [/근력|MMT|덤벨|프레스|플랭크|코어|체간|악력|러닝|런지|스쿼트|킥/],
     weight: 12,
   },
   balance: {
     label: "균형",
-    color: "#f59e0b",
+    color: "#34D399",
     tagPatterns: [/균형|밸런스|한 발|정적|동적|반응성|난류|밸런스 워크|징검다리/],
     weight: 12,
   },
   flexibility: {
     label: "유연성",
-    color: "#10b981",
+    color: "#F472B6",
     tagPatterns: [/스트레칭|WATSU|롤링|림프|ROM|가동범위|굴곡|신전|외전|와츠/],
     weight: 15,
   },
   social: {
     label: "사회성·지시수행",
-    color: "#a855f7",
+    color: "#FBBF24",
     tagPatterns: [/농구|링 토스|볼링|릴레이|술래잡기|보물찾기|순서|팀|또래|집단/],
     weight: 12,
   },
   cognitive: {
     label: "인지·의사소통",
-    color: "#3b82f6",
+    color: "#A78BFA",
     tagPatterns: [/지시|주의|인지|눈맞춤|규칙|의사소통|자기표현|이름 말하기|색깔|숫자/],
     weight: 15,
   },

@@ -1,3 +1,4 @@
+// ✅ v3.46.7: 차트 프리미엄화 (도넛+스플라인+파스텔)
 "use client";
 /**
  * ═══════════════════════════════════════════════════════════════
@@ -20,7 +21,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import {
   ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  LineChart, Line, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from "recharts";
 import {
   RADAR_AXIS_META,
@@ -377,7 +378,7 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
                 <PolarGrid strokeDasharray="3 3" stroke="#cbd5e1" />
                 <PolarAngleAxis dataKey="axis" tick={{ fontSize: 11, fill: "#334155" }} />
                 <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fontSize: 9, fill: "#94a3b8" }} />
-                <Radar name="성장 점수" dataKey="점수" stroke="#6366f1" fill="#6366f1" fillOpacity={0.45} strokeWidth={2} />
+                <Radar name="성장 점수" dataKey="점수" stroke="#818CF8" fill="#818CF8" fillOpacity={0.35} strokeWidth={2} />
                 <Tooltip formatter={(v: any) => `${v}점`} />
               </RadarChart>
             </ResponsiveContainer>
@@ -399,21 +400,32 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
         <div className="mb-6">
           <h2 className="text-base font-bold text-aqu-900 mb-2">📈 성장 추이 (LOCF 보정)</h2>
           <div className="border border-gray-200 rounded-xl p-3 bg-gray-50/30">
-            <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={timeSeriesData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="bucket" tick={{ fontSize: 10, fill: "#64748b" }} />
-                <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: "#64748b" }} />
-                <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} formatter={(v: any) => `${v}점`} />
-                <Legend wrapperStyle={{ fontSize: 10 }} />
-                {/* ✅ v3.46.5: 세션기록 미리보기와 동일 - dataKey는 영문 축 키, name은 한글 라벨 */}
+            <ResponsiveContainer width="100%" height={260}>
+              <AreaChart data={timeSeriesData} margin={{ top: 10, right: 20, left: -10, bottom: 5 }}>
+                <defs>
+                  {(Object.keys(RADAR_AXIS_META) as RadarAxis[]).map(axis => (
+                    <linearGradient key={`grad-${axis}`} id={`grad-${axis}`} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={RADAR_AXIS_META[axis].color} stopOpacity={0.35} />
+                      <stop offset="100%" stopColor={RADAR_AXIS_META[axis].color} stopOpacity={0.02} />
+                    </linearGradient>
+                  ))}
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <XAxis dataKey="bucket" tick={{ fontSize: 10, fill: "#64748b" }} axisLine={{ stroke: "#e2e8f0" }} tickLine={false} />
+                <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ fontSize: 11, borderRadius: 12, border: "1px solid #e2e8f0", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }} formatter={(v: any) => `${v}점`} />
+                <Legend wrapperStyle={{ fontSize: 10, paddingTop: 8 }} iconType="circle" />
+                {/* ✅ v3.46.7: 스플라인 곡선(tension) + 그라디언트 채우기 */}
                 {(Object.keys(RADAR_AXIS_META) as RadarAxis[]).map(axis => (
-                  <Line key={axis} type="monotone" dataKey={axis}
+                  <Area key={axis} type="monotone" dataKey={axis}
                     name={RADAR_AXIS_META[axis].label}
-                    stroke={RADAR_AXIS_META[axis].color} strokeWidth={2}
-                    dot={{ r: 3 }} activeDot={{ r: 5 }} connectNulls />
+                    stroke={RADAR_AXIS_META[axis].color} strokeWidth={2.5}
+                    fill={`url(#grad-${axis})`}
+                    dot={{ r: 3, strokeWidth: 2, fill: "#fff" }}
+                    activeDot={{ r: 5, strokeWidth: 2 }}
+                    connectNulls />
                 ))}
-              </LineChart>
+              </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
@@ -422,21 +434,77 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
         <div className="mb-6">
           <h2 className="text-base font-bold text-aqu-900 mb-2">🏊 활동량 분포</h2>
           <div className="border border-gray-200 rounded-xl p-3 bg-gray-50/30">
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={activityData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="bucket" tick={{ fontSize: 10, fill: "#64748b" }} />
-                <YAxis tick={{ fontSize: 10, fill: "#64748b" }} />
-                <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} formatter={(v: any) => `${v}회`} />
-                <Legend wrapperStyle={{ fontSize: 10 }} />
-                {/* ✅ v3.46.5: 세션기록 미리보기와 동일 - dataKey는 영문 축 키, name은 한글 라벨 */}
-                {(Object.keys(RADAR_AXIS_META) as RadarAxis[]).map(axis => (
-                  <Bar key={axis} dataKey={axis} stackId="axis"
-                    name={RADAR_AXIS_META[axis].label}
-                    fill={RADAR_AXIS_META[axis].color} />
-                ))}
-              </BarChart>
-            </ResponsiveContainer>
+            {(() => {
+              // ✅ v3.46.7: 스택바 → 도넛 차트 (총 활동 비중 시각화)
+              const axisKeys = Object.keys(RADAR_AXIS_META) as RadarAxis[];
+              const donutData = axisKeys.map(axis => {
+                const total = activityData.reduce((sum, row: any) => sum + (Number(row[axis]) || 0), 0);
+                return { axis, name: RADAR_AXIS_META[axis].label, value: total, color: RADAR_AXIS_META[axis].color };
+              }).filter(d => d.value > 0);
+              const grandTotal = donutData.reduce((s, d) => s + d.value, 0);
+              const isEmpty = donutData.length === 0 || grandTotal === 0;
+              const displayData = isEmpty ? axisKeys.map(axis => ({
+                axis, name: RADAR_AXIS_META[axis].label, value: 1, color: RADAR_AXIS_META[axis].color,
+              })) : donutData;
+              const displayTotal = isEmpty ? axisKeys.length : grandTotal;
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-center">
+                  {/* 좌: 도넛 차트 */}
+                  <div className="relative">
+                    <ResponsiveContainer width="100%" height={240}>
+                      <PieChart>
+                        <Pie
+                          data={displayData}
+                          dataKey="value"
+                          nameKey="name"
+                          cx="50%" cy="50%"
+                          innerRadius={60}
+                          outerRadius={95}
+                          paddingAngle={2}
+                          cornerRadius={4}
+                          stroke="#fff"
+                          strokeWidth={2}
+                        >
+                          {displayData.map((d, i) => (
+                            <Cell key={i} fill={d.color} fillOpacity={isEmpty ? 0.35 : 0.9} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          contentStyle={{ fontSize: 11, borderRadius: 12, border: "1px solid #e2e8f0", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}
+                          formatter={(v: any, n: any) => isEmpty ? ["데이터 없음", n] : [`${v}회 (${Math.round((Number(v) / grandTotal) * 100)}%)`, n]}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    {/* 도넛 중앙 라벨 */}
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                      <div className="text-2xl font-bold text-slate-800">{isEmpty ? "—" : grandTotal}</div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">총 활동 태그</div>
+                    </div>
+                  </div>
+                  {/* 우: 컬러 범례 + 점유율 뱃지 */}
+                  <div className="flex flex-col gap-2 px-2">
+                    {axisKeys.map(axis => {
+                      const total = activityData.reduce((sum, row: any) => sum + (Number(row[axis]) || 0), 0);
+                      const pct = grandTotal > 0 ? Math.round((total / grandTotal) * 100) : 0;
+                      const color = RADAR_AXIS_META[axis].color;
+                      return (
+                        <div key={axis} className="flex items-center gap-2">
+                          <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+                          <span className="text-xs text-slate-700 flex-1 truncate">{RADAR_AXIS_META[axis].label}</span>
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                            style={{ backgroundColor: `${color}22`, color: color }}>
+                            {total}회 · {pct}%
+                          </span>
+                        </div>
+                      );
+                    })}
+                    {isEmpty && (
+                      <div className="text-[10px] text-slate-400 text-center mt-1">※ 세션 태그 데이터가 부족합니다</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
 
