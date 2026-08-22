@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo, Suspense } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
