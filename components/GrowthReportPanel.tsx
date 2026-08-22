@@ -1,3 +1,4 @@
+// ✅ v3.46.12: PDF 캡처 시 화면전용요소(AI초안 뱃지 등) 완전 제거 + 연간 단일연도 선택 시 월별추이 자동전환
 // ✅ v3.46.7: 차트 프리미엄화 (도넛+스플라인+파스텔)
 "use client";
 /**
@@ -65,6 +66,8 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
 
   // PDF 다운로드 로딩
   const [pdfLoading, setPdfLoading] = useState(false);
+  // ✅ v3.46.12: PDF 캡처 모드 (html2canvas는 @media print를 적용하지 않으므로 캡처 중 화면전용 요소를 실제로 숨김)
+  const [pdfCaptureMode, setPdfCaptureMode] = useState(false);
 
   // 인쇄 대상 ref
   const printRef = useRef<HTMLDivElement>(null);
@@ -198,6 +201,12 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
     // 데이터 맵 (raw 의 bucket → 점수 매핑)
     const dataMap = new Map<string, any>();
     (raw || []).forEach((d: any) => dataMap.set(d.bucket, d));
+    // ✅ v3.46.12: 연간에서 같은 해(예: 2026년 한 해) 선택 시 월별 추이로 전환하기 위해 월 버킷도 함께 수집
+    const rawMonthly = period === "yearly"
+      ? buildFilledTimeSeries(sessions || [], "month", memberLevel, startDate, endDate)
+      : raw;
+    const monthlyMap = new Map<string, any>();
+    (rawMonthly || []).forEach((d: any) => monthlyMap.set(d.bucket, d));
 
     if (period === "monthly") {
       // ── 월간: 1~12월 모두 12개 포인트 강제 렌더링
@@ -227,6 +236,28 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
       const sy = parseInt((startDate || `${new Date().getFullYear()}-01-01`).slice(0, 4));
       const cy = new Date().getFullYear();
       const ey = Math.max(cy, parseInt((endDate || `${cy}-12-31`).slice(0, 4)));
+      // ✅ v3.46.12: 같은 연도(예: 2026-01-01 ~ 2026-12-31) 선택 시 연도 점이 1개만 찍혀 추이가 안 보임
+      //             → 1~12월 월별 12포인트 추이로 자동 전환 (LOCF 동일 적용)
+      if (sy === ey) {
+        const mPoints: any[] = [];
+        const mCarry: Record<string, number> = {};
+        axisKeys.forEach(ax => { mCarry[ax] = Math.max(15, memberLevel * 20); });
+        for (let m = 1; m <= 12; m++) {
+          const key = `${sy}-${String(m).padStart(2, "0")}`;
+          const found = monthlyMap.get(key);
+          const point: any = { bucket: `${m}월` };
+          axisKeys.forEach(ax => {
+            if (found && typeof found[ax] === "number" && found[ax] > 0) {
+              mCarry[ax] = found[ax];
+              point[ax] = found[ax];
+            } else {
+              point[ax] = mCarry[ax];  // LOCF
+            }
+          });
+          mPoints.push(point);
+        }
+        return mPoints;
+      }
       const points: any[] = [];
       const carry: Record<string, number> = {};
       axisKeys.forEach(ax => { carry[ax] = Math.max(15, memberLevel * 20); });
@@ -318,6 +349,9 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
   async function downloadPdf() {
     if (!printRef.current) return;
     setPdfLoading(true);
+    // ✅ v3.46.12: 캡처 모드 ON 후 DOM 반영 대기 (AI 초안 뱃지·버튼 등 화면전용 요소 제거)
+    setPdfCaptureMode(true);
+    await new Promise(r => setTimeout(r, 200));
     try {
       const [{ default: jsPDF }, { default: html2canvas }] = await Promise.all([
         import("jspdf"),
@@ -353,6 +387,7 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
       alert(`PDF 생성 실패: ${e.message}`);
     } finally {
       setPdfLoading(false);
+      setPdfCaptureMode(false);
     }
   }
 
@@ -434,7 +469,7 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
       </div>
 
       {/* A4 프린트 영역 */}
-      <div ref={printRef} className="growth-report-print bg-white p-8 mx-auto" style={{ maxWidth: "210mm", minHeight: "297mm" }}>
+      <div ref={printRef} className={`growth-report-print bg-white p-8 mx-auto ${pdfCaptureMode ? "pdf-capture-mode" : ""}`} style={{ maxWidth: "210mm", minHeight: "297mm" }}>
         {/* 헤더 */}
         <div className="border-b-2 border-aqu-500 pb-4 mb-6 flex items-start justify-between">
           <div>
@@ -745,6 +780,18 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
 
       {/* ✅ v3.46.8: 인쇄용 CSS 근본 재설계 (visibility 방식으로 백지 문제 해결) */}
       <style jsx global>{`
+        /* ✅ v3.46.12: PDF 캡처 모드 - 화면 전용 요소 완전 제거 (html2canvas는 @media print 미적용이므로 일반 CSS로 정의) */
+        .pdf-capture-mode .print-hide,
+        .pdf-capture-mode .print-hide * {
+          display: none !important;
+          visibility: hidden !important;
+          height: 0 !important;
+          width: 0 !important;
+          padding: 0 !important;
+          margin: 0 !important;
+          border: 0 !important;
+          overflow: hidden !important;
+        }
         @media print {
           @page { size: A4; margin: 10mm 8mm; }
           /* 전체를 숨기지 않고 visibility 로 인쇄 영역만 노출 */
