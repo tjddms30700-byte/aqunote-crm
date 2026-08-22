@@ -1187,7 +1187,7 @@ function pick<T>(arr: T[]): T {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ✅ v3.46.0 - 성장 종합보고서 AI 코멘트 자동 생성
+// ✅ v3.46.5 - 성장 종합보고서 AI 코멘트 (대폭 확장: 9섹션)
 // POST /api/ai?action=growth-report
 // Body: { memberName, period, summary, radar, sessionCount }
 // ═══════════════════════════════════════════════════════════════
@@ -1200,7 +1200,6 @@ async function handleGrowthReport(req: Request) {
       return NextResponse.json({ error: "memberName 필수" }, { status: 400 });
     }
 
-    // 데이터 기반 분석
     const totalSessions = summary?.totalSessions || 0;
     const measuredRatio = Math.round((summary?.measuredRatio || 0) * 100);
     const attendanceDays = summary?.attendanceDays || 0;
@@ -1211,69 +1210,121 @@ async function handleGrowthReport(req: Request) {
     const weakScore = summary?.weakestAxis?.score || 0;
     const noshowCount = summary?.noshowCount || 0;
 
-    // 6축 점수 요약
-    const radarSummary = Array.isArray(radar)
-      ? radar.map((r: any) => `${r.axis} ${r.점수}점`).join(", ")
-      : "";
-
-    // ─── 오프닝 ───
+    // ─── 1. 인사말 & 종합 개관 (2~3문장) ───
     const openings = [
-      `${memberName} 회원은 ${period} 동안 총 ${totalSessions}회의 수중 세션에 참여하며 꾸준한 성장세를 보였습니다.`,
-      `${period} 기간 ${memberName} 회원은 ${totalSessions}회 세션을 소화하며 전반적으로 안정적인 참여도를 유지했습니다.`,
-      `${memberName} 회원의 ${period} 활동을 종합하면, ${totalSessions}회 세션 중 다양한 영역에서 발전이 관찰되었습니다.`,
+      `안녕하세요, 학부모님. ${memberName} 회원의 ${period} 수중운동 활동을 종합하여 성장 보고를 드립니다.`,
+      `${memberName} 회원과 함께한 ${period} 동안의 여정을 정리하여 학부모님께 전해드립니다.`,
+      `${memberName} 회원의 ${period} 성장 스토리를 6개 영역 데이터로 종합 분석한 결과를 공유드립니다.`,
     ];
     const opening = openings[Math.floor(Math.random() * openings.length)];
+    const overview = `
+이 기간 동안 총 ${totalSessions}회의 수중 세션에 참여하였으며, ${attendanceDays}일간 규칙적으로 출석하여 매우 성실한 참여 태도를 보였습니다. 물이라는 특수 환경 속에서 진행되는 개별화 프로그램은 회원님의 신체·정서·인지 발달에 다각적인 자극을 제공하며, 안전하고 즐거운 분위기 속에서 진행되었습니다.`;
 
-    // ─── 강점 분석 ───
-    let strengthPart = "";
+    // ─── 2. 핵심 성과 하이라이트 (3~4문장) ───
+    let highlight = "
+
+【💫 이번 기간 핵심 성과】
+";
     if (strongLabel && strongScore >= 70) {
-      strengthPart = `\n\n【강점 영역】\n${strongLabel} 영역에서 ${strongScore}점의 우수한 수행을 보였습니다. 특히 ${dominantLabel} 활동에 활발히 참여하며 자신감 있는 모습을 관찰할 수 있었습니다.`;
-    } else if (dominantLabel) {
-      strengthPart = `\n\n【강점 영역】\n${dominantLabel} 활동에 주력하며 안정적인 수행을 보였습니다.`;
+      highlight += `${memberName} 회원은 특히 ${strongLabel} 영역에서 ${strongScore}점의 탁월한 성취를 보였습니다. 이는 해당 영역의 신체·정서적 준비도가 상당히 성숙했음을 의미하며, 앞으로의 프로그램에서도 이 강점을 활용하여 자신감을 유지·확장해 나갈 수 있을 것으로 기대됩니다. `;
+    } else if (strongLabel) {
+      highlight += `${strongLabel} 영역에서 ${strongScore}점을 기록하며, 해당 영역의 기초 능력이 안정적으로 자리 잡고 있음을 확인할 수 있었습니다. 지속적인 반복 훈련을 통해 다음 단계로의 진전이 가능한 시점입니다. `;
     }
+    highlight += `주력 활동은 「${dominantLabel}」 영역으로, 세션 중 가장 활발한 참여와 몰입도를 관찰할 수 있었습니다. 학부모님께서도 가정에서 이 영역과 관련된 활동을 자연스럽게 연결해 주시면 시너지 효과를 기대할 수 있습니다.`;
 
-    // ─── 개선 필요 ───
-    let weaknessPart = "";
+    // ─── 3. 집중 개선 영역 (3~4문장) ───
+    let improvement = "
+
+【📈 다음 기간 집중 개선 영역】
+";
     if (weakLabel && weakScore < 50) {
-      weaknessPart = `\n\n【집중 개선 영역】\n${weakLabel} 영역이 ${weakScore}점으로 상대적으로 향상이 필요합니다. 다음 기간에는 해당 영역의 프로그램 비중을 늘려 균형 있는 발달을 도모하겠습니다.`;
-    }
-
-    // ─── 출석/참여 ───
-    let attendPart = `\n\n【출석 현황】\n총 ${attendanceDays}일 출석했으며`;
-    if (noshowCount === 0) {
-      attendPart += ", 결석·취소 없이 완벽한 참여도를 보였습니다. 🎉";
-    } else if (noshowCount <= 2) {
-      attendPart += `, 노쇼·취소가 ${noshowCount}건 있었습니다. 규칙적인 참여가 성장에 큰 도움이 됩니다.`;
+      improvement += `${weakLabel} 영역이 ${weakScore}점으로 상대적으로 발달의 여지가 크게 남아 있습니다. 이는 결코 부정적인 신호가 아니라, 앞으로의 성장 잠재력이 가장 큰 영역이라는 의미로 해석하실 수 있습니다. 다음 기간 프로그램에서는 해당 영역에 특화된 활동을 30% 이상 늘려 집중 개입하겠습니다. 물의 부력·저항·수온 특성을 활용한 맞춤형 접근으로 안정적인 향상을 유도하겠습니다.`;
+    } else if (weakLabel) {
+      improvement += `모든 영역에서 균형 잡힌 발달을 보이고 있어 특정 영역의 급격한 개선보다는 전체적인 심화가 필요한 시점입니다. 다음 기간에는 각 영역의 난이도를 한 단계씩 올려 도전 과제를 제공하겠습니다.`;
     } else {
-      attendPart += `, 노쇼·취소가 ${noshowCount}건 발생했습니다. 규칙적인 참여를 위해 스케줄 관리에 신경 써 주시길 부탁드립니다.`;
+      improvement += `현재 데이터로는 특별히 부진한 영역이 관찰되지 않아, 전 영역의 균형 있는 심화 훈련을 진행하겠습니다.`;
     }
 
-    // ─── 실측 데이터 언급 ───
-    let measurePart = "";
+    // ─── 4. 출석 및 참여도 (2~3문장) ───
+    let attend = "
+
+【📅 출석 및 참여 태도】
+";
+    if (noshowCount === 0) {
+      attend += `${period} 동안 결석·취소 없이 완벽한 출석률(100%)을 기록하여 매우 훌륭한 참여 태도를 보였습니다. 규칙적인 참여는 수중운동의 효과를 극대화하는 가장 중요한 요소이며, 이러한 성실함이 지금의 성과를 만들어낸 원동력입니다. 학부모님의 지속적인 관심과 지원에 깊이 감사드립니다. 🎉`;
+    } else if (noshowCount <= 2) {
+      attend += `총 ${noshowCount}건의 노쇼·취소가 있었으나 전반적으로 안정적인 출석률을 유지했습니다. 수중운동은 주 2회 이상 규칙적인 참여가 이루어질 때 신체 적응과 학습 효과가 극대화됩니다. 부득이한 사정으로 결석이 발생할 경우 사전에 알려주시면 보강 일정을 유연하게 조율해 드리겠습니다.`;
+    } else {
+      attend += `이번 기간 노쇼·취소가 ${noshowCount}건 발생하여 규칙적인 참여율에 다소 아쉬움이 있었습니다. 수중운동은 신체가 물 환경에 적응하는 시간이 필요하므로, 최소 주 1회 이상 규칙적인 참여가 성장에 매우 중요합니다. 다음 기간에는 스케줄 관리에 조금 더 신경 써 주시면 그동안 쌓아온 성과를 유지·발전시킬 수 있을 것입니다.`;
+    }
+
+    // ─── 5. 정밀 측정 데이터 (2~3문장) ───
+    let measure = "
+
+【🔬 정밀 측정 데이터】
+";
     if (measuredRatio >= 50) {
-      measurePart = `\n\n【정밀 측정】\n전체 세션 중 ${measuredRatio}%에 정밀 수치(Berg, 호흡, ROM 등)가 기록되어 신뢰도 높은 성장 추이 확인이 가능합니다.`;
+      measure += `전체 ${totalSessions}회 세션 중 ${measuredRatio}%에 해당하는 세션에서 Berg 균형 척도, 호흡 지속시간, 독립 보행 거리, MMT 근력, ROM 관절 가동범위 등의 정밀 수치가 기록되었습니다. 이는 신뢰도 높은 성장 추이 분석을 가능하게 하며, 객관적 데이터 기반의 프로그램 조정을 지원합니다. 앞으로도 이러한 수치 기록 문화를 지속하여 더욱 정교한 개별화 접근을 이어가겠습니다.`;
     } else if (measuredRatio >= 20) {
-      measurePart = `\n\n【정밀 측정】\n실측 수치 기록률이 ${measuredRatio}%입니다. 정밀 측정 빈도를 높이면 더 정확한 성장 추이 파악이 가능합니다.`;
+      measure += `이번 기간 정밀 수치 기록률은 ${measuredRatio}% 수준입니다. 태그 기반 활동 지수와 병행하여 성장 추이를 분석하고 있으나, 객관적 수치 데이터의 축적이 더욱 정밀한 개별화 프로그램 설계에 결정적인 역할을 합니다. 다음 기간에는 정밀 측정 빈도를 50% 이상으로 높여 신뢰도 높은 데이터를 확보할 계획입니다.`;
+    } else {
+      measure += `이번 기간에는 정밀 수치 기록보다 태그 기반 활동 관찰이 중심이 되었습니다. 다음 기간에는 Berg 균형·호흡 지속시간·MMT·ROM 등 핵심 지표를 세션당 1~2개씩 정기적으로 측정하여, 회원님의 신체 변화를 정량적으로 추적하고자 합니다. 이를 통해 학부모님께 더욱 객관적인 성장 리포트를 제공하겠습니다.`;
     }
 
-    // ─── 다음 기간 계획 ───
+    // ─── 6. 6축 종합 프로파일 해설 (2~3문장) ───
+    let profile = "
+
+【🎯 6축 성장 프로파일 해설】
+";
+    profile += `호흡·적응, 근력, 균형, 유연성, 사회성·지시수행, 인지·의사소통의 6개 축으로 구성된 성장 프로파일은 수중운동을 통해 발달하는 회원님의 전인적 성장을 시각화한 것입니다. 각 축은 단독으로 발달하지 않고 상호 연결되어 있으며, 예를 들어 호흡 조절 능력이 향상되면 자연스럽게 심리적 안정감(사회성)과 집중력(인지)에도 긍정적 영향을 미칩니다. 따라서 어느 한 영역만 집중적으로 훈련하기보다 6축 전체의 유기적 발달을 목표로 프로그램을 설계하고 있습니다.`;
+
+    // ─── 7. 가정 연계 제안 (3~4문장) ───
+    const homeTips = [
+      "일상에서 심호흡 놀이(풍선 불기, 촛불 끄기 흉내)를 활용해 호흡 조절 능력을 자연스럽게 강화해 주세요.",
+      "목욕 시간에 물놀이 요소(스펀지 짜기, 물장구, 잠수 놀이)를 5분씩 추가하시면 수중 감각이 지속적으로 유지됩니다.",
+      "가정에서 균형감각 놀이(외발서기, 라인워킹)를 하루 5분씩 진행해 주시면 균형 축이 급속히 성장합니다.",
+      "간단한 스트레칭(팔 뻗기, 다리 벌리기)을 취침 전 습관화하시면 유연성 축의 진전이 두드러집니다.",
+      "일상 대화 중 간단한 지시 따르기 놀이(빨간 공 가져오기, 신발 정리하기)를 반복하시면 사회성·지시수행 축이 강화됩니다.",
+      "그림책 읽기 후 간단한 질문(주인공 이름, 다음에 무슨 일이 있었지?)을 나누시면 인지·의사소통 축이 자연스럽게 발달합니다.",
+    ];
+    const pickedTips = homeTips.sort(() => Math.random() - 0.5).slice(0, 3);
+    let home = "
+
+【🏠 가정 연계 실천 제안】
+";
+    home += `수중운동의 효과는 센터에서만 이루어지는 것이 아니라 가정에서의 일상 활동과 연계될 때 극대화됩니다. 다음 세 가지 활동을 다음 기간 동안 시도해 보시길 권해 드립니다:
+• ${pickedTips[0]}
+• ${pickedTips[1]}
+• ${pickedTips[2]}
+이러한 활동은 특별한 도구나 시간 없이 일상 속에서 자연스럽게 통합할 수 있으며, 부모님과 함께하는 순간이 회원님에게 가장 소중한 학습 자원이 됩니다.`;
+
+    // ─── 8. 다음 기간 목표 설정 (2~3문장) ───
+    let goal = "
+
+【🎯 다음 기간 프로그램 방향】
+";
+    goal += `다음 기간에는 ${dominantLabel} 영역의 강점을 유지하면서 ${weakLabel || "전 영역"}의 심화 훈련을 병행하는 균형 잡힌 커리큘럼을 준비하겠습니다. 세션마다 명확한 소목표를 설정하고, 회원님의 컨디션과 흥미도에 맞춰 유연하게 조정하겠습니다. 매 세션 종료 후에는 간단한 성취 피드백을 드려, 학부모님께서도 성장 과정을 실시간으로 함께 확인하실 수 있도록 하겠습니다.`;
+
+    // ─── 9. 마무리 인사 (2~3문장) ───
     const closings = [
-      `\n\n【다음 기간 방향】\n${memberName} 회원의 개인 특성을 고려하여 ${dominantLabel} 활동을 유지하되, 균형 있는 6축 발달을 위한 프로그램을 병행하겠습니다. 가정에서도 물놀이 활동을 통한 자연스러운 감각 자극을 지속해 주시면 시너지 효과가 있을 것입니다. 감사합니다. 🌊`,
-      `\n\n【치료사 소견】\n지속적인 관찰과 개별화된 프로그램으로 ${memberName} 회원의 잠재력을 이끌어내겠습니다. 학부모님의 협조에 진심으로 감사드립니다. 🌊`,
+      `
+
+${memberName} 회원의 잠재력을 이끌어내는 여정에 함께해 주셔서 진심으로 감사드립니다. 학부모님의 신뢰와 협조가 저희 치료사들에게 가장 큰 힘이 됩니다. 다음 기간에도 안전하고 즐거운 수중운동을 통해 회원님의 성장을 지원하겠습니다. 궁금하신 점이나 건의사항이 있으시면 언제든지 편하게 말씀해 주세요. 감사합니다. 🌊✨`,
+      `
+
+${memberName} 회원과 함께하는 매 세션은 저희에게도 소중한 배움의 시간입니다. 물이라는 특별한 환경 속에서 회원님이 보여주는 작은 변화 하나하나를 놓치지 않고 관찰하며, 개별화된 접근을 이어가겠습니다. 학부모님의 지속적인 관심과 지원에 다시 한번 깊이 감사드립니다. 🌊✨`,
     ];
     const closing = closings[Math.floor(Math.random() * closings.length)];
 
-    const comment = opening + strengthPart + weaknessPart + attendPart + measurePart + closing;
+    const comment = opening + overview + highlight + improvement + attend + measure + profile + home + goal + closing;
 
     return NextResponse.json({
       success: true,
       comment,
       metadata: {
-        totalSessions,
-        measuredRatio,
-        attendanceDays,
-        dominantLabel,
-        radarSummary,
+        totalSessions, measuredRatio, attendanceDays, dominantLabel,
+        sectionsCount: 9,
+        length: comment.length,
       },
     });
   } catch (e: any) {

@@ -377,7 +377,7 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
                 <PolarGrid strokeDasharray="3 3" stroke="#cbd5e1" />
                 <PolarAngleAxis dataKey="axis" tick={{ fontSize: 11, fill: "#334155" }} />
                 <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fontSize: 9, fill: "#94a3b8" }} />
-                <Radar name={memberName} dataKey="점수" stroke="#0891b2" fill="#0891b2" fillOpacity={0.35} />
+                <Radar name="성장 점수" dataKey="점수" stroke="#6366f1" fill="#6366f1" fillOpacity={0.45} strokeWidth={2} />
                 <Tooltip formatter={(v: any) => `${v}점`} />
               </RadarChart>
             </ResponsiveContainer>
@@ -399,16 +399,19 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
         <div className="mb-6">
           <h2 className="text-base font-bold text-aqu-900 mb-2">📈 성장 추이 (LOCF 보정)</h2>
           <div className="border border-gray-200 rounded-xl p-3 bg-gray-50/30">
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={timeSeriesData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="label" tick={{ fontSize: 9, fill: "#64748b" }} />
-                <YAxis domain={[0, 100]} tick={{ fontSize: 9, fill: "#64748b" }} />
-                <Tooltip />
-                <Legend wrapperStyle={{ fontSize: "10px" }} />
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={timeSeriesData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="bucket" tick={{ fontSize: 10, fill: "#64748b" }} />
+                <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: "#64748b" }} />
+                <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} formatter={(v: any) => `${v}점`} />
+                <Legend wrapperStyle={{ fontSize: 10 }} />
+                {/* ✅ v3.46.5: 세션기록 미리보기와 동일 - dataKey는 영문 축 키, name은 한글 라벨 */}
                 {(Object.keys(RADAR_AXIS_META) as RadarAxis[]).map(axis => (
-                  <Line key={axis} type="monotone" dataKey={RADAR_AXIS_META[axis].label}
-                    stroke={RADAR_AXIS_META[axis].color} strokeWidth={2} dot={{ r: 2 }} connectNulls />
+                  <Line key={axis} type="monotone" dataKey={axis}
+                    name={RADAR_AXIS_META[axis].label}
+                    stroke={RADAR_AXIS_META[axis].color} strokeWidth={2}
+                    dot={{ r: 3 }} activeDot={{ r: 5 }} connectNulls />
                 ))}
               </LineChart>
             </ResponsiveContainer>
@@ -419,15 +422,17 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
         <div className="mb-6">
           <h2 className="text-base font-bold text-aqu-900 mb-2">🏊 활동량 분포</h2>
           <div className="border border-gray-200 rounded-xl p-3 bg-gray-50/30">
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={activityData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="label" tick={{ fontSize: 9, fill: "#64748b" }} />
-                <YAxis tick={{ fontSize: 9, fill: "#64748b" }} />
-                <Tooltip />
-                <Legend wrapperStyle={{ fontSize: "10px" }} />
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={activityData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="bucket" tick={{ fontSize: 10, fill: "#64748b" }} />
+                <YAxis tick={{ fontSize: 10, fill: "#64748b" }} />
+                <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} formatter={(v: any) => `${v}회`} />
+                <Legend wrapperStyle={{ fontSize: 10 }} />
+                {/* ✅ v3.46.5: 세션기록 미리보기와 동일 - dataKey는 영문 축 키, name은 한글 라벨 */}
                 {(Object.keys(RADAR_AXIS_META) as RadarAxis[]).map(axis => (
-                  <Bar key={axis} dataKey={RADAR_AXIS_META[axis].label} stackId="a"
+                  <Bar key={axis} dataKey={axis} stackId="axis"
+                    name={RADAR_AXIS_META[axis].label}
                     fill={RADAR_AXIS_META[axis].color} />
                 ))}
               </BarChart>
@@ -445,7 +450,7 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
           <textarea
             value={aiComment}
             onChange={(e) => { setAiComment(e.target.value); setAiEdited(true); }}
-            className="w-full min-h-[120px] p-3 border border-gray-200 rounded-xl text-sm leading-relaxed focus:ring-2 focus:ring-aqu-400 focus:outline-none print:border-0 print:p-0"
+            className="w-full min-h-[280px] p-3 border border-gray-200 rounded-xl text-sm leading-relaxed focus:ring-2 focus:ring-aqu-400 focus:outline-none print:border-0 print:p-0 whitespace-pre-line"
             placeholder={aiLoading ? "AI 코멘트를 생성하는 중..." : "치료사가 종합 소견을 작성해 주세요."}
           />
         </div>
