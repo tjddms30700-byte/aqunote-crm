@@ -387,6 +387,35 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
             {aiLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
             AI 코멘트 재생성
           </button>
+          {/* ✅ v3.46.11: 담당치료사 드롭다운 (툴바) */}
+          <select
+            value={therapistId}
+            onChange={(e) => {
+              const id = e.target.value;
+              setTherapistId(id);
+              const s = staffList.find(x => x.id === id);
+              setTherapistName(s?.name || "");
+            }}
+            className="text-xs px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none max-w-[180px] truncate">
+            <option value="">👤 담당치료사 선택</option>
+            {staffList.map(s => (
+              <option key={s.id} value={s.id}>
+                {s.name}{s.position ? ` (${s.position})` : ""}
+              </option>
+            ))}
+          </select>
+          {/* ✅ v3.46.11: 서명 버튼 (툴바) */}
+          <button onClick={() => setShowSignPad(true)}
+            className={`text-xs px-3 py-1.5 rounded-lg border flex items-center gap-1 transition ${therapistSignature ? "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100" : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"}`}>
+            {therapistSignature ? "✓ 서명완료" : "🖊️ 서명"}
+          </button>
+          {therapistSignature && (
+            <button onClick={() => setTherapistSignature("")}
+              title="서명 삭제"
+              className="text-xs px-2 py-1.5 rounded-lg bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 transition">
+              🗑️
+            </button>
+          )}
           <button onClick={printReport}
             className="text-xs px-3 py-1.5 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 flex items-center gap-1">
             <Printer className="w-3.5 h-3.5" /> 인쇄
@@ -467,7 +496,7 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
           </div>
           <div className="no-break border border-slate-200/70 rounded-2xl p-4 bg-gradient-to-br from-white to-slate-50/40 shadow-sm">
             <ResponsiveContainer width="100%" height={260}>
-              <AreaChart data={timeSeriesData} margin={{ top: 10, right: 20, left: -10, bottom: 5 }}>
+              <AreaChart key={`ts-${period}-${startDate}-${endDate}-${timeSeriesData.length}`} data={timeSeriesData} margin={{ top: 10, right: 20, left: -10, bottom: 5 }}>
                 <defs>
                   {(Object.keys(RADAR_AXIS_META) as RadarAxis[]).map(axis => (
                     <linearGradient key={`grad-${axis}`} id={`grad-${axis}`} x1="0" y1="0" x2="0" y2="1">
@@ -477,7 +506,14 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
                   ))}
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                <XAxis dataKey="bucket" tick={{ fontSize: 10, fill: "#64748b" }} axisLine={{ stroke: "#e2e8f0" }} tickLine={false} />
+                <XAxis
+                  dataKey="bucket"
+                  type="category"
+                  interval={0}
+                  tick={{ fontSize: 10, fill: "#64748b" }}
+                  axisLine={{ stroke: "#e2e8f0" }}
+                  tickLine={false}
+                />
                 <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: "#64748b" }} axisLine={false} tickLine={false} />
                 <Tooltip contentStyle={{ fontSize: 11, borderRadius: 12, border: "1px solid #e2e8f0", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }} formatter={(v: any) => `${v}점`} />
                 <Legend wrapperStyle={{ fontSize: 10, paddingTop: 8 }} iconType="circle" />
@@ -635,8 +671,12 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
         <div className="mb-6">
           <h2 className="text-base font-bold text-slate-800 mb-2 flex items-center gap-2">
             💬 치료사 종합 코멘트
-            {aiEdited && <span className="print-hide text-[10px] px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">직접 편집됨</span>}
-            {!aiEdited && aiComment && <span className="print-hide text-[10px] px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full">AI 초안</span>}
+            {aiEdited && (
+            <span className="print-hide text-[10px] px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full" data-print="hide">직접 편집됨</span>
+          )}
+            {!aiEdited && aiComment && (
+            <span className="print-hide text-[10px] px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full" data-print="hide">AI 초안</span>
+          )}
           </h2>
           {/* 화면용 편집 textarea (인쇄 시 숨김) */}
           <textarea
@@ -651,56 +691,8 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
           </div>
         </div>
 
-        {/* ✅ v3.46.9: 프리미엄 푸터 - 담당 치료사 드롭다운 + 태블릿 서명 */}
+        {/* ✅ v3.46.11: 하단은 인쇄용 서명 표시만 (입력 폼은 상단 툴바로 이동) */}
         <div className="border-t-2 border-slate-100 pt-4 mt-6 no-break">
-          {/* 담당 치료사 선택 + 서명 (화면용) */}
-          <div className="print-hide mb-4 p-4 rounded-2xl bg-gradient-to-br from-slate-50 to-indigo-50/30 border border-slate-200/70">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label className="text-[11px] font-semibold text-slate-600 mb-1.5 block">👤 담당 치료사 선택</label>
-                <select
-                  value={therapistId}
-                  onChange={(e) => {
-                    const id = e.target.value;
-                    setTherapistId(id);
-                    const s = staffList.find(x => x.id === id);
-                    setTherapistName(s?.name || "");
-                  }}
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none">
-                  <option value="">-- 담당 치료사 선택 --</option>
-                  {staffList.map(s => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}{s.position ? ` (${s.position})` : ""}{s.department ? ` · ${s.department}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-[11px] font-semibold text-slate-600 mb-1.5 block">✍️ 서명 (태블릿/마우스)</label>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setShowSignPad(true)}
-                    className="flex-1 px-3 py-2.5 rounded-xl text-sm font-semibold bg-white border border-slate-200 hover:border-indigo-400 hover:bg-indigo-50 transition text-slate-700 flex items-center justify-center gap-1.5">
-                    {therapistSignature ? "✏️ 서명 다시하기" : "🖊️ 서명 입력"}
-                  </button>
-                  {therapistSignature && (
-                    <button
-                      onClick={() => setTherapistSignature("")}
-                      className="px-3 py-2.5 rounded-xl text-xs font-semibold bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 transition">
-                      🗑️
-                    </button>
-                  )}
-                </div>
-                {therapistSignature && (
-                  <div className="mt-2 p-2 bg-white/60 rounded-lg border border-dashed border-slate-200 relative">
-                    <div className="text-[9px] text-slate-400 mb-0.5">✓ 저장된 서명 (실제 인쇄 시 도장 스타일로 출력)</div>
-                    <img src={therapistSignature} alt="서명" className="h-12 mx-auto object-contain" style={{ mixBlendMode: "multiply" }} />
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
           {/* ✅ v3.46.10: 발행 정보 + 서명 영역 (직인 스타일 · 박스/테두리 없음) */}
           <div className="flex justify-between items-end text-[10px] text-slate-500">
             <div>
@@ -772,10 +764,30 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
             border: none !important;
             background: #fff !important;
           }
-          .print\\:hidden, .print-hide { display: none !important; }
+          /* ✅ v3.46.11: 인쇄 숨김 근본 강화 - 자식 요소까지 완전 제거 */
+          .print\\:hidden,
+          .print-hide,
+          .print-hide *,
+          .growth-report-print .print-hide,
+          .growth-report-print .print-hide * {
+            display: none !important;
+            visibility: hidden !important;
+            height: 0 !important;
+            width: 0 !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border: 0 !important;
+            overflow: hidden !important;
+          }
           /* ✅ v3.46.9: textarea 숨기고 미러 div로 대체 (잘림 근본 해결) */
-          .ai-comment-print { display: block !important; }
+          .ai-comment-print { display: block !important; visibility: visible !important; }
           textarea { display: none !important; }
+          /* select, input, button 등 인쇄 부적합 요소 완전 제거 */
+          .growth-report-print select,
+          .growth-report-print input,
+          .growth-report-print button:not(.print-keep) {
+            display: none !important;
+          }
           /* 서명 이미지는 반드시 인쇄 */
           img { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           /* Recharts SVG 인쇄 색상 유지 */
