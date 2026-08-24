@@ -1,3 +1,4 @@
+// ✅ v3.46.15: 활동량 [월별] 탭 빈 차트 수정 (선택 연도 1~12월 월별 태그 집계 전용 데이터 주입)
 // ✅ v3.46.14: 레이더 배열인덱싱 버그 수정 + 전년도(전월) 비교 오버레이 + AI초안 뱃지 완전삭제 + 활동량 미리보기 소스 일원화
 // ✅ v3.46.13: 성장추이를 회원DB 미리보기와 동일 방식으로 재구현(전체세션 기반 실제 곡선) + 인쇄 시 AI초안 뱃지 DOM 완전 제거(beforeprint)
 // ✅ v3.46.12: PDF 캡처 시 화면전용요소(AI초안 뱃지 등) 완전 제거 + 연간 단일연도 선택 시 월별추이 자동전환
@@ -283,6 +284,28 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
     }
     return data;
   }, [allSessions, sessions, period]);
+
+  // ✅ v3.46.15: [월별] 탭 전용 - 선택 연도의 1월~12월 스택바 데이터
+  //   period가 yearly여도 activityData는 연도 버킷("2026")이라 월 매칭 실패 → 빈 차트가 되던 버그 수정
+  //   회원DB 미리보기와 동일하게 항상 month 모드("YYYY-MM")로 집계 후 12개월 강제 채움
+  const monthlyActivityData = useMemo(() => {
+    const actSource = allSessions.length > 0 ? allSessions : sessions;
+    const yearStr = (startDate || new Date().toISOString().slice(0, 10)).slice(0, 4);
+    const monthly = buildActivityVolume(actSource || [], "month");  // buckets: "YYYY-MM"
+    const map = new Map<string, any>();
+    (monthly || []).forEach((d: any) => map.set(String(d.bucket), d));
+    const rows: any[] = [];
+    for (let m = 1; m <= 12; m++) {
+      const key = `${yearStr}-${String(m).padStart(2, "0")}`;
+      const found: any = map.get(key);
+      const row: any = { bucket: `${m}월` };
+      (Object.keys(RADAR_AXIS_META) as RadarAxis[]).forEach(ax => {
+        row[ax] = found ? (Number(found[ax]) || 0) : 0;
+      });
+      rows.push(row);
+    }
+    return rows;
+  }, [allSessions, sessions, startDate]);
 
   // KPI 요약 (노쇼 횟수 포함)
   const summary = useMemo(() => {
@@ -667,30 +690,7 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
               // ✅ v3.46.8: 월별 12분할 둥근 막대 뷰
               <ResponsiveContainer width="100%" height={260}>
                 <BarChart
-                  data={(() => {
-                    // period 가 yearly 면 12개월, monthly 면 activityData bucket 사용
-                    if (period === "yearly") {
-                      const y = new Date(startDate).getFullYear();
-                      const months = Array.from({ length: 12 }, (_, i) => {
-                        const mm = String(i + 1).padStart(2, "0");
-                        const label = `${i + 1}월`;
-                        const row: any = { bucket: label };
-                        (Object.keys(RADAR_AXIS_META) as RadarAxis[]).forEach(ax => (row[ax] = 0));
-                        // activityData 에서 해당 월 매치
-                        activityData.forEach((d: any) => {
-                          const b = String(d.bucket || "");
-                          if (b.includes(`-${mm}`) || b.startsWith(`${y}-${mm}`) || b.startsWith(`${i + 1}월`) || b === label) {
-                            (Object.keys(RADAR_AXIS_META) as RadarAxis[]).forEach(ax => {
-                              row[ax] += Number(d[ax]) || 0;
-                            });
-                          }
-                        });
-                        return row;
-                      });
-                      return months;
-                    }
-                    return activityData;
-                  })()}
+                  data={monthlyActivityData}  /* ✅ v3.46.15: 선택 연도 1~12월 월별 집계 1:1 매핑 */
                   margin={{ top: 10, right: 12, left: -10, bottom: 5 }}
                   barCategoryGap="20%">
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
