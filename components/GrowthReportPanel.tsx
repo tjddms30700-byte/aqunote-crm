@@ -1,3 +1,4 @@
+// ✅ v3.46.13: 성장추이를 회원DB 미리보기와 동일 방식으로 재구현(전체세션 기반 실제 곡선) + 인쇄 시 AI초안 뱃지 DOM 완전 제거(beforeprint)
 // ✅ v3.46.12: PDF 캡처 시 화면전용요소(AI초안 뱃지 등) 완전 제거 + 연간 단일연도 선택 시 월별추이 자동전환
 // ✅ v3.46.7: 차트 프리미엄화 (도넛+스플라인+파스텔)
 "use client";
@@ -49,6 +50,10 @@ interface Props {
 export default function GrowthReportPanel({ memberId, memberName, memberLevel = 2, period, startDate: propStartDate, endDate: propEndDate, onClose }: Props) {
   const [loading, setLoading] = useState(true);
   const [sessions, setSessions] = useState<any[]>([]);
+  // ✅ v3.46.13: 추이 그래프용 전체 세션 (기간 필터 없음 - 회원DB 미리보기와 동일한 곡선)
+  const [allSessions, setAllSessions] = useState<any[]>([]);
+  // ✅ v3.46.13: 인쇄 진행 중 여부 (beforeprint 시점에 화면전용 요소를 DOM에서 완전 제거)
+  const [isPrinting, setIsPrinting] = useState(false);
   const [attendance, setAttendance] = useState<any[]>([]);
   const [orgSettings, setOrgSettings] = useState<any>(null);
 
@@ -101,6 +106,18 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
     return { startDate: start, endDate: end, periodLabel: label };
   }, [period, propStartDate, propEndDate]);
 
+  // ✅ v3.46.13: 인쇄 시작/종료 감지 → 인쇄 중엔 AI 초안 뱃지 등을 DOM에서 완전 제거
+  useEffect(() => {
+    const handleBeforePrint = () => setIsPrinting(true);
+    const handleAfterPrint = () => setIsPrinting(false);
+    window.addEventListener("beforeprint", handleBeforePrint);
+    window.addEventListener("afterprint", handleAfterPrint);
+    return () => {
+      window.removeEventListener("beforeprint", handleBeforePrint);
+      window.removeEventListener("afterprint", handleAfterPrint);
+    };
+  }, []);
+
   // ✅ v3.46.3: 데이터 로드 (컬럼명 자동 감지 + 안전 매칭)
   useEffect(() => {
     (async () => {
@@ -131,6 +148,16 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
             });
           } catch {}
         }
+
+        // ✅ v3.46.13: 추이 그래프용 전체 세션 로드 (기간 무관, 미리보기와 동일 데이터 소스)
+        try {
+          const rAll = await supabase.from("sessions")
+            .select("*")
+            .eq("member_id", memberId)
+            .is("deleted_at", null)
+            .order("session_date", { ascending: true });
+          if (!rAll.error && rAll.data) setAllSessions(rAll.data);
+        } catch {}
 
         // 2) attendance - 컬럼명 자동 감지 (date / attend_date / attendance_date / session_date)
         let attendanceRows: any[] = [];
@@ -193,92 +220,20 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
     });
   }, [sessions, memberLevel]);
 
-  // ✅ v3.46.10: X축 고정 렌더링 (월간=1~12월, 연간=시작연도~현재연도)
+  // ✅ v3.46.13: 성장 추이 - 회원DB 리포트 미리보기와 동일한 방식으로 재구현
+  //   - 기간 필터 없이 회원의 전체 세션 사용 (실제 성장 곡선이 보임)
+  //   - buildFilledTimeSeries가 내부 LOCF 처리, 세션 있는 버킷만 점 찍음
   const timeSeriesData = useMemo(() => {
-    const raw = buildFilledTimeSeries(sessions || [], period === "yearly" ? "year" : "month", memberLevel, startDate, endDate);
-    const axisKeys = Object.keys(RADAR_AXIS_META) as RadarAxis[];
-
-    // 데이터 맵 (raw 의 bucket → 점수 매핑)
-    const dataMap = new Map<string, any>();
-    (raw || []).forEach((d: any) => dataMap.set(d.bucket, d));
-    // ✅ v3.46.12: 연간에서 같은 해(예: 2026년 한 해) 선택 시 월별 추이로 전환하기 위해 월 버킷도 함께 수집
-    const rawMonthly = period === "yearly"
-      ? buildFilledTimeSeries(sessions || [], "month", memberLevel, startDate, endDate)
-      : raw;
-    const monthlyMap = new Map<string, any>();
-    (rawMonthly || []).forEach((d: any) => monthlyMap.set(d.bucket, d));
-
-    if (period === "monthly") {
-      // ── 월간: 1~12월 모두 12개 포인트 강제 렌더링
-      const y = (startDate || new Date().toISOString().slice(0, 10)).slice(0, 4);
-      const points: any[] = [];
-      const carry: Record<string, number> = {};
-      axisKeys.forEach(ax => { carry[ax] = Math.max(15, memberLevel * 20); });
-
-      for (let m = 1; m <= 12; m++) {
-        const mm = String(m).padStart(2, "0");
-        const key = `${y}-${mm}`;
-        const found = dataMap.get(key);
-        const point: any = { bucket: `${m}월` };
-        axisKeys.forEach(ax => {
-          if (found && typeof found[ax] === "number" && found[ax] > 0) {
-            carry[ax] = found[ax];
-            point[ax] = found[ax];
-          } else {
-            point[ax] = carry[ax];  // LOCF
-          }
-        });
-        points.push(point);
-      }
-      return points;
-    } else {
-      // ── 연간: 시작연도 ~ 현재연도 고정
-      const sy = parseInt((startDate || `${new Date().getFullYear()}-01-01`).slice(0, 4));
-      const cy = new Date().getFullYear();
-      const ey = Math.max(cy, parseInt((endDate || `${cy}-12-31`).slice(0, 4)));
-      // ✅ v3.46.12: 같은 연도(예: 2026-01-01 ~ 2026-12-31) 선택 시 연도 점이 1개만 찍혀 추이가 안 보임
-      //             → 1~12월 월별 12포인트 추이로 자동 전환 (LOCF 동일 적용)
-      if (sy === ey) {
-        const mPoints: any[] = [];
-        const mCarry: Record<string, number> = {};
-        axisKeys.forEach(ax => { mCarry[ax] = Math.max(15, memberLevel * 20); });
-        for (let m = 1; m <= 12; m++) {
-          const key = `${sy}-${String(m).padStart(2, "0")}`;
-          const found = monthlyMap.get(key);
-          const point: any = { bucket: `${m}월` };
-          axisKeys.forEach(ax => {
-            if (found && typeof found[ax] === "number" && found[ax] > 0) {
-              mCarry[ax] = found[ax];
-              point[ax] = found[ax];
-            } else {
-              point[ax] = mCarry[ax];  // LOCF
-            }
-          });
-          mPoints.push(point);
-        }
-        return mPoints;
-      }
-      const points: any[] = [];
-      const carry: Record<string, number> = {};
-      axisKeys.forEach(ax => { carry[ax] = Math.max(15, memberLevel * 20); });
-
-      for (let y = sy; y <= ey; y++) {
-        const key = String(y);
-        const found = dataMap.get(key);
-        const point: any = { bucket: `${y}년` };
-        axisKeys.forEach(ax => {
-          if (found && typeof found[ax] === "number" && found[ax] > 0) {
-            carry[ax] = found[ax];
-            point[ax] = found[ax];
-          } else {
-            point[ax] = carry[ax];  // LOCF
-          }
-        });
-        points.push(point);
-      }
-      return points;
-    }
-  }, [sessions, period, startDate, endDate, memberLevel]);
+    const mode = period === "yearly" ? "year" : "month";
+    const source = allSessions.length > 0 ? allSessions : sessions;
+    const raw = buildFilledTimeSeries(source || [], mode, memberLevel);
+    return (raw || []).map((d: any) => ({
+      ...d,
+      bucket: mode === "month"
+        ? `${d.bucket.slice(0, 4)}.${d.bucket.slice(5, 7)}`   // "2025.06" 형식
+        : `${d.bucket}년`,
+    }));
+  }, [allSessions, sessions, period, memberLevel]);
 
   const activityData = useMemo(() => {
     const data = buildActivityVolume(sessions || [], period === "yearly" ? "year" : "month");  // ✅ v3.46.4: mode는 month|year만
@@ -544,7 +499,7 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
                 <XAxis
                   dataKey="bucket"
                   type="category"
-                  interval={0}
+                  interval="preserveStartEnd"
                   tick={{ fontSize: 10, fill: "#64748b" }}
                   axisLine={{ stroke: "#e2e8f0" }}
                   tickLine={false}
@@ -706,11 +661,11 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
         <div className="mb-6">
           <h2 className="text-base font-bold text-slate-800 mb-2 flex items-center gap-2">
             💬 치료사 종합 코멘트
-            {aiEdited && (
-            <span className="print-hide text-[10px] px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full" data-print="hide">직접 편집됨</span>
+            {!isPrinting && !pdfCaptureMode && aiEdited && (
+            <span className="text-[10px] px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">직접 편집됨</span>
           )}
-            {!aiEdited && aiComment && (
-            <span className="print-hide text-[10px] px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full" data-print="hide">AI 초안</span>
+            {!isPrinting && !pdfCaptureMode && !aiEdited && aiComment && (
+            <span className="text-[10px] px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full">AI 초안</span>
           )}
           </h2>
           {/* 화면용 편집 textarea (인쇄 시 숨김) */}
