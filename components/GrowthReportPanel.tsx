@@ -1,3 +1,4 @@
+// ✅ v3.46.14: 레이더 배열인덱싱 버그 수정 + 전년도(전월) 비교 오버레이 + AI초안 뱃지 완전삭제 + 활동량 미리보기 소스 일원화
 // ✅ v3.46.13: 성장추이를 회원DB 미리보기와 동일 방식으로 재구현(전체세션 기반 실제 곡선) + 인쇄 시 AI초안 뱃지 DOM 완전 제거(beforeprint)
 // ✅ v3.46.12: PDF 캡처 시 화면전용요소(AI초안 뱃지 등) 완전 제거 + 연간 단일연도 선택 시 월별추이 자동전환
 // ✅ v3.46.7: 차트 프리미엄화 (도넛+스플라인+파스텔)
@@ -205,20 +206,52 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
     })();
   }, []);
 
-  // ✅ v3.46.2: 6축 레이더 데이터 (세션이 없어도 기본 축 렌더링 보장)
-  const radarData = useMemo(() => {
-    const scores = computeRadarScores(sessions || [], memberLevel);
+  // ✅ v3.46.14: 6축 레이더 - computeRadarScores는 배열을 반환하므로 find로 매칭
+  //   (기존 scores[axis] 문자열 인덱싱은 항상 undefined → 전 축 기본값으로 표시되던 치명 버그)
+  const defaultRadarScore = Math.max(15, memberLevel * 20);
+  const buildRadarRows = (sessionRows: any[]) => {
+    const scores = computeRadarScores(sessionRows || [], memberLevel);  // RadarScore[]
     return (Object.keys(RADAR_AXIS_META) as RadarAxis[]).map(axis => {
-      const s = scores[axis];
-      // 세션이 없으면 memberLevel 기반 기본값 표시 (fallback)
-      const defaultScore = Math.max(15, memberLevel * 20);
+      const s = (scores || []).find((r: any) => r.axis === axis);
       return {
-        axis: RADAR_AXIS_META[axis].label,
-        점수: (s && typeof s.score === "number" && s.score > 0) ? s.score : defaultScore,
+        score: (s && typeof s.score === "number" && s.score > 0) ? s.score : defaultRadarScore,
         source: s?.source || "default",
       };
     });
-  }, [sessions, memberLevel]);
+  };
+
+  // ✅ v3.46.14: 비교 기간(전년도/전월) 세션 추출 + 비교 레이블
+  const { prevSessions, compareLabelCurrent, compareLabelPrev } = useMemo(() => {
+    const all = allSessions.length > 0 ? allSessions : sessions;
+    const byDate = (s: any) => s.session_date || s.date || s.created_at?.slice(0, 10) || "";
+    if (period === "yearly") {
+      const cy = parseInt((startDate || `${new Date().getFullYear()}-01-01`).slice(0, 4));
+      const py = cy - 1;
+      const prev = (all || []).filter((s: any) => byDate(s).startsWith(String(py)));
+      return { prevSessions: prev, compareLabelCurrent: `${cy}년 (현재)`, compareLabelPrev: `${py}년 (이전)` };
+    }
+    // 월간: 당월 vs 전달
+    const base = startDate || new Date().toISOString().slice(0, 10);
+    const curKey = base.slice(0, 7);  // YYYY-MM
+    const d = new Date(parseInt(base.slice(0, 4)), parseInt(base.slice(5, 7)) - 2, 1);  // 전달
+    const prevKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const prev = (all || []).filter((s: any) => byDate(s).startsWith(prevKey));
+    const fmt = (k: string) => `${parseInt(k.slice(5, 7))}월`;
+    return { prevSessions: prev, compareLabelCurrent: `${fmt(curKey)} (당월)`, compareLabelPrev: `${fmt(prevKey)} (전월)` };
+  }, [allSessions, sessions, period, startDate]);
+
+  const radarData = useMemo(() => {
+    const cur = buildRadarRows(sessions || []);
+    const prev = buildRadarRows(prevSessions || []);
+    const hasPrev = (prevSessions || []).length > 0;
+    return (Object.keys(RADAR_AXIS_META) as RadarAxis[]).map((axis, i) => ({
+      axis: RADAR_AXIS_META[axis].label,
+      점수: cur[i].score,
+      이전점수: hasPrev ? prev[i].score : undefined,
+      source: cur[i].source,
+    }));
+  }, [sessions, prevSessions, memberLevel]);
+  const hasCompareRadar = (prevSessions || []).length > 0;
 
   // ✅ v3.46.13: 성장 추이 - 회원DB 리포트 미리보기와 동일한 방식으로 재구현
   //   - 기간 필터 없이 회원의 전체 세션 사용 (실제 성장 곡선이 보임)
@@ -236,7 +269,9 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
   }, [allSessions, sessions, period, memberLevel]);
 
   const activityData = useMemo(() => {
-    const data = buildActivityVolume(sessions || [], period === "yearly" ? "year" : "month");  // ✅ v3.46.4: mode는 month|year만
+    // ✅ v3.46.14: 미리보기와 동일하게 전체 세션 기반으로 일원화
+    const actSource = allSessions.length > 0 ? allSessions : sessions;
+    const data = buildActivityVolume(actSource || [], period === "yearly" ? "year" : "month");  // ✅ v3.46.4: mode는 month|year만
     if (!data || data.length === 0) {
       const now = new Date();
       const label = period === "yearly" ? `${now.getMonth()+1}월` : `${now.getMonth()+1}/${now.getDate()}`;
@@ -247,7 +282,7 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
       return [emptyPoint];
     }
     return data;
-  }, [sessions, period]);
+  }, [allSessions, sessions, period]);
 
   // KPI 요약 (노쇼 횟수 포함)
   const summary = useMemo(() => {
@@ -452,13 +487,31 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
         <div className="mb-6">
           <h2 className="text-base font-bold text-slate-800 mb-2 flex items-center gap-1.5">📊 6축 성장 프로필</h2>
           <div className="no-break border border-slate-200/70 rounded-2xl p-4 bg-gradient-to-br from-white to-slate-50/40 shadow-sm">
+            {/* ✅ v3.46.14: 비교 범례 (이전 vs 현재) */}
+            {hasCompareRadar && (
+              <div className="flex items-center justify-center gap-4 mb-2 text-[11px]">
+                <span className="flex items-center gap-1.5 text-slate-500">
+                  <span className="inline-block w-5 border-t-2 border-dashed border-slate-400"></span>
+                  {compareLabelPrev}
+                </span>
+                <span className="flex items-center gap-1.5 text-indigo-600 font-semibold">
+                  <span className="inline-block w-5 border-t-2 border-indigo-500"></span>
+                  {compareLabelCurrent}
+                </span>
+              </div>
+            )}
             <ResponsiveContainer width="100%" height={280}>
               <RadarChart data={radarData}>
                 <PolarGrid strokeDasharray="3 3" stroke="#cbd5e1" />
                 <PolarAngleAxis dataKey="axis" tick={{ fontSize: 11, fill: "#334155" }} />
                 <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fontSize: 9, fill: "#94a3b8" }} />
-                <Radar name="성장 점수" dataKey="점수" stroke="#818CF8" fill="#818CF8" fillOpacity={0.35} strokeWidth={2} />
-                <Tooltip formatter={(v: any) => `${v}점`} />
+                {/* ✅ v3.46.14: 이전 기간 - 옅은 회색 점선/반투명 */}
+                {hasCompareRadar && (
+                  <Radar name={compareLabelPrev} dataKey="이전점수" stroke="#94a3b8" strokeDasharray="5 4" fill="#94a3b8" fillOpacity={0.12} strokeWidth={1.5} />
+                )}
+                {/* 현재 기간 - 메인 테마 실선 */}
+                <Radar name={compareLabelCurrent} dataKey="점수" stroke="#818CF8" fill="#818CF8" fillOpacity={0.35} strokeWidth={2} />
+                <Tooltip formatter={(v: any, name: any) => [`${v}점`, name]} />
               </RadarChart>
             </ResponsiveContainer>
             <div className="flex flex-wrap gap-1 mt-2 justify-center">
@@ -661,12 +714,7 @@ export default function GrowthReportPanel({ memberId, memberName, memberLevel = 
         <div className="mb-6">
           <h2 className="text-base font-bold text-slate-800 mb-2 flex items-center gap-2">
             💬 치료사 종합 코멘트
-            {!isPrinting && !pdfCaptureMode && aiEdited && (
-            <span className="text-[10px] px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">직접 편집됨</span>
-          )}
-            {!isPrinting && !pdfCaptureMode && !aiEdited && aiComment && (
-            <span className="text-[10px] px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full">AI 초안</span>
-          )}
+            {/* ✅ v3.46.14: AI 초안/직접 편집됨 뱃지 완전 삭제 (보호자 발송용 - 화면·인쇄·PDF 모두 미노출) */}
           </h2>
           {/* 화면용 편집 textarea (인쇄 시 숨김) */}
           <textarea
