@@ -8,7 +8,7 @@ import {
   LogIn, LogOut, User as UserIcon, CreditCard, DollarSign, Briefcase, FileText,
   ClipboardCheck, TrendingUp, Ticket, Settings,
   Target, AlertTriangle, Clock, FileCheck, MessageSquare,
-  Waves, Wallet, UserCog, PieChart, Inbox, RefreshCw, Database, KeyRound
+  Waves, Wallet, UserCog, PieChart, Inbox, RefreshCw, Database, KeyRound, Car
 } from "lucide-react";
 import Logo from "@/components/Logo";
 import BranchSwitcher from "@/components/BranchSwitcher";
@@ -39,7 +39,7 @@ const GROUPS = [
   {
     key: "staff",
     title: "직원 · 근무",
-    subtitle: "출퇴근 · 휴가 · 사내 소통",
+    subtitle: "출퇴근 · 휴가 · 차량운행일지 · 경비청구 · 사내 공지",
     icon: UserCog,
     from: "from-blue-500",
     to: "to-indigo-600",
@@ -47,8 +47,12 @@ const GROUPS = [
     bg: "bg-blue-50",
     directorOnly: false,
     items: [
-      // v3.20.31: 4개 카드 → 1개 통합 카드로 개편 (상세 페이지 상단에서 Sub-Tab 전환)
-      { href: "/attendance-staff", icon: UserCog,       title: "👥 직원·근무 관리",  desc: "출퇴근 · 실근무 · 휴가·결재 · 사내 게시판 (통합)" },
+      // ✅ v3.47.0: 단일 카드 → 5개 바로가기 카드로 분리 (뱃지 카운트 자동 5개 표시)
+      { href: "/attendance-staff?tab=commute", icon: Clock,    title: "⏰ 출퇴근 관리",      desc: "당일 출퇴근 체크 및 월간 근무시간 확인" },
+      { href: "/attendance-staff?tab=leave",   icon: FileCheck, title: "🏖️ 휴가·연차 관리",  desc: "잔여 연차 조회 및 휴가 신청·승인 현황" },
+      { href: "/vehicles",                     icon: Car,       title: "🚗 차량운행일지",    desc: "업무용 렌트카 주행거리 기록 · 국세청 세무 증빙" },
+      { href: "/attendance-staff?tab=expense", icon: Wallet,    title: "🧾 지출·경비 청구",  desc: "법인카드/개인카드 영수증 등록 및 경비 청구" },
+      { href: "/attendance-staff?tab=notice",  icon: MessageSquare, title: "📢 공지사항",     desc: "센터 사내 공지 및 업무 전달사항" },
     ],
   },
   {

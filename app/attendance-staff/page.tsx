@@ -1,9 +1,11 @@
 "use client";
 
 // v3.20.34: [👥 직원·근무 관리] 4탭 통합 · Toss/Flex SaaS 스타일 리디자인
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { uploadToStorage } from "@/lib/storageUpload";  // ✅ v3.47.0: 영수증 이미지 업로드
 import HomeButton from "@/components/HomeButton";
 import {
   Clock, Play, Square, TrendingUp, FileCheck, MessageSquare, UserCog,
@@ -53,7 +55,15 @@ const BOARD_CATS = [
 
 type TabKey = "attendance" | "leave" | "expense" | "board";
 
-export default function StaffAttendancePage() {
+export default function StaffAttendancePageWrapper() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-gray-500">로딩중...</div>}>
+      <StaffAttendancePage />
+    </Suspense>
+  );
+}
+
+function StaffAttendancePage() {
   const [staff, setStaff] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
   const [leaves, setLeaves] = useState<any[]>([]);
@@ -65,6 +75,15 @@ export default function StaffAttendancePage() {
   useEffect(() => { setMonth(new Date().toISOString().slice(0, 7)); }, []);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<TabKey>("attendance");
+  // ✅ v3.47.0: 대시보드 5개 카드에서 ?tab= 으로 직접 진입 (commute/leave/vehicle/expense/notice)
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const t = searchParams?.get("tab");
+    const map: Record<string, TabKey> = { commute: "attendance", attendance: "attendance", leave: "leave", expense: "expense", notice: "board", board: "board" };
+    if (t && map[t]) setTab(map[t]);
+  }, [searchParams]);
+  // ✅ v3.47.0: 로그인 사용자 정보 (지출·경비 본인 내역 필터용)
+  const [currentUser, setCurrentUser] = useState<{ email: string; staffId: string } | null>(null);
   // v3.21.4: 마스터/센터장 기본 허용 – profile/staff role 조회 실패 시에도 버튼 노출 보장
   const [isDirector, setIsDirector] = useState(true);
 
@@ -74,6 +93,7 @@ export default function StaffAttendancePage() {
   });
 
   const [showExpModal, setShowExpModal] = useState(false);
+  const [uploadingReceipt, setUploadingReceipt] = useState(false);  // ✅ v3.47.0
   const [expForm, setExpForm] = useState<any>({
     staff_id: "", expense_type: "reimburse", expense_category: "사무용품·소모품",
     purchase_item: "", purchase_amount: 0, vendor: "", receipt_url: "",
@@ -102,6 +122,11 @@ export default function StaffAttendancePage() {
         const { data: userData } = await supabase.auth.getUser();
         const email = userData?.user?.email;
         if (!email) return; // 로그인 안 된 경우 기본 true 유지
+        // ✅ v3.47.0: 로그인 이메일 → staff 레코드 매칭 (본인 경비 필터용)
+        try {
+          const { data: me } = await supabase.from("staff").select("id").eq("email", email).maybeSingle();
+          if (me?.id) setCurrentUser({ email, staffId: me.id });
+        } catch {}
         const { data: prof } = await supabase.from("profiles").select("role").eq("email", email).maybeSingle();
         const role = String(prof?.role || "").toLowerCase();
         const isAdmin = ["director", "master", "admin", "manager", "owner", "원장", "대표"].includes(role);
@@ -483,8 +508,13 @@ export default function StaffAttendancePage() {
 
   const pendingLeaves = leaves.filter(r => r?.category === "leave" && r?.status === "pending");
   const doneLeaves = leaves.filter(r => r?.category === "leave" && r?.status !== "pending");
-  const pendingExpenses = leaves.filter(r => (r?.category === "expense" || r?.category === "purchase") && r?.status === "pending");
-  const doneExpenses = leaves.filter(r => (r?.category === "expense" || r?.category === "purchase") && r?.status !== "pending");
+  // ✅ v3.47.0: 지출·경비 권한 분리 - 일반 직원은 본인이 신청한 내역만 조회 (관리자는 전체)
+  const myExpenseFilter = (r: any) => (r?.category === "expense" || r?.category === "purchase");
+  const visibleExpenses = isDirector
+    ? leaves.filter(myExpenseFilter)
+    : leaves.filter(r => myExpenseFilter(r) && currentUser?.staffId && r.staff_id === currentUser.staffId);
+  const pendingExpenses = visibleExpenses.filter(r => r?.status === "pending");
+  const doneExpenses = visibleExpenses.filter(r => r?.status !== "pending");
 
   return (
     <main className="max-w-7xl mx-auto px-3 md:px-6 py-6 md:py-8 bg-slate-50 min-h-screen">
@@ -837,17 +867,20 @@ export default function StaffAttendancePage() {
               <div className="text-xs text-slate-500">이번달 경비 청구 · 물품구매 · 외부서비스 결재</div>
               <div className="text-sm font-semibold text-slate-800 mt-1">승인 시 <span className="text-blue-600">재무관리 [운영비]</span>에 자동 등록됩니다</div>
             </div>
-            <button onClick={() => { setExpForm({ ...expForm, staff_id: selectedStaff }); setShowExpModal(true); }}
+            <button onClick={() => { setExpForm({ ...expForm, staff_id: (!isDirector && currentUser?.staffId) ? currentUser.staffId : selectedStaff }); setShowExpModal(true); }}
               className="px-4 py-2.5 bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-xl text-sm font-bold shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5 flex items-center gap-1.5">
               <Plus className="w-4 h-4" /> 지출 결재 신청
             </button>
           </div>
 
+          {/* ✅ v3.47.0: 통계 카드는 관리자만 노출 (일반 직원은 센터 전체 지출 통계 조회 불가) */}
+          {isDirector && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <StatCard label="승인 대기" value={`${pendingExpenses.length}건`} sub="원장 결재 대기중" color="text-amber-600" />
             <StatCard label="이번달 승인 지출" value={`₩${expenses.filter(e => e.source === "leave_approval").reduce((s, e) => s + Number(e.amount || 0), 0).toLocaleString()}`} sub={`${expenses.filter(e => e.source === "leave_approval").length}건 자동 등록`} color="text-emerald-600" />
             <StatCard label="이번달 전체 운영비" value={`₩${expenses.reduce((s, e) => s + Number(e.amount || 0), 0).toLocaleString()}`} sub={`${expenses.length}건`} color="text-indigo-600" />
           </div>
+          )}
 
           <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
             <h2 className="text-base font-bold text-slate-900 mb-3">⏳ 승인 대기 <span className="text-xs font-normal text-slate-500 ml-1">({pendingExpenses.length}건)</span></h2>
@@ -1059,11 +1092,16 @@ export default function StaffAttendancePage() {
         <ModalShell title="💸 지출 결재 신청" onClose={() => setShowExpModal(false)}>
           <div className="space-y-3">
             <Field label="신청자 *">
+              {/* ✅ v3.47.0: 일반 직원은 본인으로 고정, 관리자는 선택 가능 */}
               <select value={expForm.staff_id} onChange={e => setExpForm({ ...expForm, staff_id: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                disabled={!isDirector && !!currentUser?.staffId}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm disabled:bg-slate-50 disabled:text-slate-500">
                 <option value="">선택하세요</option>
                 {staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
+              {!isDirector && currentUser?.staffId && (
+                <div className="text-[10px] text-slate-400 mt-0.5">로그인 계정으로 자동 지정됩니다</div>
+              )}
             </Field>
             <Field label="지출 유형 *">
               <div className="grid grid-cols-3 gap-1.5">
@@ -1129,9 +1167,37 @@ export default function StaffAttendancePage() {
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
               </Field>
             </div>
-            <Field label="영수증 URL / 사진">
-              <input type="url" value={expForm.receipt_url} onChange={e => setExpForm({ ...expForm, receipt_url: e.target.value })}
-                placeholder="https://... (jpg/png/pdf)" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+            <Field label="🧾 영수증 첨부 (이미지 업로드 / 모바일 카메라 촬영)">
+              <div className="space-y-2">
+                <label className="flex items-center justify-center gap-2 px-3 py-3 border-2 border-dashed border-blue-300 rounded-xl bg-blue-50/50 text-blue-600 text-sm font-semibold cursor-pointer hover:bg-blue-50 transition">
+                  {uploadingReceipt ? "⏳ 업로드 중..." : "📷 사진 촬영 / 이미지 선택"}
+                  <input type="file" accept="image/*" capture="environment" className="hidden"
+                    disabled={uploadingReceipt}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      setUploadingReceipt(true);
+                      try {
+                        const { publicUrl, filePath } = await uploadToStorage("documents", "receipts", file);
+                        setExpForm((prev: any) => ({ ...prev, receipt_url: publicUrl || filePath }));
+                      } catch (err: any) {
+                        alert("영수증 업로드 실패: " + (err?.message || err));
+                      } finally {
+                        setUploadingReceipt(false);
+                        e.target.value = "";
+                      }
+                    }} />
+                </label>
+                {expForm.receipt_url && (
+                  <div className="flex items-center justify-between px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg">
+                    <a href={expForm.receipt_url} target="_blank" rel="noopener noreferrer" className="text-xs text-emerald-700 font-semibold hover:underline">✅ 영수증 첨부됨 — 미리보기</a>
+                    <button type="button" onClick={() => setExpForm({ ...expForm, receipt_url: "" })}
+                      className="text-xs text-rose-500 hover:text-rose-700">삭제</button>
+                  </div>
+                )}
+                <input type="url" value={expForm.receipt_url} onChange={e => setExpForm({ ...expForm, receipt_url: e.target.value })}
+                  placeholder="또는 URL 직접 입력 (https://...)" className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs" />
+              </div>
             </Field>
             <Field label="사유 / 상세">
               <textarea value={expForm.reason} onChange={e => setExpForm({ ...expForm, reason: e.target.value })}
