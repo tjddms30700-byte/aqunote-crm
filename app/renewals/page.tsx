@@ -144,7 +144,7 @@ export default function RenewalsPage() {
           <button
             disabled={recalcRunning}
             onClick={async () => {
-              if (!confirm(`전체 회원(${members.length}명)의 회원권 차감을 출석 이력 기준 FIFO(결제 순서)로 처음부터 재계산합니다.\n\n• 회원권별 잔여가 깔끔하게 정리됩니다 (음수 제거)\n• 회원 수에 따라 수십 초 소요될 수 있습니다\n\n진행할까요?`)) return;
+              if (!confirm(`전체 회원(${members.length}명)의 회원권 차감을 완료 수업 기준(미래 예약·병결·이월 제외) FIFO(결제 순서)로 처음부터 재계산합니다.\n\n• 회원권별 잔여가 깔끔하게 정리됩니다 (음수 제거)\n• 회원 수에 따라 수십 초 소요될 수 있습니다\n\n진행할까요?`)) return;
               setRecalcRunning(true);
               let ok = 0, fail = 0;
               for (const m of members) {

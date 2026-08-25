@@ -1,3 +1,4 @@
+// ✅ v3.48.1: 재계산 카운트 = 완료(done) 슬롯만 · 미래 예약 제외
 // ✅ v3.48.0: 회원권 FIFO(선입선출) 차감 공용 유틸
 // 핵심 원칙:
 //  - 차감 대상 = 잔여 횟수가 남아있는(>0) 가장 오래된 회원권 (start_date → created_at 오름차순)
@@ -42,9 +43,27 @@ export function pickFifoMembership(list: any[], date?: string): any | null {
  *  - 전 회원권 소진 후 초과 출석분은 마지막 회원권에 누적 (표시는 0으로 clamp)
  */
 export async function recalcMemberFifo(memberId: string): Promise<{ used: number; after: string }> {
-  // 1) 유효 출석 횟수 집계
-  const { data: att } = await supabase.from("attendance").select("id, status").eq("member_id", memberId);
-  const used = (att || []).filter((a: any) => a.status === "present" || a.status === "absent").length;
+  // ✅ v3.48.1: 유효 출석 = schedule_slots 중 '완료(done/completed)' 상태인 과거~당일 세션만
+  //   - 미래·예약(scheduled) / 병결(sick) / 이월(carryover) / 개인사정(personal) 건은 차감 제외
+  //   - 회원 상세 KPI '완료 수업 N회'와 동일한 데이터 소스로 일치
+  const today = new Date().toISOString().slice(0, 10);
+  const { data: slotRows } = await supabase.from("schedule_slots")
+    .select("id, status, event_date")
+    .eq("member_id", memberId)
+    .is("deleted_at", null);
+  let used = (slotRows || []).filter((s: any) => {
+    const st = (s.status || "").toLowerCase();
+    const d = typeof s.event_date === "string" ? s.event_date.slice(0, 10) : "";
+    return (st === "done" || st === "completed") && !!d && d <= today;
+  }).length;
+  if ((slotRows || []).length === 0) {
+    // 폴백: schedule_slots이 전혀 없는 회원만 attendance(present/absent, 과거~당일) 기준
+    const { data: att } = await supabase.from("attendance").select("*").eq("member_id", memberId);
+    used = (att || []).filter((a: any) => {
+      const d = a.attend_date || a.date || a.attendance_date || a.session_date || "";
+      return (a.status === "present" || a.status === "absent") && !!d && d <= today;
+    }).length;
+  }
 
   // 2) 회원권 로드 (취소 제외) + FIFO 정렬
   const { data: ms } = await supabase.from("memberships").select("*")

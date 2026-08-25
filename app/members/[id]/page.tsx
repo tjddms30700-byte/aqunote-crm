@@ -2353,7 +2353,7 @@ function MemberHistoryPanel({ memberId }: { memberId: string }) {
           {/* ✅ v3.48.0: 이 회원 회원권 FIFO 일괄 재계산 (출석 기준 재배정) */}
           <button
             onClick={async () => {
-              if (!confirm("출석 이력 기준으로 회원권 차감을 FIFO(결제 순서)로 처음부터 재계산합니다.\n진행할까요?")) return;
+              if (!confirm("완료된 수업 기준(미래 예약·병결·이월 제외)으로 회원권 차감을 FIFO(결제 순서)로 처음부터 재계산합니다.\n진행할까요?")) return;
               try {
                 const r = await recalcMemberFifo(memberId);
                 alert(`✅ 재계산 완료 (총 유효 출석 ${r.used}회)\n\n${r.after}`);

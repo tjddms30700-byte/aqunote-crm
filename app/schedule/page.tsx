@@ -406,6 +406,18 @@ export default function SchedulePage() {
         if (_attDel.error && _attDel.error.code === "42703") { await supabase.from("attendance").delete().eq("id", existing.id); }
       }
     }
+    // ✅ v3.48.1: 이월/취소 전환 시 남아있는 병결·개인사정 attendance 레코드 삭제
+    //   (예전에 병결/개인사정으로 처리된 기록이 남아 '보강 필요' 목록에 이월 건이 계속 뜨던 버그 수정)
+    if (status === "carryover" || status === "cancel") {
+      const stale = attendance.find((a: any) =>
+        a.member_id === slot.member_id &&
+        (a.date === slot.event_date || a.attend_date === slot.event_date || a.attendance_date === slot.event_date || a.session_date === slot.event_date)
+      );
+      if (stale && (stale.status === "sick" || stale.status === "personal")) {
+        await supabase.from("attendance").delete().eq("id", stale.id);
+        console.log("[v3.48.1] 이월/취소 전환 - 낡은 결석 attendance 레코드 정리:", stale.id);
+      }
+    }
     // attendance 기록은 done/cancel이 명확한 경우에만 저장 (선택적 보조 로그)
     if (status === "done" || status === "noshow" || status === "sick" || status === "personal") {
       // 컬럼명 자동 감지 (date / attendance_date / session_date)
@@ -1556,6 +1568,14 @@ export default function SchedulePage() {
       const st = (a.status || "").toLowerCase();
       // v3.23.0: is_makeup_waived=true 면 제외
       if (a.is_makeup_waived === true) return;
+      // ✅ v3.48.1: 연결된 슬롯이 이미 이월/취소/완료 등으로 변경된 경우 보강 대상 제외 (슬롯 상태 우선)
+      if (a.slot_id) {
+        const linked = slots.find((sl: any) => sl.id === a.slot_id);
+        if (linked) {
+          const lst = (linked.status || "").toLowerCase();
+          if (lst !== "sick" && lst !== "personal") return;
+        }
+      }
       if (st === "sick" || st === "personal") {
         const dt = a.attend_date || a.date || a.attendance_date || a.session_date;
         if (a.member_id && dt) {
