@@ -63,9 +63,35 @@ export async function recalcMemberFifo(memberId: string): Promise<{ used: number
     if (doneKeySet.has(key)) dupLog.push(`중복제거: ${key} (slot ${s.id})`);
     doneKeySet.add(key);
   });
+  // ✅ v3.48.5: 회원권 먼저 로드 - 최초 회원권 시작일 이전의 출석은 '이전 시스템 이력'으로 차감 제외
+  const { data: msPre } = await supabase.from("memberships").select("*")
+    .eq("member_id", memberId).neq("status", "cancelled");
+  const firstStart = fifoSort(msPre || [])
+    .map((m: any) => m.start_date)
+    .filter(Boolean)[0] || null;
+
+  // ✅ v3.48.5: 유령 카운트 진단 - 카운트에 포함된 슬롯의 원본 event_date 를 그대로 출력
+  //   (SQL에서 date 등호로 안 잡히는데 카운트엔 잡히는 경우 = timestamp 형태로 저장된 케이스 탐지)
+  const rawSample = (slotRows || [])
+    .filter((s: any) => {
+      const st = (s.status || "").toLowerCase();
+      const d = typeof s.event_date === "string" ? s.event_date.slice(0, 10) : "";
+      return (st === "done" || st === "completed") && !!d && d <= today;
+    })
+    .map((s: any) => ({ id: s.id, raw_date: s.event_date, time_slot: s.time_slot }));
+  console.log(`[FIFO 재계산] 완료 슬롯 원본 날짜값 (복사해서 보내주세요):`, rawSample);
+
   let used = doneKeySet.size;
-  // ✅ v3.48.4: 진단 로그 - 재계산 시 콘솔에서 카운트 내역 확인 가능
-  console.log(`[FIFO 재계산] member=${memberId} 카운트=${used}회 (슬롯 ${(slotRows || []).length}건 중 완료 dedupe 후)`);
+  // ✅ v3.48.5: 마이그레이션 컷오프 - 최초 회원권 시작일 이전 출석 제외
+  if (firstStart) {
+    const beforeCut = Array.from(doneKeySet).filter(k => k.slice(0, 10) < firstStart);
+    if (beforeCut.length > 0) {
+      beforeCut.forEach(k => doneKeySet.delete(k));
+      console.log(`[FIFO 재계산] 회원권 최초 시작일(${firstStart}) 이전 출석 ${beforeCut.length}건 제외:`, beforeCut.sort());
+      used = doneKeySet.size;
+    }
+  }
+  console.log(`[FIFO 재계산] member=${memberId} 최종 카운트=${used}회 (슬롯 ${(slotRows || []).length}건 중 완료 dedupe 후)`);
   if (dupLog.length > 0) console.warn("[FIFO 재계산] 중복 제거된 슬롯:", dupLog);
   console.log("[FIFO 재계산] 카운트된 날짜/시간대:", Array.from(doneKeySet).sort().join(", "));
   if ((slotRows || []).length === 0) {
@@ -81,10 +107,8 @@ export async function recalcMemberFifo(memberId: string): Promise<{ used: number
     used = attKeySet.size;
   }
 
-  // 2) 회원권 로드 (취소 제외) + FIFO 정렬
-  const { data: ms } = await supabase.from("memberships").select("*")
-    .eq("member_id", memberId).neq("status", "cancelled");
-  const allOrdered = fifoSort(ms || []);
+  // 2) 회원권은 위(1단계)에서 이미 로드됨
+  const allOrdered = fifoSort(msPre || []);
 
   // ✅ v3.48.4: 총량 0 회원권(체험 0회권 등 placeholder)은 배정 대상에서 제외 - 항상 0으로 고정
   const zeroCap = allOrdered.filter((m: any) => ((m.total_sessions || 0) + (m.adjustment || 0)) <= 0);

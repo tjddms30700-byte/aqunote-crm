@@ -2416,6 +2416,25 @@ function MemberHistoryPanel({ memberId }: { memberId: string }) {
                       <div className={`text-lg font-black ${remaining <= 2 ? "text-red-500" : "text-purple-700"}`}>
                         {remaining}/{(m.total_sessions || 0) + (m.adjustment || 0)}
                       </div>
+                      {/* ✅ v3.48.5: 수동 잔여 보정 - 외부 시스템(원장 원본 데이터) 기준으로 직접 맞추기 */}
+                      <button
+                        onClick={async () => {
+                          const cap = (m.total_sessions || 0) + (m.adjustment || 0);
+                          const input = prompt(`[${m.plan_name}] 잔여 횟수를 직접 입력하세요 (0~${cap})\n현재: ${remaining}회`, String(remaining));
+                          if (input === null) return;
+                          const newRemaining = parseInt(input, 10);
+                          if (isNaN(newRemaining) || newRemaining < 0 || newRemaining > cap) {
+                            alert(`0~${cap} 사이 숫자를 입력해 주세요`); return;
+                          }
+                          const newUsed = cap - newRemaining;
+                          const { error } = await supabase.from("memberships").update({ used_sessions: newUsed }).eq("id", m.id);
+                          if (error) { alert("보정 실패: " + error.message); return; }
+                          await loadAll();
+                        }}
+                        className="text-[10px] px-1.5 py-0.5 rounded border border-slate-300 text-slate-500 hover:bg-slate-100"
+                        title="외부 시스템 기준으로 잔여 횟수 수동 보정">
+                        ± 보정
+                      </button>
                     </div>
                   </div>
                   {(m.refund_status && m.refund_status !== "none") && (
