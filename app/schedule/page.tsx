@@ -1546,12 +1546,17 @@ export default function SchedulePage() {
     // 2) 병결/개인사정 결석건 수집 - v3.23.0: makeup_waived/carryover 제외
     // ✅ v3.38.2: 수중 슬롯만 설산
     const absentList: any[] = [];
+    // ✅ v3.48.2: 보강 대상 기준일 - 2026-07-01 이전 과거 결석은 전부 '이월 정리'로 간주해 제외
+    //   (2026년 8월 이후 발생한 개인사정/병결만 정상 보강 대상)
+    const MAKEUP_CUTOFF = "2026-07-01";
     aquaSlots.forEach((sl: any) => {
       const st = (sl.status || "").toLowerCase();
       // v3.23.0: 이월(carryover) 상태이거나 makeup_waived=true 면 제외
       if (sl.makeup_waived === true) return;
       if (st === "sick" || st === "personal") {
         if (sl.member_id && sl.event_date) {
+          const d = typeof sl.event_date === "string" ? sl.event_date.slice(0, 10) : "";
+          if (d && d < MAKEUP_CUTOFF) return;  // 기준일 이전 과거 결석 → 이월 정리 대상 (보강 제외)
           absentList.push({
             id: sl.id,
             member_id: sl.member_id,
@@ -1578,6 +1583,8 @@ export default function SchedulePage() {
       }
       if (st === "sick" || st === "personal") {
         const dt = a.attend_date || a.date || a.attendance_date || a.session_date;
+        const dtStr = typeof dt === "string" ? dt.slice(0, 10) : "";
+        if (dtStr && dtStr < MAKEUP_CUTOFF) return;  // ✅ v3.48.2: 기준일 이전 과거 결석 제외
         if (a.member_id && dt) {
           absentList.push({
             id: a.id,

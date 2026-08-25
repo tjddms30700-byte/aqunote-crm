@@ -2365,6 +2365,23 @@ function MemberHistoryPanel({ memberId }: { memberId: string }) {
             className="text-[11px] px-2.5 py-1.5 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold hover:bg-indigo-100 transition">
             🔄 FIFO 재계산
           </button>
+          {/* ✅ v3.48.2: 종결 오분류 복구 - 유효기간 내 + 잔여>0 인데 cancelled된 회원권을 활성으로 복구 */}
+          {memberships.some((m: any) => m.status === "cancelled" && remainingOf(m) > 0 && (!m.end_date || m.end_date >= new Date().toISOString().slice(0, 10))) && (
+            <button
+              onClick={async () => {
+                const today = new Date().toISOString().slice(0, 10);
+                const targets = memberships.filter((m: any) => m.status === "cancelled" && remainingOf(m) > 0 && (!m.end_date || m.end_date >= today));
+                if (!confirm(`유효기간이 남았고 잔여가 있는데 '종결' 처리된 회원권 ${targets.length}건을 '활성'으로 복구합니다.\n진행할까요?`)) return;
+                for (const t of targets) {
+                  await supabase.from("memberships").update({ status: "active" }).eq("id", t.id);
+                }
+                alert(`✅ ${targets.length}건 활성 복구 완료`);
+                await loadAll();
+              }}
+              className="text-[11px] px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 font-bold hover:bg-emerald-100 transition">
+              ♻️ 종결 복구
+            </button>
+          )}
         </div>
         {memberships.length === 0 ? (
           <div className="text-center py-6 text-gray-400 text-sm bg-gray-50 rounded-xl">등록된 회원권이 없습니다</div>
