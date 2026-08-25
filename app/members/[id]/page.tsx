@@ -2319,9 +2319,17 @@ function MemberHistoryPanel({ memberId }: { memberId: string }) {
   const activeMemberships = memberships.filter(m => m.status !== "cancelled");
   const totalSessions = activeMemberships.reduce((s, m) => s + (m.total_sessions || 0) + (m.adjustment || 0), 0);
   const usedSessions = activeMemberships.reduce((s, m) => s + (m.used_sessions || 0), 0);
-  const remainingSessions = totalSessions - usedSessions;
+  const remainingSessions = Math.max(0, totalSessions - usedSessions);  // ✅ v3.48.3: 음수 잔여 표시 방지 (예: -2회)
 
-  const doneSlots = slots.filter(s => ["done", "completed"].includes((s.status || "").toLowerCase())).length;
+  // ✅ v3.48.3: 완료 수업 중복 제거 (같은 날짜+시간대+강사 1회만 카운트) - FIFO 재계산과 동일 기준
+  const doneKeySet = new Set<string>();
+  slots.forEach(s => {
+    const st = (s.status || "").toLowerCase();
+    if (!["done", "completed"].includes(st)) return;
+    const d = typeof s.event_date === "string" ? s.event_date.slice(0, 10) : "";
+    doneKeySet.add(`${d}|${s.time_slot || "-"}|${s.staff_id || "-"}`);
+  });
+  const doneSlots = doneKeySet.size;
   const noshowSlots = slots.filter(s => (s.status || "").toLowerCase() === "noshow").length;
   const sickSlots = slots.filter(s => (s.status || "").toLowerCase() === "sick").length;
   const cancelSlots = slots.filter(s => ["cancel", "cancelled"].includes((s.status || "").toLowerCase())).length;

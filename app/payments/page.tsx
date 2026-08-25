@@ -416,14 +416,17 @@ export default function PaymentsPage() {
 
   async function deleteMembership(id: string) {
     if (!confirm("회원권을 삭제할까요?")) return;
-    // ✅ v3.48.2: Hard Delete 시도 → 실패 시 cancelled 폴백 (400/404 에러 해결)
+    // ✅ v3.48.3: FK 참조 먼저 해제 - payments/schedule_slots/attendance가 이 회원권을 참조 중이면 삭제가 400으로 거부됨
+    try { await supabase.from("payments").update({ membership_id: null }).eq("membership_id", id); } catch {}
+    try { await supabase.from("schedule_slots").update({ membership_id: null }).eq("membership_id", id); } catch {}
+    try { await supabase.from("attendance").update({ membership_id: null }).eq("membership_id", id); } catch {}
     const _msDel = await supabase.from("memberships").delete().eq("id", id);
     if (_msDel.error) {
-      console.warn("[v3.48.2] memberships 하드 삭제 실패, cancelled 폴백:", _msDel.error.message);
+      console.warn("[v3.48.3] memberships 하드 삭제 실패, cancelled 폴백:", _msDel.error.message);
       const soft = await supabase.from("memberships").update({ status: "cancelled" }).eq("id", id);
       if (soft.error) { alert("회원권 삭제 실패: " + soft.error.message); return; }
     }
-    // ✅ v3.48.2: UI 즉시 반영
+    // UI 즉시 반영
     setMemberships(prev => prev.filter((m: any) => m.id !== id));
     loadAll();
   }
@@ -505,29 +508,34 @@ export default function PaymentsPage() {
     const pay = payments.find(p => p.id === id);
     if (!pay) return;
     if (!confirm(`⚠️ 결제 이력을 이력에서 완전히 삭제합니다.\n\n· 금액: ₩${(pay.amount || 0).toLocaleString()}\n· 날짜: ${pay.paid_at}\n· 상품: ${pay.description || "상품 없음"}\n\n❗ 이 작업은 되돌릴 수 없습니다.\n❗ 연결된 회원권도 함께 삭제됩니다.\n\n계속하시겠습니까?`)) return;
-    // 연결 회원권도 하드 삭제
+    // ✅ v3.48.3: 결제 연결 refunds 먼저 정리 (payments를 참조하는 FK 보호)
+    try { await supabase.from("refunds").delete().eq("payment_id", id); } catch {}
+    // ✅ v3.48.3: 연결 회원권 삭제 전 FK 참조 먼저 해제 (payments 자신의 membership_id 포함!)
+    //   - 기존 코드는 schedule_slots만 해제하고 payments.membership_id는 그대로 둬서 FK 제약 400 에러가 났음
     if (pay.membership_id) {
       try { await supabase.from("schedule_slots").update({ membership_id: null }).eq("membership_id", pay.membership_id); } catch {}
-      // ✅ v3.25.0: Hard Delete
-      await supabase.from("memberships").delete().eq("id", pay.membership_id);
-    }
-    // 결제 연결된 refunds/session_adjustments 도 정리
-    try { await supabase.from("refunds").delete().eq("payment_id", id); } catch {}
-    // ✅ v3.48.2: Hard Delete 시도 → 400/404 등 실패 시 'cancelled' 소프트 삭제로 폴백
-    const { error } = await supabase.from("payments").delete().eq("id", id);
-    if (error) {
-      console.warn("[v3.48.2] payments 하드 삭제 실패, cancelled 폴백:", error.message);
-      const soft = await supabase.from("payments").update({ status: "cancelled", cancelled_reason: "완전삭제(폴백)" }).eq("id", id);
-      if (soft.error) { alert("삭제 실패: " + soft.error.message); return; }
-      // 연결 회원권도 함께 종결 처리 (미삭제된 경우 대비)
-      if (pay.membership_id) {
+      try { await supabase.from("attendance").update({ membership_id: null }).eq("membership_id", pay.membership_id); } catch {}
+      try { await supabase.from("payments").update({ membership_id: null }).eq("id", id); } catch {}
+      const msDel = await supabase.from("memberships").delete().eq("id", pay.membership_id);
+      if (msDel.error) {
+        console.warn("[v3.48.3] 연결 회원권 삭제 실패, 종결 처리:", msDel.error.message);
         await supabase.from("memberships").update({ status: "cancelled" }).eq("id", pay.membership_id);
       }
-      alert("🗑️ 결제 건이 종결 처리되었습니다 (DB 삭제 권한이 없어 이력은 취소 상태로 남습니다)");
+    }
+    // ✅ v3.48.3: payments 하드 삭제 → 실패 시 cancelled 폴백 (cancelled_reason 컬럼 없는 DB 대비 2단계 폴백)
+    const { error } = await supabase.from("payments").delete().eq("id", id);
+    if (error) {
+      console.warn("[v3.48.3] payments 하드 삭제 실패, cancelled 폴백:", error.message);
+      let soft = await supabase.from("payments").update({ status: "cancelled", cancelled_reason: "완전삭제(폴백)" }).eq("id", id);
+      if (soft.error && /cancelled_reason|column/i.test(soft.error.message || "")) {
+        soft = await supabase.from("payments").update({ status: "cancelled" }).eq("id", id);
+      }
+      if (soft.error) { alert("삭제 실패: " + soft.error.message); return; }
+      alert("🗑️ 결제 건이 종결 처리되었습니다 (DB 삭제 정책 제한으로 이력은 취소 상태로 남습니다)");
     } else {
       alert("🗑️ 이력이 완전히 삭제되었습니다");
     }
-    // ✅ v3.48.2: UI 즉시 반영 (총 매출/건수 자동 재계산)
+    // UI 즉시 반영 (총 매출/건수 자동 재계산)
     setPayments(prev => prev.filter(p => p.id !== id));
     loadAll();
   }

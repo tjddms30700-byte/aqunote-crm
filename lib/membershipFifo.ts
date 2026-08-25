@@ -48,21 +48,29 @@ export async function recalcMemberFifo(memberId: string): Promise<{ used: number
   //   - 회원 상세 KPI '완료 수업 N회'와 동일한 데이터 소스로 일치
   const today = new Date().toISOString().slice(0, 10);
   const { data: slotRows } = await supabase.from("schedule_slots")
-    .select("id, status, event_date")
+    .select("id, status, event_date, time_slot, staff_id")
     .eq("member_id", memberId)
     .is("deleted_at", null);
-  let used = (slotRows || []).filter((s: any) => {
+  // ✅ v3.48.3: 중복 완료 슬롯 제거 - 같은 날짜+시간대+강사 조합은 1회만 카운트 (이중 등록 방어)
+  const doneKeySet = new Set<string>();
+  (slotRows || []).forEach((s: any) => {
     const st = (s.status || "").toLowerCase();
     const d = typeof s.event_date === "string" ? s.event_date.slice(0, 10) : "";
-    return (st === "done" || st === "completed") && !!d && d <= today;
-  }).length;
+    if (!((st === "done" || st === "completed") && !!d && d <= today)) return;
+    doneKeySet.add(`${d}|${s.time_slot || "-"}|${s.staff_id || "-"}`);
+  });
+  let used = doneKeySet.size;
   if ((slotRows || []).length === 0) {
     // 폴백: schedule_slots이 전혀 없는 회원만 attendance(present/absent, 과거~당일) 기준
     const { data: att } = await supabase.from("attendance").select("*").eq("member_id", memberId);
-    used = (att || []).filter((a: any) => {
-      const d = a.attend_date || a.date || a.attendance_date || a.session_date || "";
-      return (a.status === "present" || a.status === "absent") && !!d && d <= today;
-    }).length;
+    const attKeySet = new Set<string>();
+    (att || []).forEach((a: any) => {
+      const d0 = a.attend_date || a.date || a.attendance_date || a.session_date || "";
+      const d = typeof d0 === "string" ? d0.slice(0, 10) : "";
+      if (!((a.status === "present" || a.status === "absent") && !!d && d <= today)) return;
+      attKeySet.add(`${d}|${a.time_slot || "-"}`);
+    });
+    used = attKeySet.size;
   }
 
   // 2) 회원권 로드 (취소 제외) + FIFO 정렬
