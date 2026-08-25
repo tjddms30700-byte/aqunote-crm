@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import { supabase } from "@/lib/supabase";
+import { pickFifoMembership } from "@/lib/membershipFifo";  // ✅ v3.48.0: FIFO 차감
 import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import {
   ClipboardCheck, Home, Calendar, RefreshCw, Save, Check,
@@ -335,11 +336,9 @@ export default function AttendancePage() {
         ? scheduleSlots.find(s => s.member_id === memberId && s.time_slot === timeSlot)
         : scheduleSlots.find(s => s.member_id === memberId);
 
-      // 해당 회원의 활성 회원권 (수업일 포함)
-      const activeMs = (allMs || [])
-        .filter((ms: any) => ms.member_id === memberId)
-        .filter((ms: any) => (!ms.start_date || ms.start_date <= date) && (!ms.end_date || ms.end_date >= date))
-        .sort((a: any, b: any) => (b.created_at || "").localeCompare(a.created_at || ""))[0];
+      // ✅ v3.48.0: FIFO 차감 - 잔여>0인 가장 오래된 회원권부터 차감 (기존: 최신권 우선이던 버그 수정)
+      const memberMs = (allMs || []).filter((ms: any) => ms.member_id === memberId);
+      const activeMs = pickFifoMembership(memberMs, date);
 
       const prevStatus = existing?.status || null;
       // v3.21.2: 회원권 차감 기준 정정 – 출석(present) + 결석/노쇼(absent)만 -1 차감
@@ -1206,9 +1205,8 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
         // 1) 활성 회원권 조회
         const { data: allMs } = await supabase.from("memberships").select("*")
           .eq("member_id", member.id).or("status.is.null,status.neq.cancelled");
-        const activeMs = (allMs || [])
-          .filter((ms: any) => (!ms.start_date || ms.start_date <= date) && (!ms.end_date || ms.end_date >= date))
-          .sort((a: any, b: any) => (b.created_at || "").localeCompare(a.created_at || ""))[0] || null;
+        // ✅ v3.48.0: FIFO - 잔여>0인 가장 오래된 회원권 표시
+        const activeMs = pickFifoMembership(allMs || [], date);
         const total = (activeMs?.total_sessions || 0) + (activeMs?.adjustment || 0);
         const used = activeMs?.used_sessions || 0;
         const remain = Math.max(0, total - used);
@@ -1398,9 +1396,8 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
         const { data: allMs } = await supabase.from("memberships").select("*")
           .eq("member_id", member.id)
           .or("status.is.null,status.neq.cancelled");
-        activeMs = (allMs || [])
-          .filter((ms: any) => (!ms.start_date || ms.start_date <= date) && (!ms.end_date || ms.end_date >= date))
-          .sort((a: any, b: any) => (b.created_at || "").localeCompare(a.created_at || ""))[0];
+        // ✅ v3.48.0: FIFO - 잔여>0인 가장 오래된 회원권부터 차감
+        activeMs = pickFifoMembership(allMs || [], date);
       }
 
       // ✅ v3.26.7: status를 명시적으로 강제 설정 (undefined/null 방지)

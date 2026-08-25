@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
+import { pickFifoMembership, fifoSort, remainingOf, recalcMemberFifo } from "@/lib/membershipFifo";  // ✅ v3.48.0: FIFO 차감/재계산
 import { recommendIepGoals, detectBehaviors } from "@/lib/sessionAnalyzer";
 import IepGoalLibraryBrowser from "@/components/IepGoalLibraryBrowser";
 // ✅ v3.45.3: ReportFallbackPreview는 SSR 우회를 위해 dynamic import로 아래에서 로드
@@ -2278,22 +2279,23 @@ function MemberHistoryPanel({ memberId }: { memberId: string }) {
       const shouldBeUsed = signedAtt.length;
 
       if (shouldBeUsed > totalUsed && activeMs.length > 0) {
-        // 부족한 만큼 가장 최근 활성 회원권에 소급 차감
-        const deficit = shouldBeUsed - totalUsed;
-        const today = new Date().toISOString().slice(0, 10);
-        const target = activeMs.find((m: any) => {
-          const remain = (m.total_sessions || 0) + (m.adjustment || 0) - (m.used_sessions || 0);
-          return remain >= deficit && (!m.end_date || m.end_date >= today);
-        }) || activeMs[0];
-        if (target) {
-          const newUsed = (target.used_sessions || 0) + deficit;
-          await supabase.from("memberships").update({ used_sessions: newUsed }).eq("id", target.id);
-          // 로컬 데이터 즉시 반영
-          mergedMemberships = mergedMemberships.map((m: any) =>
-            m.id === target.id ? { ...m, used_sessions: newUsed } : m
+        // ✅ v3.48.0: FIFO 소급 차감 - 부족분을 가장 오래된 회원권부터 순차 분배 (한 회원권에 몰아넣던 버그 수정)
+        let deficit = shouldBeUsed - totalUsed;
+        const fifoOrdered = fifoSort(activeMs);
+        for (const m of fifoOrdered) {
+          if (deficit <= 0) break;
+          const cap = (m.total_sessions || 0) + (m.adjustment || 0);
+          const room = Math.max(0, cap - (m.used_sessions || 0));
+          if (room <= 0) continue;
+          const add = Math.min(room, deficit);
+          const newUsed = (m.used_sessions || 0) + add;
+          await supabase.from("memberships").update({ used_sessions: newUsed }).eq("id", m.id);
+          mergedMemberships = mergedMemberships.map((x: any) =>
+            x.id === m.id ? { ...x, used_sessions: newUsed } : x
           );
-          console.log(`✅ 사인 출결 소급 차감: ${deficit}회 (회원권 ${target.plan_name})`);
+          deficit -= add;
         }
+        console.log(`✅ 사인 출결 FIFO 소급 차감 완료 (남은 미배정: ${Math.max(0, deficit)}회)`);
       }
     } catch (e: any) {
       console.warn("사인 출결 소급 반영 실패:", e?.message);
@@ -2346,13 +2348,31 @@ function MemberHistoryPanel({ memberId }: { memberId: string }) {
 
       {/* 회원권 목록 */}
       <div>
-        <h4 className="font-bold text-slate-900 mb-2 flex items-center gap-1">🎫 회원권 이력 ({memberships.length}건)</h4>
+        <div className="flex items-center justify-between mb-2">
+          <h4 className="font-bold text-slate-900 flex items-center gap-1">🎫 회원권 이력 ({memberships.length}건)</h4>
+          {/* ✅ v3.48.0: 이 회원 회원권 FIFO 일괄 재계산 (출석 기준 재배정) */}
+          <button
+            onClick={async () => {
+              if (!confirm("출석 이력 기준으로 회원권 차감을 FIFO(결제 순서)로 처음부터 재계산합니다.\n진행할까요?")) return;
+              try {
+                const r = await recalcMemberFifo(memberId);
+                alert(`✅ 재계산 완료 (총 유효 출석 ${r.used}회)\n\n${r.after}`);
+                await loadAll();
+              } catch (e: any) {
+                alert("재계산 실패: " + (e?.message || e));
+              }
+            }}
+            className="text-[11px] px-2.5 py-1.5 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold hover:bg-indigo-100 transition">
+            🔄 FIFO 재계산
+          </button>
+        </div>
         {memberships.length === 0 ? (
           <div className="text-center py-6 text-gray-400 text-sm bg-gray-50 rounded-xl">등록된 회원권이 없습니다</div>
         ) : (
           <div className="space-y-2">
             {memberships.map(m => {
-              const remaining = (m.total_sessions || 0) + (m.adjustment || 0) - (m.used_sessions || 0);
+              // ✅ v3.48.0: 음수 잔여 표시 방지 (예: -2/10 → 0/10)
+              const remaining = remainingOf(m);
               const isCancelled = m.status === "cancelled";
               const isExpired = m.end_date && new Date(m.end_date) < new Date();
               return (

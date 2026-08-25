@@ -5,6 +5,7 @@ import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import KakaoMessageModal from "@/components/KakaoMessageModal";
 import { supabase } from "@/lib/supabase";
+import { recalcMemberFifo } from "@/lib/membershipFifo";  // ✅ v3.48.0
 import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import {
   RefreshCw, Calendar, Users, CreditCard, AlertTriangle,
@@ -21,6 +22,7 @@ export default function RenewalsPage() {
   const [filter, setFilter] = useState<Filter>("auto_renew");
   const [msgTarget, setMsgTarget] = useState<{ member: any; membership: any } | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [recalcRunning, setRecalcRunning] = useState(false);  // ✅ v3.48.0
 
   useEffect(() => { loadAll(); }, []);
   useBranchWatch(() => loadAll());
@@ -137,7 +139,27 @@ export default function RenewalsPage() {
             <p className="text-xs text-gray-500">자동 갱신 · 만료 임박 · 잔여 소진</p>
           </div>
         </div>
-        <HomeButton />
+        <div className="flex items-center gap-2">
+          {/* ✅ v3.48.0: 전체 회원 회원권 FIFO 일괄 재계산 */}
+          <button
+            disabled={recalcRunning}
+            onClick={async () => {
+              if (!confirm(`전체 회원(${members.length}명)의 회원권 차감을 출석 이력 기준 FIFO(결제 순서)로 처음부터 재계산합니다.\n\n• 회원권별 잔여가 깔끔하게 정리됩니다 (음수 제거)\n• 회원 수에 따라 수십 초 소요될 수 있습니다\n\n진행할까요?`)) return;
+              setRecalcRunning(true);
+              let ok = 0, fail = 0;
+              for (const m of members) {
+                try { await recalcMemberFifo(m.id); ok++; }
+                catch (e) { fail++; console.warn("재계산 실패:", m.id, e); }
+              }
+              setRecalcRunning(false);
+              alert(`✅ 전체 재계산 완료\n\n성공: ${ok}명${fail > 0 ? `\n실패: ${fail}명 (콘솔 확인)` : ""}`);
+              await loadAll();
+            }}
+            className="text-xs px-3.5 py-2 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white font-bold shadow-sm hover:shadow-md disabled:opacity-50 transition">
+            {recalcRunning ? "⏳ 재계산 중..." : "🔄 전체 회원 FIFO 재계산"}
+          </button>
+          <HomeButton />
+        </div>
       </div>
 
       {/* KPI 카드 */}

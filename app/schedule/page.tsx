@@ -476,14 +476,18 @@ export default function SchedulePage() {
           target = data;
         }
         if (!target) {
+          // ✅ v3.48.0: FIFO - 잔여>0인 가장 오래된 회원권부터 차감 (음수 차감 원천 차단)
           const today = new Date().toISOString().slice(0, 10);
           const { data } = await supabase.from("memberships")
             .select("*")
             .eq("member_id", slot.member_id)
-            .gte("end_date", today)
-            .order("end_date", { ascending: true })
-            .limit(1);
-          target = data?.[0] || null;
+            .neq("status", "cancelled")
+            .order("start_date", { ascending: true })
+            .order("created_at", { ascending: true });
+          target = (data || []).find((m: any) =>
+            (!m.start_date || m.start_date <= today) && (!m.end_date || m.end_date >= today) &&
+            ((m.total_sessions || 0) + (m.adjustment || 0) - (m.used_sessions || 0)) > 0
+          ) || null;
         }
 
         if (target) {
