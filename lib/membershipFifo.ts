@@ -51,15 +51,23 @@ export async function recalcMemberFifo(memberId: string): Promise<{ used: number
     .select("id, status, event_date, time_slot, staff_id")
     .eq("member_id", memberId)
     .is("deleted_at", null);
-  // ✅ v3.48.3: 중복 완료 슬롯 제거 - 같은 날짜+시간대+강사 조합은 1회만 카운트 (이중 등록 방어)
+  // ✅ v3.48.4: 중복 완료 슬롯 제거 - 같은 날짜+시간대는 1회만 카운트
+  //   (v3.48.3은 강사 id까지 키에 넣어, 같은 수업이 다른 강사로 이중 등록된 건을 중복으로 잡지 못했음)
   const doneKeySet = new Set<string>();
+  const dupLog: string[] = [];
   (slotRows || []).forEach((s: any) => {
     const st = (s.status || "").toLowerCase();
     const d = typeof s.event_date === "string" ? s.event_date.slice(0, 10) : "";
     if (!((st === "done" || st === "completed") && !!d && d <= today)) return;
-    doneKeySet.add(`${d}|${s.time_slot || "-"}|${s.staff_id || "-"}`);
+    const key = `${d}|${s.time_slot || "-"}`;
+    if (doneKeySet.has(key)) dupLog.push(`중복제거: ${key} (slot ${s.id})`);
+    doneKeySet.add(key);
   });
   let used = doneKeySet.size;
+  // ✅ v3.48.4: 진단 로그 - 재계산 시 콘솔에서 카운트 내역 확인 가능
+  console.log(`[FIFO 재계산] member=${memberId} 카운트=${used}회 (슬롯 ${(slotRows || []).length}건 중 완료 dedupe 후)`);
+  if (dupLog.length > 0) console.warn("[FIFO 재계산] 중복 제거된 슬롯:", dupLog);
+  console.log("[FIFO 재계산] 카운트된 날짜/시간대:", Array.from(doneKeySet).sort().join(", "));
   if ((slotRows || []).length === 0) {
     // 폴백: schedule_slots이 전혀 없는 회원만 attendance(present/absent, 과거~당일) 기준
     const { data: att } = await supabase.from("attendance").select("*").eq("member_id", memberId);
@@ -76,27 +84,41 @@ export async function recalcMemberFifo(memberId: string): Promise<{ used: number
   // 2) 회원권 로드 (취소 제외) + FIFO 정렬
   const { data: ms } = await supabase.from("memberships").select("*")
     .eq("member_id", memberId).neq("status", "cancelled");
-  const ordered = fifoSort(ms || []);
+  const allOrdered = fifoSort(ms || []);
+
+  // ✅ v3.48.4: 총량 0 회원권(체험 0회권 등 placeholder)은 배정 대상에서 제외 - 항상 0으로 고정
+  const zeroCap = allOrdered.filter((m: any) => ((m.total_sessions || 0) + (m.adjustment || 0)) <= 0);
+  const ordered = allOrdered.filter((m: any) => ((m.total_sessions || 0) + (m.adjustment || 0)) > 0);
+  for (const z of zeroCap) {
+    if ((z.used_sessions || 0) !== 0) {
+      await supabase.from("memberships").update({ used_sessions: 0 }).eq("id", z.id);
+      z.used_sessions = 0;
+    }
+  }
 
   // 3) FIFO 재배정
   let rest = used;
+  const assignLog: string[] = [];
   for (const m of ordered) {
     const cap = (m.total_sessions || 0) + (m.adjustment || 0);
     const newUsed = Math.min(cap, Math.max(0, rest));
     rest -= newUsed;
+    assignLog.push(`${m.plan_name || "회원권"}(${m.start_date || "-"}~): 사용 ${newUsed}/${cap} → 잔여 ${cap - newUsed}`);
     if ((m.used_sessions || 0) !== newUsed) {
       await supabase.from("memberships").update({ used_sessions: newUsed }).eq("id", m.id);
       m.used_sessions = newUsed;
     }
   }
-  // 4) 초과 출석분 → 마지막 회원권에 누적 (과거 출석이 회원권 총량보다 많은 예외 케이스)
+  // 4) 초과 출석분 → 잔여 총량이 있는 마지막 회원권에 누적 (과거 출석이 회원권 총량보다 많은 예외 케이스)
   if (rest > 0 && ordered.length > 0) {
     const lastM = ordered[ordered.length - 1];
     const cap = (lastM.total_sessions || 0) + (lastM.adjustment || 0);
     const newUsed = cap + rest;
+    assignLog.push(`⚠️ 초과 ${rest}회 → 마지막 회원권에 누적 (${newUsed}/${cap}, 표시 잔여는 0으로 clamp)`);
     await supabase.from("memberships").update({ used_sessions: newUsed }).eq("id", lastM.id);
     lastM.used_sessions = newUsed;
   }
+  console.log("[FIFO 재계산] 배정 결과:", assignLog);
 
   const after = ordered
     .map(m => `${m.plan_name}:${remainingOf(m)}/${(m.total_sessions || 0) + (m.adjustment || 0)}`)

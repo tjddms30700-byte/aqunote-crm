@@ -2321,13 +2321,13 @@ function MemberHistoryPanel({ memberId }: { memberId: string }) {
   const usedSessions = activeMemberships.reduce((s, m) => s + (m.used_sessions || 0), 0);
   const remainingSessions = Math.max(0, totalSessions - usedSessions);  // ✅ v3.48.3: 음수 잔여 표시 방지 (예: -2회)
 
-  // ✅ v3.48.3: 완료 수업 중복 제거 (같은 날짜+시간대+강사 1회만 카운트) - FIFO 재계산과 동일 기준
+  // ✅ v3.48.4: 완료 수업 중복 제거 (같은 날짜+시간대 1회만 카운트) - FIFO 재계산과 동일 기준
   const doneKeySet = new Set<string>();
   slots.forEach(s => {
     const st = (s.status || "").toLowerCase();
     if (!["done", "completed"].includes(st)) return;
     const d = typeof s.event_date === "string" ? s.event_date.slice(0, 10) : "";
-    doneKeySet.add(`${d}|${s.time_slot || "-"}|${s.staff_id || "-"}`);
+    doneKeySet.add(`${d}|${s.time_slot || "-"}`);
   });
   const doneSlots = doneKeySet.size;
   const noshowSlots = slots.filter(s => (s.status || "").toLowerCase() === "noshow").length;
