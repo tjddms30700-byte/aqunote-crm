@@ -30,6 +30,22 @@ export default function LoginPage() {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
 
+        // ✅ v3.49.1: 비활성화(suspended) 계정 로그인 차단
+        try {
+          const { data: staffRow } = await supabase
+            .from("staff")
+            .select("approval_status, name")
+            .eq("email", email)
+            .maybeSingle();
+          if (staffRow?.approval_status === "suspended") {
+            await supabase.auth.signOut();  // 세션 즉시 해제
+            throw new Error(`⛔ 비활성화된 계정입니다. 센터 관리자에게 문의하세요.`);
+          }
+        } catch (e: any) {
+          if (String(e?.message || "").includes("비활성화된 계정")) throw e;
+          // staff 조회 실패(컬럼 없음 등)는 기존처럼 통과
+        }
+
         // ✅ v3.10: 로그인 계정의 지점 정보 저장 (지점 스위체 연동)
         try {
           const { data: acct } = await supabase

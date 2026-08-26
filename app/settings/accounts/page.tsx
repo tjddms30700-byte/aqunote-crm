@@ -52,7 +52,8 @@ function AccountsInner() {
     setLoading(true);
     const [p, a, b] = await Promise.all([
       supabase.from("staff").select("*").eq("approval_status", "pending").order("created_at", { ascending: false }),
-      supabase.from("staff").select("*").in("approval_status", ["approved", null]).is("resign_date", null).order("created_at", { ascending: false }),
+      // ✅ v3.49.1: suspended(비활성) 계정도 목록에 포함해 재활성화 가능하게
+      supabase.from("staff").select("*").in("approval_status", ["approved", "suspended", null]).is("resign_date", null).order("created_at", { ascending: false }),
       supabase.from("branches").select("*").is("deleted_at", null),
     ]);
     setPending(p.data || []);
@@ -139,6 +140,41 @@ function AccountsInner() {
     alert("✅ 계정이 생성되었습니다");
     setNf({ name: "", phone: "", email: "", national_id: "", login_id: "", password: "", role: "therapist", branch_id: nf.branch_id });
     setTab("approved");
+    loadAll();
+  }
+
+  // ✅ v3.49.1: 역할 변경 (대표만 다른 계정의 역할 변경 가능)
+  async function changeRole(s: any) {
+    if (!isMaster) return alert("역할 변경은 대표(원장) 계정만 가능합니다");
+    const roleLabelMap: Record<string, string> = { director: "원장(마스터)", manager: "센터장", therapist: "치료사", staff: "일반 직원" };
+    const cur = s.role || "staff";
+    const options = ROLES.map(r => `${r.key} (${r.label})`).join("\n");
+    const input = prompt(`[${s.name}] 역할을 변경합니다\n\n현재: ${roleLabelMap[cur] || cur}\n\n변경할 역할 key를 입력하세요:\n${options}`, cur);
+    if (input === null) return;
+    const newRole = input.trim().split(" ")[0].toLowerCase();
+    if (!ROLES.some(r => r.key === newRole)) return alert("유효하지 않은 역할입니다: " + newRole);
+    if (newRole === cur) return;
+    const { error } = await supabase.from("staff").update({ role: newRole }).eq("id", s.id);
+    if (error) return alert("역할 변경 실패: " + error.message);
+    alert(`✅ ${s.name}님의 역할이 '${roleLabelMap[newRole]}'(으)로 변경되었습니다\n(다음 로그인부터 적용됩니다)`);
+    loadAll();
+  }
+
+  // ✅ v3.49.1: 비활성화 / 재활성화 (로그인 차단 연동)
+  async function toggleSuspend(s: any) {
+    if (!isMaster) return alert("계정 비활성화는 대표(원장) 계정만 가능합니다");
+    const isSuspended = s.approval_status === "suspended";
+    if (isSuspended) {
+      if (!confirm(`'${s.name}' 계정을 다시 활성화할까요?\n(로그인이 다시 가능해집니다)`)) return;
+      const { error } = await supabase.from("staff").update({ approval_status: "approved" }).eq("id", s.id);
+      if (error) return alert("재활성화 실패: " + error.message);
+      alert(`✅ ${s.name}님 계정이 재활성화되었습니다`);
+    } else {
+      if (!confirm(`⛔ '${s.name}' 계정을 비활성화할까요?\n\n· 다음 로그인부터 차단됩니다\n· 데이터는 삭제되지 않으며 언제든 재활성화 가능합니다`)) return;
+      const { error } = await supabase.from("staff").update({ approval_status: "suspended" }).eq("id", s.id);
+      if (error) return alert("비활성화 실패: " + error.message);
+      alert(`⛔ ${s.name}님 계정이 비활성화되었습니다`);
+    }
     loadAll();
   }
 
@@ -254,6 +290,9 @@ function AccountsInner() {
                       <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: s.color || "#3b82f6" }} />
                       {s.name}
                       <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">{s.role || "직원"}</span>
+                      {s.approval_status === "suspended" && (
+                        <span className="text-[10px] px-1.5 py-0.5 bg-rose-100 text-rose-700 rounded font-bold">⛔ 비활성</span>
+                      )}
                     </div>
                     <div className="text-xs text-gray-500 mt-1 flex flex-wrap gap-3">
                       {s.email && <span><Mail className="w-3 h-3 inline mr-0.5" />{s.email}</span>}
@@ -261,10 +300,28 @@ function AccountsInner() {
                     </div>
                   </div>
                   <div className="flex gap-1.5 flex-shrink-0">
+                    {/* ✅ v3.49.1: 역할 변경 (대표만) */}
+                    {isMaster && (
+                      <button onClick={() => changeRole(s)}
+                        className="px-3 py-1.5 bg-indigo-500 text-white rounded-lg text-xs font-semibold hover:bg-indigo-600 flex items-center gap-1">
+                        🔄 역할 변경
+                      </button>
+                    )}
                     <button onClick={() => setPwEditFor(s)}
                       className="px-3 py-1.5 bg-orange-500 text-white rounded-lg text-xs font-semibold hover:bg-orange-600 flex items-center gap-1">
                       <Lock className="w-3.5 h-3.5" /> 비밀번호 재설정
                     </button>
+                    {/* ✅ v3.49.1: 비활성화 / 재활성화 (대표만) */}
+                    {isMaster && (
+                      <button onClick={() => toggleSuspend(s)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 ${
+                          s.approval_status === "suspended"
+                            ? "bg-emerald-500 text-white hover:bg-emerald-600"
+                            : "bg-white border border-rose-300 text-rose-600 hover:bg-rose-50"
+                        }`}>
+                        {s.approval_status === "suspended" ? "♻️ 재활성화" : "⛔ 비활성화"}
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
