@@ -23,25 +23,21 @@ export async function isMasterAccount(): Promise<boolean> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { cachedIsMaster = false; cachedAt = now; return false; }
 
-    // 1) staff 테이블에서 role/is_master 확인
+    // ✅ v3.49.4: 마스터 판별을 staff.role 단일 기준으로 통일 (SQL 교정 불필요)
+    //   - staff.is_master 옛 컬럼/값은 무시 (오염된 데이터가 있어도 영향 없음)
+    //   - aqu_is_master localStorage 캐시 제거 (브라우저 잔여 데이터 오인식 차단)
+    //   - 센터장(manager)은 마스터가 아님
     const { data: staff } = await supabase
       .from("staff")
-      .select("role, is_master")
+      .select("role")
       .eq("email", user.email || "")
       .maybeSingle();
 
     if (staff) {
       const roleStr = String(staff.role || "").toLowerCase();
-      if (staff.is_master === true) { cachedIsMaster = true; cachedAt = now; return true; }
-      if (["master", "director", "owner", "admin", "대표", "센터장"].includes(roleStr)) {
+      if (["director", "owner", "admin", "대표", "원장"].includes(roleStr)) {
         cachedIsMaster = true; cachedAt = now; return true;
       }
-    }
-
-    // 2) localStorage fallback (개발/테스트용)
-    if (typeof window !== "undefined") {
-      const lsMaster = localStorage.getItem("aqu_is_master");
-      if (lsMaster === "true") { cachedIsMaster = true; cachedAt = now; return true; }
     }
 
     cachedIsMaster = false; cachedAt = now; return false;

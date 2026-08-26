@@ -64,9 +64,15 @@ export default function LoginPage() {
               .eq("email", email)
               .maybeSingle();
             
+            // ✅ v3.49.3: staff.role을 권한의 단일 기준(single source of truth)으로 사용
+            //   staff_accounts의 is_master/permission은 옛 값일 수 있으므로 role로 덮어씀
+            const staffRole = String(staffRow?.role || "").toLowerCase();
             const mergedAccount = {
               ...acct,
               role: staffRow?.role || null,  // staff의 role을 병합 (isMaster 판별용)
+              // ✅ v3.49.4: staff.role이 없을 때만 staff_accounts 값 사용 (레거시 호환)
+              is_master: staffRole ? staffRole === "director" : Boolean(acct.is_master),
+              permission: staffRole || acct.permission,
             };
             
             const { saveLoggedInAccount } = await import("@/lib/branchContext");

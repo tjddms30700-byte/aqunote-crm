@@ -156,6 +156,12 @@ function AccountsInner() {
     if (newRole === cur) return;
     const { error } = await supabase.from("staff").update({ role: newRole }).eq("id", s.id);
     if (error) return alert("역할 변경 실패: " + error.message);
+    // ✅ v3.49.3: staff_accounts의 is_master/permission도 동기화 (로그인 권한 판별 불일치 방지)
+    if (s.email) {
+      await supabase.from("staff_accounts")
+        .update({ is_master: newRole === "director", permission: newRole })
+        .eq("email", s.email);
+    }
     alert(`✅ ${s.name}님의 역할이 '${roleLabelMap[newRole]}'(으)로 변경되었습니다\n(다음 로그인부터 적용됩니다)`);
     loadAll();
   }
@@ -433,5 +439,6 @@ function Field({ label, children }: any) {
 
 export default function AccountsPage() {
   // ✅ v3.49.0: 계정 관리는 대표 + 센터장 접근 가능 (센터장은 소속 지점·치료사/직원 계정만)
-  return <DirectorOnly roles={["director", "manager"]}><AccountsInner /></DirectorOnly>;
+  // ✅ v3.49.3: 로그인 승인·계정 관리는 대표(원장)만 접근 가능
+  return <DirectorOnly roles={["director"]}><AccountsInner /></DirectorOnly>;
 }

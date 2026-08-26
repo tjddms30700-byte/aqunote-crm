@@ -342,8 +342,13 @@ export default function SettingsPage() {
   }
   async function togglePermission(a: any) {
     const next = a.permission === "master" ? "general" : "master";
-    // 마스터로 승격 시 is_master도 함께 설정
+    // ✅ v3.49.4: 마스터 판별 기준은 staff.role — staff_accounts와 staff 양쪽 동기화
     await supabase.from("staff_accounts").update({ permission: next, is_master: next === "master" }).eq("id", a.id);
+    if (a.email) {
+      await supabase.from("staff")
+        .update({ role: next === "master" ? "director" : "therapist" })
+        .eq("email", a.email);
+    }
     loadAll();
   }
 

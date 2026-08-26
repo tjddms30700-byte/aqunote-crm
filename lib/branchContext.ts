@@ -75,6 +75,17 @@ export async function loadBranchContext(): Promise<BranchContext> {
         .is("deleted_at", null)
         .maybeSingle();
       if (data) {
+        // ✅ v3.49.3: staff_accounts의 is_master/permission은 옛 값일 수 있음 → staff.role로 덮어씀
+        try {
+          const { data: staffRow } = await supabase
+            .from("staff").select("role").eq("email", user.email).maybeSingle();
+          if (staffRow?.role) {
+            const r = String(staffRow.role).toLowerCase();
+            data.role = staffRow.role;
+            data.is_master = r === "director";
+            data.permission = staffRow.role;
+          }
+        } catch {}
         acct = data;
         try { window.localStorage.setItem(CURRENT_ACCOUNT_KEY, JSON.stringify(data)); } catch {}
       }
