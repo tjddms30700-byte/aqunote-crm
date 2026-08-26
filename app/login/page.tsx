@@ -46,17 +46,31 @@ export default function LoginPage() {
           // staff 조회 실패(컬럼 없음 등)는 기존처럼 통과
         }
 
-        // ✅ v3.10: 로그인 계정의 지점 정보 저장 (지점 스위체 연동)
+        // ✅ v3.49.2: 로그인 계정의 지점 정보 저장 — staff_accounts와 staff 병합 (role 최신화)
         try {
+          // staff_accounts에서 기본 정보 조회
           const { data: acct } = await supabase
             .from("staff_accounts")
             .select("id, login_id, email, branch_id, is_master, permission")
             .eq("email", email)
             .is("deleted_at", null)
             .maybeSingle();
+          
           if (acct) {
+            // staff 테이블에서 최신 role 조회 (staff_accounts에는 role이 없으므로)
+            const { data: staffRow } = await supabase
+              .from("staff")
+              .select("role")
+              .eq("email", email)
+              .maybeSingle();
+            
+            const mergedAccount = {
+              ...acct,
+              role: staffRow?.role || null,  // staff의 role을 병합 (isMaster 판별용)
+            };
+            
             const { saveLoggedInAccount } = await import("@/lib/branchContext");
-            saveLoggedInAccount(acct);
+            saveLoggedInAccount(mergedAccount);
           }
         } catch (e) { /* branch_id / is_master 컴럼 미존재 시 무시 */ }
 

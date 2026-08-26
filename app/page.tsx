@@ -85,12 +85,14 @@ const GROUPS = [
     directorOnly: true,
     items: [
       // ✅ v3.49.0: masterOnly = 대표(원장) 전용 / 표기 없음 = 센터장도 접근 가능
-      { href: "/payments",                 icon: CreditCard,     title: "💳 결제 · 매출 분석",       desc: "결제·매출·통계 통합", masterOnly: true },
-      { href: "/finance",                  icon: DollarSign,     title: "💼 센터 재무 · 자동정산",   desc: "수입·지출·법인카드·세무사 ZIP", masterOnly: true },
+      // ✅ v3.49.2: 센터장 권한 확대 - 재무/급여/정책 등 모든 운영 메뉴 접근 가능
+      //   (masterOnly 제거 → 센터장도 모두 볼 수 있음)
+      { href: "/payments",                 icon: CreditCard,     title: "💳 결제 · 매출 분석",       desc: "결제·매출·통계 통합" },
+      { href: "/finance",                  icon: DollarSign,     title: "💼 센터 재무 · 자동정산",   desc: "수입·지출·법인카드·세무사 ZIP" },
       { href: "/facility",                 icon: Waves,          title: "💧 수질·안전 관리",         desc: "일일 점검 · 월간 대장 PDF/Excel" },
       { href: "/staff",                    icon: UserCog,        title: "👥 직원 관리",              desc: "직원 등록 · 재직/퇴사 관리" },
-      { href: "/settings/payroll-config",  icon: Briefcase,      title: "👨‍💼 직원 급여 · 수당",      desc: "회당 단가 · 인센티브 · 지급 이력", masterOnly: true },
-      { href: "/settings?tab=policy",      icon: Settings,       title: "⚙️ 지점 정책",              desc: "회원권 · 시간표 · 자동백업", masterOnly: true },
+      { href: "/settings/payroll-config",  icon: Briefcase,      title: "👨‍💼 직원 급여 · 수당",      desc: "회당 단가 · 인센티브 · 지급 이력" },
+      { href: "/settings?tab=policy",      icon: Settings,       title: "⚙️ 지점 정책",              desc: "회원권 · 시간표 · 자동백업" },
       { href: "/settings/accounts",        icon: KeyRound,       title: "🔑 로그인 승인 · 계정",      desc: "가입 승인 · 비밀번호 관리" },
     ],
   },

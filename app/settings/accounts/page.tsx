@@ -335,6 +335,10 @@ function AccountsInner() {
         <div className="bg-white rounded-2xl border border-blue-100 shadow-sm p-5">
           <div className="font-bold text-blue-800 mb-3 flex items-center gap-2">
             <Plus className="w-4 h-4" /> 새 계정 직접 생성 (승인 없이 즉시 활성화)
+            {/* ✅ v3.49.2: 센터장은 치료사/일반직원만, 대표는 모든 역할 생성 가능 */}
+            {isCenterManager && (
+              <span className="text-[10px] px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full font-bold">👔 센터장 권한</span>
+            )}
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <Field label="이름 *">

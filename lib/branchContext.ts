@@ -83,8 +83,13 @@ export async function loadBranchContext(): Promise<BranchContext> {
 
   if (!acct) return emptyCtx;
 
-  // ✅ v3.49.0: 역할 계층 - 대표(master) > 센터장(manager) > 일반 직원
-  const isMaster = Boolean(acct.is_master || acct.permission === "master");
+  // ✅ v3.49.2: 역할 계층 - 대표(master) > 센터장(manager) > 일반 직원
+  //   staff_accounts의 is_master/permission이 없으면 staff 테이블의 role도 함께 확인
+  const isMaster = Boolean(
+    acct.is_master ||
+    acct.permission === "master" ||
+    String(acct.role || "").toLowerCase() === "director"
+  );
   const acctRole = String(acct.role || acct.permission || "").toLowerCase();
   const isCenterManager = !isMaster && ["manager", "center_manager", "센터장"].includes(acctRole);
   const canManageBranch = isMaster || isCenterManager;
@@ -103,23 +108,31 @@ export async function loadBranchContext(): Promise<BranchContext> {
     : (allBranches || []).filter(b => b.id === acct.branch_id);
 
   // 3) activeBranchId 결정
+  //   ✅ v3.49.2: 센터장은 소속 지점으로 강제 고정 (전체 지점/다른 지점 선택 불가)
   //   ✅ v3.48.7: 우선순위 = ① 계정별 기억 → ② 공용 기억 → ③ 소속 지점 → ④ 첫 번째 지점
   //   마스터는 "전체 지점(ALL)" 선택도 유효한 값으로 인정해 유지
   let activeBranchId: string | null = null;
-  try {
-    activeBranchId = window.localStorage.getItem(PER_ACCOUNT_KEY(acct.id))
-      || window.localStorage.getItem(ACTIVE_BRANCH_KEY);
-  } catch {}
-  const isAllSelected = activeBranchId === ALL_BRANCHES && isMaster;  // ALL은 대표(마스터)만 허용 - 센터장 불가
-  const stillAccessible = isAllSelected
-    || (activeBranchId && accessibleBranches.some(b => b.id === activeBranchId));
-  if (!stillAccessible) {
+  
+  if (isCenterManager) {
+    // ✅ v3.49.2: 센터장은 무조건 소속 지점만 (localStorage 무시하고 강제)
     activeBranchId = acct.branch_id || accessibleBranches[0]?.id || null;
-    if (activeBranchId) {
-      try {
-        window.localStorage.setItem(ACTIVE_BRANCH_KEY, activeBranchId);
-        window.localStorage.setItem(PER_ACCOUNT_KEY(acct.id), activeBranchId);
-      } catch {}
+  } else {
+    // 대표 또는 일반 직원
+    try {
+      activeBranchId = window.localStorage.getItem(PER_ACCOUNT_KEY(acct.id))
+        || window.localStorage.getItem(ACTIVE_BRANCH_KEY);
+    } catch {}
+    const isAllSelected = activeBranchId === ALL_BRANCHES && isMaster;  // ALL은 대표(마스터)만 허용
+    const stillAccessible = isAllSelected
+      || (activeBranchId && accessibleBranches.some(b => b.id === activeBranchId));
+    if (!stillAccessible) {
+      activeBranchId = acct.branch_id || accessibleBranches[0]?.id || null;
+      if (activeBranchId) {
+        try {
+          window.localStorage.setItem(ACTIVE_BRANCH_KEY, activeBranchId);
+          window.localStorage.setItem(PER_ACCOUNT_KEY(acct.id), activeBranchId);
+        } catch {}
+      }
     }
   }
 
