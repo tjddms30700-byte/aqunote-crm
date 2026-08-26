@@ -570,8 +570,8 @@ export default function MemberDetail() {
   }
 
   async function deleteMember() {
-    if (!confirm(`⚠️ '${member.name}'님을 완전 삭제하시겠습니까?\n\n다음 데이터가 영구 삭제됩니다:\n· 회원 기본/상세정보\n· 시간표 예약/수업 기록\n· 출결 기록\n· 회원권/결제 내역\n· 상담차트/IEP/행동기록\n· 고정시간표 배정\n\n복구할 수 없습니다. 계속하시겠습니까?`)) return;
-    if (!confirm(`마지막 확인: '${member.name}'님 완전 삭제 진행?`)) return;
+    // ✅ v3.48.8: 완전 삭제 폐지 - 소프트 삭제(휴지통)로 전환. 모든 데이터 보존, 언제든 복구 가능
+    if (!confirm(`🗑️ '${member.name}'님을 삭제(휴지통 이동)하시겠습니까?\n\n· 회원 카드와 시간표에서 숨겨집니다\n· 사인 이력·회원권·결제 등 모든 데이터는 보존됩니다\n· 회원 DB > 🗑️ 삭제된 회원에서 언제든 복구할 수 있습니다\n\n계속하시겠습니까?`)) return;
 
     if (isLeadMember()) { leadBlockAlert(); return; }
     const memberId = member.id;
@@ -624,17 +624,19 @@ export default function MemberDetail() {
       }
     }
 
-    // 7) 마지막으로 members 자체 완전 삭제
-    const rFinal = await supabase.from("members").delete().eq("id", memberId);
+    // ✅ v3.48.8: 7) members 자체도 소프트 삭제로 전환
+    //   기존 하드 삭제 시 DB 외래키 CASCADE로 attendance(사인 이력) 등이 DB 수준에서 연쇄 삭제되는
+    //   치명적 사고(신주은 건)가 발생 → 절대 하드 삭제하지 않음
+    const rFinal = await supabase.from("members").update({ deleted_at: softDelTs }).eq("id", memberId);
     if (rFinal.error) {
-      alert("삭제 실패: " + rFinal.error.message + (errors.length > 0 ? "\n\n연관 데이터 삭제 에러:\n" + errors.join("\n") : ""));
+      alert("삭제 실패: " + rFinal.error.message + (errors.length > 0 ? "\n\n연관 데이터 처리 에러:\n" + errors.join("\n") : ""));
       return;
     }
 
     if (errors.length > 0) {
-      alert(`⚠️ '${member.name}'님은 삭제되었으나 일부 연관 데이터 삭제에 실패:\n${errors.join("\n")}`);
+      alert(`⚠️ '${member.name}'님은 삭제되었으나 일부 연관 데이터 처리에 실패했습니다:\n${errors.join("\n")}\n\n데이터는 모두 보존되어 있으며 휴지통에서 복구 가능합니다.`);
     } else {
-      alert(`✅ '${member.name}'님이 완전 삭제되었습니다.\n(모든 연관 데이터 동시 삭제)`);
+      alert(`🗑️ '${member.name}'님이 삭제(휴지통 이동)되었습니다.\n모든 데이터는 보존되며, 회원 DB > 🗑️ 삭제된 회원에서 복구할 수 있습니다.`);
     }
     router.push('/members');
   }

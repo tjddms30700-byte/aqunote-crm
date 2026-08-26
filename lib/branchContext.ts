@@ -23,8 +23,10 @@ export type BranchContext = {
   accountId: string | null;
   loginId: string | null;
   ownBranchId: string | null;      // 계정 본래 소속 지점
-  isMaster: boolean;                // 메인 마스터 여부
-  activeBranchId: string | null;    // 현재 보고 있는 지점 (마스터는 전환 가능)
+  isMaster: boolean;                // 메인 마스터(대표) 여부
+  isCenterManager: boolean;         // ✅ v3.49.0: 센터장(지점 관리자) 여부
+  canManageBranch: boolean;         // ✅ v3.49.0: 지점 관리 가능 여부 (대표 또는 센터장)
+  activeBranchId: string | null;    // 현재 보고 있는 지점 (대표만 전환 가능, 센터장은 소속 지점 고정)
   branches: any[];                  // 접근 가능한 지점 목록
 };
 
@@ -51,7 +53,8 @@ export function isBranchFilterOff(): boolean {
 export async function loadBranchContext(): Promise<BranchContext> {
   const emptyCtx: BranchContext = {
     accountId: null, loginId: null, ownBranchId: null,
-    isMaster: false, activeBranchId: null, branches: [],
+    isMaster: false, isCenterManager: false, canManageBranch: false,
+    activeBranchId: null, branches: [],
   };
 
   // 1) 로그인 계정 조회
@@ -67,7 +70,7 @@ export async function loadBranchContext(): Promise<BranchContext> {
     if (user?.email) {
       const { data } = await supabase
         .from("staff_accounts")
-        .select("id, login_id, email, branch_id, is_master, permission")
+        .select("id, login_id, email, branch_id, is_master, permission, role")
         .eq("email", user.email)
         .is("deleted_at", null)
         .maybeSingle();
@@ -80,7 +83,11 @@ export async function loadBranchContext(): Promise<BranchContext> {
 
   if (!acct) return emptyCtx;
 
+  // ✅ v3.49.0: 역할 계층 - 대표(master) > 센터장(manager) > 일반 직원
   const isMaster = Boolean(acct.is_master || acct.permission === "master");
+  const acctRole = String(acct.role || acct.permission || "").toLowerCase();
+  const isCenterManager = !isMaster && ["manager", "center_manager", "센터장"].includes(acctRole);
+  const canManageBranch = isMaster || isCenterManager;
 
   // 2) 접근 가능한 지점 목록 (마스터는 전체, 일반은 자기 지점만)
   const { data: allBranches } = await supabase
@@ -90,6 +97,7 @@ export async function loadBranchContext(): Promise<BranchContext> {
     .order("branch_type", { ascending: true })
     .order("created_at");
 
+  // ✅ v3.49.0: 대표는 전체 지점 접근, 센터장·직원은 소속 지점만 100% 격리
   const accessibleBranches = isMaster
     ? (allBranches || [])
     : (allBranches || []).filter(b => b.id === acct.branch_id);
@@ -102,7 +110,7 @@ export async function loadBranchContext(): Promise<BranchContext> {
     activeBranchId = window.localStorage.getItem(PER_ACCOUNT_KEY(acct.id))
       || window.localStorage.getItem(ACTIVE_BRANCH_KEY);
   } catch {}
-  const isAllSelected = activeBranchId === ALL_BRANCHES && isMaster;  // ALL은 마스터만 허용
+  const isAllSelected = activeBranchId === ALL_BRANCHES && isMaster;  // ALL은 대표(마스터)만 허용 - 센터장 불가
   const stillAccessible = isAllSelected
     || (activeBranchId && accessibleBranches.some(b => b.id === activeBranchId));
   if (!stillAccessible) {
@@ -118,6 +126,8 @@ export async function loadBranchContext(): Promise<BranchContext> {
   return {
     accountId: acct.id,
     loginId: acct.login_id,
+    isCenterManager,
+    canManageBranch,
     ownBranchId: acct.branch_id || null,
     isMaster,
     activeBranchId,

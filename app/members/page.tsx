@@ -88,6 +88,28 @@ export default function MembersPage() {
   // ✅ 지점 전환 이벤트 감지 → 데이터 자동 재로드
   useBranchWatch(() => loadMembers());
 
+  // ✅ v3.48.8: 휴지통(삭제된 회원) 보기 상태
+  const [showTrash, setShowTrash] = useState(false);
+  const [trashedMembers, setTrashedMembers] = useState<any[]>([]);
+
+  async function loadTrash() {
+    const { data } = await supabase.from("members").select("id, name, phone, member_type, status, deleted_at")
+      .not("deleted_at", "is", null).order("deleted_at", { ascending: false });
+    setTrashedMembers(data || []);
+  }
+
+  // ✅ v3.48.8: 회원 복구 - 회원/슬롯/출결의 deleted_at 해제 (결제·회원권은 회원 상세의 종결 복구로 개별 처리)
+  async function restoreMember(m: any) {
+    if (!confirm(`♻️ '${m.name}'님을 복구할까요?\n\n· 회원 카드·시간표·출결 기록이 다시 표시됩니다\n· 회원권/결제는 회원 상세의 '종결 복구'로 개별 복원해 주세요`)) return;
+    const { error } = await supabase.from("members").update({ deleted_at: null }).eq("id", m.id);
+    if (error) { alert("복구 실패: " + error.message); return; }
+    await supabase.from("schedule_slots").update({ deleted_at: null }).eq("member_id", m.id);
+    await supabase.from("attendance").update({ deleted_at: null }).eq("member_id", m.id);
+    alert(`✅ '${m.name}'님이 복구되었습니다`);
+    await loadTrash();
+    await loadMembers();
+  }
+
   async function loadMembers() {
     setLoading(true);
     const branchId = getActiveBranchId();
@@ -121,6 +143,7 @@ export default function MembersPage() {
       list = list.filter((m: any) => !m.branch_id || m.branch_id === branchId);
     }
     setMembers(list as Member[]);
+    if (showTrash) loadTrash();  // ✅ v3.48.8: 휴지통 목록 동기화
     setLoading(false);
   }
 
@@ -266,6 +289,12 @@ export default function MembersPage() {
               📥 신규 유입 <span className="bg-white text-red-600 px-1.5 rounded font-bold">{inboxPending}</span>
             </Link>
           )}
+          {/* ✅ v3.48.8: 휴지통 (삭제된 회원 복구) */}
+          <button onClick={() => { setShowTrash(!showTrash); if (!showTrash) loadTrash(); }}
+            className={`px-3 py-1.5 rounded-lg text-sm flex items-center gap-1 shadow-sm ${showTrash ? "bg-rose-600 text-white" : "bg-white border border-rose-200 text-rose-600 hover:bg-rose-50"}`}
+            title="삭제된 회원 보기 및 복구">
+            🗑️ 삭제된 회원
+          </button>
           <button onClick={() => setShowDedupeModal(true)}
             className="px-3 py-1.5 bg-gradient-to-br from-amber-500 to-orange-500 text-white rounded-lg text-sm flex items-center gap-1 hover:opacity-90 shadow-sm"
             title="이름 + 전화번호 기준으로 중복 회원 감지">
@@ -311,6 +340,35 @@ export default function MembersPage() {
           💡 한 곳에서 회원 DB·출석·사인 이력을 이동해 볼 수 있습니다
         </span>
       </div>
+
+      {/* ✅ v3.48.8: 삭제된 회원 (휴지통) 목록 */}
+      {showTrash && (
+        <div className="mb-4 bg-rose-50/70 border border-rose-200 rounded-2xl p-4">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-sm font-bold text-rose-800">🗑️ 삭제된 회원 ({trashedMembers.length}명)</h2>
+            <span className="text-[11px] text-rose-600">복구하면 회원 카드·시간표·출결 기록이 다시 표시됩니다</span>
+          </div>
+          {trashedMembers.length === 0 ? (
+            <div className="text-center py-4 text-xs text-rose-400">삭제된 회원이 없습니다</div>
+          ) : (
+            <div className="space-y-1.5">
+              {trashedMembers.map(m => (
+                <div key={m.id} className="flex items-center justify-between bg-white border border-rose-100 rounded-xl px-3 py-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="font-semibold text-sm text-slate-800">{m.name}</span>
+                    <span className="text-[11px] text-slate-400">{m.phone || "전화번호 없음"}</span>
+                    <span className="text-[10px] text-rose-400">삭제: {String(m.deleted_at || "").slice(0, 10)}</span>
+                  </div>
+                  <button onClick={() => restoreMember(m)}
+                    className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-xs font-bold shrink-0">
+                    ♻️ 복구
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ✅ v3.38.3: 서비스 트랙 필터 (수중/지상 2개) + 지상 선택 시 디바이스케어 체크박스 */}
       <div className="flex flex-wrap gap-2 items-center mb-2">
@@ -894,7 +952,8 @@ function DedupeModal({ members, onClose, onDone }: { members: any[]; onClose: ()
   async function executeDelete() {
     const ids = Object.entries(checked).filter(([, v]) => v).map(([id]) => id);
     if (ids.length === 0) { alert("삭제할 회원을 선택하세요"); return; }
-    if (!confirm(`⚠️ 선택된 ${ids.length}명의 회원을 완전 삭제하시겠습니까?\n\n• 회원 기본정보 영구 삭제\n• 시간표·출결·결제·회원권 데이터 모두 삭제\n• 고정시간표 배정 자동 복구(OPEN)\n• 상담차트·IEP·행동기록 삭제\n• 복구 불가`)) return;
+    // ✅ v3.48.8: 완전 삭제 폐지 - 소프트 삭제(휴지통) 전환
+    if (!confirm(`🗑️ 선택된 ${ids.length}명의 회원을 삭제(휴지통 이동)하시겠습니까?\n\n• 회원 카드와 시간표에서 숨겨집니다\n• 사인 이력·회원권·결제 등 모든 데이터는 보존됩니다\n• 🗑️ 삭제된 회원에서 언제든 복구할 수 있습니다`)) return;
     if (!confirm(`마지막 확인: ${ids.length}명 완전 삭제 진행?`)) return;
 
     setDeleting(true);
@@ -926,7 +985,8 @@ function DedupeModal({ members, onClose, onDone }: { members: any[]; onClose: ()
         await supabase.from(tbl).delete().in("member_id", batch);
       }
 
-      const { error } = await supabase.from("members").delete().in("id", batch);
+      // ✅ v3.48.8: members 하드 삭제 금지 - 소프트 삭제 (DB CASCADE 사인 연쇄 삭제 사고 방지)
+      const { error } = await supabase.from("members").update({ deleted_at: softDelTs }).in("id", batch);
       if (error) { errCount++; console.error(error); }
       else done += batch.length;
     }
@@ -935,7 +995,7 @@ function DedupeModal({ members, onClose, onDone }: { members: any[]; onClose: ()
     if (errCount > 0) {
       alert(`⚠️ 부분 성공: ${done}명 삭제됨, ${errCount}배치 실패\n\n실패 원인은 브라우저 콘솔에서 확인하세요.`);
     } else {
-      alert(`✅ ${done}명이 완전 삭제되었습니다 (모든 연관 데이터 동시 삭제)`);
+      alert(`🗑️ ${done}명이 삭제(휴지통 이동)되었습니다. 모든 데이터는 보존되며 복구 가능합니다.`);
     }
     onDone();
   }

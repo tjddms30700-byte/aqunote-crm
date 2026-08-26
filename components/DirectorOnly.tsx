@@ -10,7 +10,10 @@ import { ShieldAlert } from "lucide-react";
  * 개발 편의를 위해 아직 staff 등록이 없거나 로그인 안 되어 있으면 접근 허용
  * (v3.5에서는 원장 계정 등록 안 되어 있을 수 있으므로 관대한 정책).
  */
-export default function DirectorOnly({ children }: { children: React.ReactNode }) {
+// ✅ v3.49.0: roles prop 추가 - 기본값은 director 전용(기존 동작 유지),
+//   계정 관리 페이지처럼 센터장까지 허용할 곳은 roles={["director","manager"]} 전달
+export default function DirectorOnly({ children, roles }: { children: React.ReactNode; roles?: string[] }) {
+  const allowedRoles = roles && roles.length > 0 ? roles : ["director"];
   const [status, setStatus] = useState<"loading" | "allowed" | "denied">("loading");
 
   useEffect(() => {
@@ -44,8 +47,8 @@ export default function DirectorOnly({ children }: { children: React.ReactNode }
           return;
         }
 
-        // director만 통과
-        if (staffRow.role === "director") {
+        // ✅ v3.49.0: 허용 역할 목록에 포함되면 통과
+        if (allowedRoles.includes(String(staffRow.role || "").toLowerCase())) {
           setStatus("allowed");
         } else {
           setStatus("denied");
@@ -74,7 +77,7 @@ export default function DirectorOnly({ children }: { children: React.ReactNode }
           </div>
           <h1 className="text-xl font-bold text-orange-900 mb-2">🔒 접근 권한 없음</h1>
           <p className="text-sm text-gray-600 mb-6">
-            이 페이지는 <strong>원장(director) 역할</strong>의 계정만 접근할 수 있습니다.
+            이 페이지는 <strong>{allowedRoles.includes("manager") ? "원장·센터장 역할" : "원장(director) 역할"}</strong>의 계정만 접근할 수 있습니다.
             <br /><br />
             매출·재무 정보는 민감한 데이터로 보호됩니다.
           </p>

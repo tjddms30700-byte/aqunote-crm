@@ -84,13 +84,13 @@ const GROUPS = [
     bg: "bg-slate-50",
     directorOnly: true,
     items: [
-      // ✅ v3.20.12: 직원관리·직원급여를 별도 카드로 분리
-      { href: "/payments",                 icon: CreditCard,     title: "💳 결제 · 매출 분석",       desc: "결제·매출·통계 통합" },
-      { href: "/finance",                  icon: DollarSign,     title: "💼 센터 재무 · 자동정산",   desc: "수입·지출·법인카드·세무사 ZIP" },
+      // ✅ v3.49.0: masterOnly = 대표(원장) 전용 / 표기 없음 = 센터장도 접근 가능
+      { href: "/payments",                 icon: CreditCard,     title: "💳 결제 · 매출 분석",       desc: "결제·매출·통계 통합", masterOnly: true },
+      { href: "/finance",                  icon: DollarSign,     title: "💼 센터 재무 · 자동정산",   desc: "수입·지출·법인카드·세무사 ZIP", masterOnly: true },
       { href: "/facility",                 icon: Waves,          title: "💧 수질·안전 관리",         desc: "일일 점검 · 월간 대장 PDF/Excel" },
       { href: "/staff",                    icon: UserCog,        title: "👥 직원 관리",              desc: "직원 등록 · 재직/퇴사 관리" },
-      { href: "/settings/payroll-config",  icon: Briefcase,      title: "👨‍💼 직원 급여 · 수당",      desc: "회당 단가 · 인센티브 · 지급 이력" },
-      { href: "/settings?tab=policy",      icon: Settings,       title: "⚙️ 지점 정책",              desc: "회원권 · 시간표 · 자동백업" },
+      { href: "/settings/payroll-config",  icon: Briefcase,      title: "👨‍💼 직원 급여 · 수당",      desc: "회당 단가 · 인센티브 · 지급 이력", masterOnly: true },
+      { href: "/settings?tab=policy",      icon: Settings,       title: "⚙️ 지점 정책",              desc: "회원권 · 시간표 · 자동백업", masterOnly: true },
       { href: "/settings/accounts",        icon: KeyRound,       title: "🔑 로그인 승인 · 계정",      desc: "가입 승인 · 비밀번호 관리" },
     ],
   },
@@ -99,7 +99,8 @@ const GROUPS = [
 export default function Home() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
-  const [isDirector, setIsDirector] = useState(false);
+  const [isDirector, setIsDirector] = useState(false);      // ✅ v3.49.0: 운영 그룹 표시 여부 (대표 또는 센터장)
+  const [isMasterRole, setIsMasterRole] = useState(false);  // ✅ v3.49.0: 대표 전용 메뉴 표시 여부
   const [expandedGroup, setExpandedGroup] = useState<string | null>("members");
   const [badges, setBadges] = useState<Record<string, number>>({});
 
@@ -108,14 +109,18 @@ export default function Home() {
       const { data } = await supabase.auth.getUser();
       setUser(data.user);
 
-      // 원장 권한 체크
+      // ✅ v3.49.0: 권한 계층 체크 - 대표(director) > 센터장(manager) > 직원
       if (data.user?.email) {
         const { data: staffRow } = await supabase
           .from("staff")
           .select("role")
           .eq("email", data.user.email)
           .maybeSingle();
-        setIsDirector(staffRow?.role === "director");
+        const role = String(staffRow?.role || "").toLowerCase();
+        const master = role === "director";
+        const centerMgr = role === "manager";
+        setIsMasterRole(master);
+        setIsDirector(master || centerMgr);  // 운영 그룹은 센터장까지 노출 (항목별로 masterOnly 분리)
       }
 
       // ✅ v3.48.6: 홈 뱃지 전화번호 숫자-only 정규화 비교 (상담 페이지 신규 카운트와 100% 일치)
@@ -185,7 +190,13 @@ export default function Home() {
   }, []);
 
   // ✅ v3.20.0: directorOnly 그룹은 마스터/센터장(isDirector)만 노출
-  const visibleGroups = GROUPS.filter(g => !g.directorOnly || isDirector);
+  // ✅ v3.49.0: 그룹 내부의 masterOnly 항목은 대표(원장)만 노출 (센터장은 직원 관리·계정·수질만)
+  const visibleGroups = GROUPS
+    .filter(g => !g.directorOnly || isDirector)
+    .map(g => ({
+      ...g,
+      items: (g.items as any[]).filter(it => !it.masterOnly || isMasterRole),
+    }));
 
   async function logout() {
     await supabase.auth.signOut();

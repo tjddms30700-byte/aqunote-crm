@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
+import { useBranchContext, ALL_BRANCHES } from "@/lib/branchContext";  // ✅ v3.49.0: 센터장 지점 격리
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import StaffCertIssueModal from "@/components/StaffCertIssueModal";
@@ -45,6 +46,10 @@ export default function StaffPage() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"active" | "resigned" | "payroll" | "attendance">("active");
   const [isDirector, setIsDirector] = useState(false);  // 원장만 수정 가능
+  // ✅ v3.49.0: 센터장 권한 — 직원 관리 접근 허용 + 소속 지점만 표시
+  const { isMaster, isCenterManager, canManageBranch, ownBranchId, activeBranchId } = useBranchContext();
+  // 직원 관리 접근 가능 = 대표 또는 센터장 (기존 isDirector 로직과 병행)
+  const canManageStaff = isDirector || canManageBranch;
 
   const [showStaffModal, setShowStaffModal] = useState(false);
   const [showPayrollModal, setShowPayrollModal] = useState(false);
@@ -112,7 +117,9 @@ export default function StaffPage() {
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user?.email) { setIsDirector(true); return; } // 로그인 없으면 허용
     const { data: staffRow } = await supabase.from("staff").select("role").eq("email", userData.user.email).maybeSingle();
-    setIsDirector(!staffRow || staffRow.role === "director");
+    // ✅ v3.49.0: 대표(director) 또는 센터장(manager) 모두 직원 관리 권한 보유
+    const role = String(staffRow?.role || "").toLowerCase();
+    setIsDirector(!staffRow || role === "director" || role === "manager");
   }
 
   async function loadAll() {
@@ -162,7 +169,16 @@ export default function StaffPage() {
     }
 
     const [s, ph, al, sl, att, mm, mtx] = await Promise.all([
-      supabase.from("staff").select("*").order("created_at", { ascending: false }),
+      // ✅ v3.49.0: 센터장은 소속 지점 직원만 조회 (대표는 전체 또는 보고 있는 지점)
+      (() => {
+        let q = supabase.from("staff").select("*").order("created_at", { ascending: false });
+        if (isCenterManager && ownBranchId) {
+          q = q.eq("branch_id", ownBranchId);  // 센터장: 소속 지점 100% 격리
+        } else if (isMaster && activeBranchId && activeBranchId !== ALL_BRANCHES) {
+          q = q.eq("branch_id", activeBranchId);  // 대표가 특정 지점 보는 중이면 해당 지점만
+        }
+        return q;
+      })(),
       supabase.from("payroll_history").select("*").order("pay_year", { ascending: false }).order("pay_month", { ascending: false }),
       loadAttendanceLogs(),
       supabase.from("schedule_slots").select("id, staff_id, status, event_date, event_type, member_id")
@@ -206,6 +222,10 @@ phone: newStaff.phone || null,
       resident_number: newStaff.resident_number || null,
       job_description: newStaff.job_description || null,
       role: newStaff.role,
+      // ✅ v3.49.0: 센터장이 등록하는 직원은 소속 지점으로 자동 고정 (대표는 현재 보고 있는 지점)
+      branch_id: (isMaster
+        ? (activeBranchId && activeBranchId !== ALL_BRANCHES ? activeBranchId : ownBranchId)
+        : ownBranchId) || null,
       salary_type: newStaff.salary_type,
       salary_amount: Number(newStaff.salary_amount || 0),
       address: newStaff.address || null,

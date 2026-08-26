@@ -5,6 +5,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import HomeButton from "@/components/HomeButton";
 import DirectorOnly from "@/components/DirectorOnly";
+import { useBranchContext, ALL_BRANCHES } from "@/lib/branchContext";  // ✅ v3.49.0
 import { KeyRound, ChevronLeft, Save, Check, X, Lock, User, Mail, Phone as PhoneIcon, ShieldCheck, ShieldAlert, Plus } from "lucide-react";
 
 /**
@@ -20,8 +21,13 @@ const ROLES = [
   { key: "therapist",  label: "👨‍⚕️ 치료사" },
   { key: "staff",      label: "👤 일반 직원" },
 ];
+// ✅ v3.49.0: 센터장이 생성 가능한 역할 (치료사·일반 직원만 - 원장/센터장 생성은 대표 전용)
+const MANAGER_CREATABLE_ROLES = ROLES.filter(r => ["therapist", "staff"].includes(r.key));
 
 function AccountsInner() {
+  // ✅ v3.49.0: 센터장은 소속 지점 계정만 관리, 치료사/일반직원만 생성 가능
+  const { isMaster, isCenterManager, ownBranchId } = useBranchContext();
+  const creatableRoles = isMaster ? ROLES : MANAGER_CREATABLE_ROLES;
   const [pending, setPending] = useState<any[]>([]);
   const [approved, setApproved] = useState<any[]>([]);
   const [tab, setTab] = useState<"pending" | "approved" | "new">("pending");
@@ -53,7 +59,11 @@ function AccountsInner() {
     setApproved(a.data || []);
     setBranches(b.data || []);
     if (b.data && b.data.length > 0 && !nf.branch_id) {
-      setNf({ ...nf, branch_id: b.data.find((x: any) => x.is_main)?.id || b.data[0].id });
+      // ✅ v3.49.0: 센터장은 소속 지점으로 자동 고정, 대표는 본점 기본값
+      const defaultBranch = isCenterManager && ownBranchId
+        ? ownBranchId
+        : (b.data.find((x: any) => x.is_main)?.id || b.data[0].id);
+      setNf({ ...nf, branch_id: defaultBranch });
     }
     setLoading(false);
   }
@@ -113,7 +123,8 @@ function AccountsInner() {
       national_id: nf.national_id || null,  // 주민등록번호 (선택적으로 저장)
       login_id: nf.login_id || nf.email,
       role: nf.role,
-      branch_id: nf.branch_id || null,
+      // ✅ v3.49.0: 센터장이 만든 계정은 무조건 소속 지점으로 고정 (타 지점 생성 불가)
+      branch_id: (isCenterManager && ownBranchId) ? ownBranchId : (nf.branch_id || null),
       approval_status: "approved",
       approved_at: new Date().toISOString(),
       hire_date: new Date().toISOString().slice(0, 10),
@@ -293,14 +304,21 @@ function AccountsInner() {
             <Field label="권한">
               <select value={nf.role} onChange={e => setNf({ ...nf, role: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
-                {ROLES.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
+                {creatableRoles.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
               </select>
+              {isCenterManager && (
+                <div className="text-[10px] text-blue-600 mt-1">👔 센터장 권한: 치료사·일반 직원 계정만 생성할 수 있습니다</div>
+              )}
             </Field>
             <Field label="소속 지점">
               <select value={nf.branch_id} onChange={e => setNf({ ...nf, branch_id: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                disabled={isCenterManager}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white disabled:bg-slate-100 disabled:text-slate-500">
                 {branches.map(b => <option key={b.id} value={b.id}>{b.name}{b.is_main && " (본점)"}</option>)}
               </select>
+              {isCenterManager && (
+                <div className="text-[10px] text-blue-600 mt-1">🏢 소속 지점으로 자동 배정됩니다 (타 지점 계정 생성 불가)</div>
+              )}
             </Field>
           </div>
           <div className="mt-4 flex justify-end">
@@ -353,5 +371,6 @@ function Field({ label, children }: any) {
 }
 
 export default function AccountsPage() {
-  return <DirectorOnly><AccountsInner /></DirectorOnly>;
+  // ✅ v3.49.0: 계정 관리는 대표 + 센터장 접근 가능 (센터장은 소속 지점·치료사/직원 계정만)
+  return <DirectorOnly roles={["director", "manager"]}><AccountsInner /></DirectorOnly>;
 }

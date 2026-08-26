@@ -17,6 +17,7 @@ const TYPE_META: Record<string, { icon: string; label: string; color: string }> 
 };
 
 export default function BranchSwitcher() {
+  // ✅ v3.49.0: 지점 전환은 대표(isMaster)만 가능 - 센터장은 소속 지점 배지만 표시
   const { isMaster, activeBranchId, branches, setActiveBranchId, loading } = useBranchContext();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
