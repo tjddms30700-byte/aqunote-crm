@@ -61,9 +61,9 @@ export default function SignatureAttendanceHistoryPage() {
 
     // 회원 목록
     const mQ = supabase.from("members").select("id, name, phone, member_type, guardian_name").is("deleted_at", null);
-    const { data: mData } = branchId
+    const { data: mData } = (branchId && branchId !== "ALL")
       ? await mQ.eq("branch_id", branchId).order("name")
-      : await mQ.order("name");
+      : await mQ.order("name");  // ✅ v3.48.7: ALL 모드면 전체 회원 로드 → 사인 이름 정상 매칭
     setMembers(mData || []);
 
     // v3.21.2: attendance 중 signature 존재하는 것만 (컬럼 자동 감지)
@@ -82,7 +82,7 @@ export default function SignatureAttendanceHistoryPage() {
 
     // 지점 필터 (branch_id 미존재 시 폴백)
     let filtered = dataAll;
-    if (branchId) {
+    if (branchId && branchId !== "ALL") {  // ✅ v3.48.7: ALL 모드면 사인 지점 필터 미적용
       filtered = dataAll.filter((r: any) => !r.branch_id || r.branch_id === branchId);
     }
     // 정규화 - _date 필드 통일 (attend_date 포함)

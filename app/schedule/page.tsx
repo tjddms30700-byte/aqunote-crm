@@ -262,7 +262,7 @@ export default function SchedulePage() {
     console.log(`[v3.34.2] loadAll 시작 - branch_id=${branchId || "(없음)"} (build: v3.34.2 · SQL deleted_at 안전가드 + 대시보드 라이트모드 + 근무직원 퇴사자 제외)`);
     // ✅ branch_id 필터 (컴럼 미존재 시 폴백)
     const safeBranchQuery = async (baseFn: () => any, filterFn: (q: any) => any) => {
-      if (!branchId) return await baseFn();
+      if (!branchId || branchId === "ALL") return await baseFn();  // ✅ v3.48.7: 전체 지점 모드면 필터 미적용
       const r = await filterFn(baseFn());
       if (r.error && (r.error.code === "42703" || r.error.message?.includes("branch_id"))) {
         return await baseFn();
@@ -287,9 +287,9 @@ export default function SchedulePage() {
     const fetchSchedule = async () => {
       const attempts = [
         // 1) 날짜 범위 + branch_id 필터
-        () => branchId
+        () => (branchId && branchId !== "ALL")
           ? supabase.from("schedule_slots").select("*").or(`branch_id.eq.${branchId},branch_id.is.null`).gte("event_date", rangeStart).lte("event_date", rangeEnd).order("event_date").order("time_slot").range(0, 99999)
-          : supabase.from("schedule_slots").select("*").gte("event_date", rangeStart).lte("event_date", rangeEnd).order("event_date").order("time_slot").range(0, 99999),
+          : supabase.from("schedule_slots").select("*").gte("event_date", rangeStart).lte("event_date", rangeEnd).order("event_date").order("time_slot").range(0, 99999),  // ✅ v3.48.7: ALL 모드
         // 2) branch_id 없이 날짜 범위만
         () => supabase.from("schedule_slots").select("*").gte("event_date", rangeStart).lte("event_date", rangeEnd).order("event_date").order("time_slot").range(0, 99999),
         // 3) 날짜 범위만 (정렬 없이)

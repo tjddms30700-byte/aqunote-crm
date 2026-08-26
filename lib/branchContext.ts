@@ -13,6 +13,12 @@ import { supabase } from "./supabase";
 const ACTIVE_BRANCH_KEY = "aqu_active_branch_id";
 const CURRENT_ACCOUNT_KEY = "aqu_current_account";
 
+// ✅ v3.48.7: 지점 필터 끄기 (전체 지점 조회) sentinel
+//   - activeBranchId === ALL_BRANCHES 이면 모든 페이지에서 지점 필터를 적용하지 않음
+export const ALL_BRANCHES = "ALL";
+// ✅ v3.48.7: 계정별 마지막 지점 선택 기억 (로그인마다 다른 기본값 유지)
+const PER_ACCOUNT_KEY = (acctId: string) => `aqu_active_branch_id_${acctId}`;
+
 export type BranchContext = {
   accountId: string | null;
   loginId: string | null;
@@ -32,6 +38,11 @@ export function getActiveBranchId(): string | null {
   } catch {
     return null;
   }
+}
+
+/** ✅ v3.48.7: 지점 필터가 꺼져 있는지(전체 지점 모드) 여부 */
+export function isBranchFilterOff(): boolean {
+  return getActiveBranchId() === ALL_BRANCHES;
 }
 
 /**
@@ -83,16 +94,24 @@ export async function loadBranchContext(): Promise<BranchContext> {
     ? (allBranches || [])
     : (allBranches || []).filter(b => b.id === acct.branch_id);
 
-  // 3) activeBranchId 결정 (localStorage 우선, 없으면 소속 지점, 없으면 첫 번째)
+  // 3) activeBranchId 결정
+  //   ✅ v3.48.7: 우선순위 = ① 계정별 기억 → ② 공용 기억 → ③ 소속 지점 → ④ 첫 번째 지점
+  //   마스터는 "전체 지점(ALL)" 선택도 유효한 값으로 인정해 유지
   let activeBranchId: string | null = null;
   try {
-    activeBranchId = window.localStorage.getItem(ACTIVE_BRANCH_KEY);
+    activeBranchId = window.localStorage.getItem(PER_ACCOUNT_KEY(acct.id))
+      || window.localStorage.getItem(ACTIVE_BRANCH_KEY);
   } catch {}
-  const stillAccessible = activeBranchId && accessibleBranches.some(b => b.id === activeBranchId);
+  const isAllSelected = activeBranchId === ALL_BRANCHES && isMaster;  // ALL은 마스터만 허용
+  const stillAccessible = isAllSelected
+    || (activeBranchId && accessibleBranches.some(b => b.id === activeBranchId));
   if (!stillAccessible) {
     activeBranchId = acct.branch_id || accessibleBranches[0]?.id || null;
     if (activeBranchId) {
-      try { window.localStorage.setItem(ACTIVE_BRANCH_KEY, activeBranchId); } catch {}
+      try {
+        window.localStorage.setItem(ACTIVE_BRANCH_KEY, activeBranchId);
+        window.localStorage.setItem(PER_ACCOUNT_KEY(acct.id), activeBranchId);
+      } catch {}
     }
   }
 
@@ -112,6 +131,12 @@ export async function loadBranchContext(): Promise<BranchContext> {
 export function switchActiveBranch(branchId: string) {
   try {
     window.localStorage.setItem(ACTIVE_BRANCH_KEY, branchId);
+    // ✅ v3.48.7: 현재 계정의 마지막 선택으로도 기억 (다음 로그인 때 복원)
+    const cached = window.localStorage.getItem(CURRENT_ACCOUNT_KEY);
+    if (cached) {
+      const acct = JSON.parse(cached);
+      if (acct?.id) window.localStorage.setItem(`aqu_active_branch_id_${acct.id}`, branchId);
+    }
     window.dispatchEvent(new CustomEvent("branch-switched", { detail: { branchId } }));
   } catch {}
 }

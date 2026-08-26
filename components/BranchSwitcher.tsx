@@ -6,7 +6,7 @@
  * - 일반 계정: 자기 소속 지점만 배지로 표시 (전환 불가)
  * - 로그인 안 된 경우: 아무것도 표시하지 않음
  */
-import { useBranchContext } from "@/lib/branchContext";
+import { useBranchContext, ALL_BRANCHES } from "@/lib/branchContext";
 import { ChevronDown, Building2 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 
@@ -32,17 +32,21 @@ export default function BranchSwitcher() {
 
   if (loading || !activeBranchId || branches.length === 0) return null;
 
+  // ✅ v3.48.7: 전체 지점(필터 끄기) 모드
+  const isAllMode = activeBranchId === ALL_BRANCHES;
   const active = branches.find(b => b.id === activeBranchId);
-  if (!active) return null;
+  if (!isAllMode && !active) return null;
 
-  const tm = TYPE_META[active.branch_type] || TYPE_META.branch;
+  const tm = isAllMode
+    ? { icon: "🌐", label: "전체", color: "bg-emerald-50 text-emerald-700 border-emerald-200" }
+    : (TYPE_META[active.branch_type] || TYPE_META.branch);
 
   // 일반 계정: 배지만 표시 (전환 불가)
   if (!isMaster || branches.length <= 1) {
     return (
       <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border ${tm.color}`}>
         <span>{tm.icon}</span>
-        <span>{active.name}</span>
+        <span>{isAllMode ? "전체 지점" : active?.name}</span>
         <span className="text-[10px] opacity-70">{tm.label}</span>
       </div>
     );
@@ -54,7 +58,7 @@ export default function BranchSwitcher() {
       <button onClick={() => setOpen(o => !o)}
         className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border shadow-sm hover:shadow ${tm.color}`}>
         <Building2 className="w-3.5 h-3.5" />
-        <span>{tm.icon} {active.name}</span>
+        <span>{tm.icon} {isAllMode ? "전체 지점" : active?.name}</span>
         <span className="text-[10px] opacity-70">({tm.label})</span>
         <ChevronDown className="w-3 h-3" />
       </button>
@@ -68,6 +72,17 @@ export default function BranchSwitcher() {
             <div className="text-[10px] text-gray-500 mt-0.5">지점을 선택해 해당 지점 데이터를 조회하세요</div>
           </div>
           <div className="max-h-64 overflow-y-auto">
+            {/* ✅ v3.48.7: 전체 지점 (필터 끄기) 옵션 - 모든 지점 데이터를 한 번에 표시 */}
+            <button
+              onClick={() => { setActiveBranchId(ALL_BRANCHES); setOpen(false); }}
+              className={`w-full text-left px-3 py-2.5 hover:bg-emerald-50 flex items-center gap-2 border-b-2 border-emerald-100 ${isAllMode ? "bg-emerald-50" : "bg-emerald-50/40"}`}>
+              <span className="text-lg">🌐</span>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-bold text-emerald-800">전체 지점 (필터 끄기)</div>
+                <div className="text-[10px] text-emerald-600">모든 지점의 회원·시간표·사인을 한 번에 표시</div>
+              </div>
+              {isAllMode && <span className="text-[10px] text-emerald-600 font-bold">✓ 현재</span>}
+            </button>
             {branches.map(b => {
               const meta = TYPE_META[b.branch_type] || TYPE_META.branch;
               const isActive = b.id === activeBranchId;
