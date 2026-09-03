@@ -144,8 +144,12 @@ export default function ConsultationsPage() {
     setOrgId(org?.id || null);
 
     // members (지점필터 fallback)
+    // ✅ v3.49.5: 지점 미배정(branch_id IS NULL) 회원도 함께 표시
+    //   기존 버그: 웹신청 자동승격 회원이 branch_id 없이 생성되어 상담 파이프라인에서 사라짐
     const q = branchId
-      ? supabase.from("members").select("*").is("deleted_at", null).eq("branch_id", branchId).order("created_at", { ascending: false })
+      ? supabase.from("members").select("*").is("deleted_at", null)
+          .or(`branch_id.eq.${branchId},branch_id.is.null`)
+          .order("created_at", { ascending: false })
       : supabase.from("members").select("*").is("deleted_at", null).order("created_at", { ascending: false });
     let { data: memData, error: memErr } = await q;
     if (memErr && (memErr.code === "42703" || memErr.message?.includes("branch_id"))) {

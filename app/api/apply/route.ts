@@ -127,6 +127,26 @@ export async function POST(req: Request) {
       },
     };
 
+    // ✅ v3.49.5: 희망 지점(wish_branch) 텍스트 → branches.id 자동 매핑
+    //   기존 버그: memberPayload에 branch_id가 없어 지점 필터가 걸린 화면(상담/시간표)에서
+    //   신규 접수 회원이 보이지 않던 문제. 매칭 실패 시 첫 번째(본점) 지점으로 폴백.
+    try {
+      const { data: branchRows } = await supabase
+        .from("branches")
+        .select("id, name, branch_type")
+        .is("deleted_at", null)
+        .order("branch_type", { ascending: true })
+        .order("created_at");
+      if (branchRows && branchRows.length > 0) {
+        const wish = String(body.wish_branch || "").replace(/\s/g, "");
+        const matched =
+          branchRows.find((b: any) => wish && String(b.name || "").replace(/\s/g, "").includes(wish.replace(/점$/, "").replace(/본점$/, ""))) ||
+          branchRows.find((b: any) => wish && wish.includes(String(b.name || "").replace(/점$/, ""))) ||
+          branchRows[0]; // 폴백: 본점(첫 번째)
+        memberPayload.branch_id = matched.id;
+      }
+    } catch (e) { console.warn("[v3.49.5] branch 매핑 실패 (무시):", e); }
+
     const { data: memberData, error: memberErr } = await supabase
       .from("members")
       .insert(memberPayload)
