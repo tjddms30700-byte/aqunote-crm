@@ -39,7 +39,7 @@ const GROUPS = [
   {
     key: "staff",
     title: "직원 · 근무",
-    subtitle: "출퇴근 · 휴가 · 차량운행일지 · 경비청구 · 사내 공지",
+    subtitle: "출퇴근 · 휴가 · 차량운행일지 · 경비청구 · 공지 · 업무관리",
     icon: UserCog,
     from: "from-blue-500",
     to: "to-indigo-600",
@@ -53,6 +53,8 @@ const GROUPS = [
       { href: "/vehicles",                     icon: Car,       title: "🚗 차량운행일지",    desc: "업무용 렌트카 주행거리 기록 · 국세청 세무 증빙" },
       { href: "/attendance-staff?tab=expense", icon: Wallet,    title: "🧾 지출·경비 청구",  desc: "법인카드/개인카드 영수증 등록 및 경비 청구" },
       { href: "/attendance-staff?tab=notice",  icon: MessageSquare, title: "📢 공지사항",     desc: "센터 사내 공지 및 업무 전달사항" },
+      // ✅ v3.50.0: 업무·프로젝트 관리 카드 추가
+      { href: "/tasks",                          icon: ClipboardList, title: "📋 업무·프로젝트",  desc: "업무 요청 · 담당자 배정 · 마감일·진행 현황 추적" },
     ],
   },
   {
