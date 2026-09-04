@@ -277,6 +277,7 @@ export default function TasksPage() {
                 <th className="px-3 py-3 text-left">상태</th>
                 <th className="px-3 py-3 text-left">메모</th>
                 <th className="px-3 py-3 text-left">등록</th>
+                <th className="px-3 py-3 text-left">관리</th>
               </tr>
             </thead>
             <tbody>
@@ -324,6 +325,14 @@ export default function TasksPage() {
                     </td>
                     <td className="px-3 py-2.5 text-xs text-slate-400 whitespace-nowrap">
                       {t.created_at ? new Date(t.created_at).toLocaleDateString("ko-KR") : "-"}
+                    </td>
+                    {/* ✅ v3.50.2: 행에서 바로 삭제 */}
+                    <td className="px-3 py-2.5">
+                      <button onClick={() => deleteTask(t)}
+                        className="px-2 py-1 rounded-lg text-xs font-bold text-red-500 bg-red-50 hover:bg-red-100"
+                        title="이 업무 삭제">
+                        🗑️ 삭제
+                      </button>
                     </td>
                   </tr>
                 );
