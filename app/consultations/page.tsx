@@ -28,6 +28,7 @@ type Member = {
   wish_time_slots?: string[] | null;
   wish_start_date?: string | null;
   branch_id?: string | null;
+  trial_date?: string | null;  // ✅ v3.50.3: 체험예정일 (YYYY-MM-DD, extra.trial_date와 동기화)
   guardian_name?: string | null;
 };
 
@@ -72,6 +73,15 @@ function parseTimeToMinutes(hhmm: string): number {
 function hasExplicitTime(wishTimesRaw: any[] | null | undefined): boolean {
   return (wishTimesRaw || []).some((t: any) => /\d{1,2}:\d{2}/.test(String(t)));
 }
+// ✅ v3.50.3: 체험 날짜(YYYY-MM-DD) → 매트릭스 요일 번호(월=1~토=6, 일=매칭불가)
+function trialDateToDay(dateStr: string | null | undefined): number | null {
+  if (!dateStr) return null;
+  const d = new Date(dateStr + "T00:00:00");
+  if (isNaN(d.getTime())) return null;
+  const dow = d.getDay(); // 0=일 1=월 ... 6=토
+  return dow >= 1 && dow <= 6 ? dow : null;
+}
+
 function hasWishInfo(m: any): boolean {
   const days = (m.wish_days || []).filter(Boolean);
   const times = (m.wish_time_slots || []).filter(Boolean);
@@ -693,19 +703,31 @@ export default function ConsultationsPage() {
   }, [members, fixedMemberIds]);
 
   const unmatchedTrials = useMemo(() => {
+    // ✅ v3.50.3: 체험 날짜도 명시 시각도 없는 체험예정자만 미배정 패널로
     return members
       .filter(m => m.status === "trial_scheduled")
-      .filter(m => !hasExplicitTime(m.wish_time_slots));
+      .filter(m => !(m.trial_date || m.extra?.trial_date) && !hasExplicitTime(m.wish_time_slots));
   }, [members]);
 
-  // v3.21.4: 체험예정 회원 – 시간표 매트릭스 셀에 자동 표시 (이중 예약 방지)
-  // ✅ v3.50.1: 정확한 시각(HH:MM)이 있는 경우에만 칸 매칭
-  //   기존 버그: 요일만 있으면 해당 요일 '모든 시간대'에 중복 표시 (이예한 케이스)
+  // ✅ v3.50.3: 체험예정 = 날짜 기반 관리 (trial_date 우선, 없으면 명시시각 폴백)
+  //   - trial_date가 있으면: 그 날짜의 요일 칸에만 표시 (시간 지정 시 정확한 칸)
+  //   - trial_date가 없고 명시시각만 있으면: 기존 희망매칭 폴백
+  //   - 둘 다 없으면: 매트릭스 산재 금지 → 미배정 패널로
   function getTrialScheduled(day: number, time: string) {
     return members
       .filter(m => m.status === "trial_scheduled")
-      .filter(m => hasExplicitTime(m.wish_time_slots))  // 시각 없으면 산재 금지
-      .filter(m => matchesWish(m.wish_days, m.wish_time_slots, day, time));
+      .filter(m => {
+        const td = m.trial_date || m.extra?.trial_date || null;
+        if (td) {
+          const tdDay = trialDateToDay(td);
+          if (tdDay !== day) return false;
+          // 날짜 일치 + 명시 시각이 있으면 그 칸만 / 없으면 해당 요일 칸 전체(요일 배지용)
+          return true;
+        }
+        // 폴백: 명시 시각이 있는 경우만 요일+시간 매칭
+        if (!hasExplicitTime(m.wish_time_slots)) return false;
+        return matchesWish(m.wish_days, m.wish_time_slots, day, time);
+      });
   }
 
   /* ─── 통계 ─── */
@@ -792,7 +814,7 @@ export default function ConsultationsPage() {
 
       {/* ─── 탭 1: 칸반 ─── */}
       {tab === "kanban" && (
-        <KanbanView members={members} stats={stats} onMove={moveMember} matrix={matrix} />
+        <KanbanView members={members} stats={stats} onMove={moveMember} matrix={matrix} onSaved={loadAll} />
       )}
 
       {/* ─── 탭 2: 시간표 매칭 ─── */}
@@ -877,7 +899,7 @@ export default function ConsultationsPage() {
 
 /* ─────────────── 하위 컴포넌트: 칸반 ─────────────── */
 
-function KanbanView({ members, stats, onMove, matrix }: any) {
+function KanbanView({ members, stats, onMove, matrix, onSaved }: any) {
   // v3.20.23: 신청서 보기 모달
   const [intakeTarget, setIntakeTarget] = useState<any | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
@@ -1082,15 +1104,30 @@ function KanbanView({ members, stats, onMove, matrix }: any) {
       </div>
 
       {/* v3.20.23: 신청서 보기 모달 */}
-      {intakeTarget && <IntakeDetailModal member={intakeTarget} onClose={() => setIntakeTarget(null)} onMove={onMove} />}
+      {intakeTarget && <IntakeDetailModal member={intakeTarget} onClose={() => setIntakeTarget(null)} onMove={onMove} onSaved={onSaved} />}
     </div>
   );
 }
 
 // v3.20.23: 신청서 상세 보기 모달
-function IntakeDetailModal({ member, onClose, onMove }: any) {
+// ✅ v3.50.3: 체험예정 날짜(trial_date) 직접 설정 — extra JSON에 저장 (SQL 마이그레이션 불필요)
+function IntakeDetailModal({ member, onClose, onMove, onSaved }: any) {
   const f = member?.extra?.consult_form || {};
   const isChild = member?.member_type === "child";
+  const [trialDate, setTrialDate] = useState<string>(member?.trial_date || member?.extra?.trial_date || "");
+  const [trialSaving, setTrialSaving] = useState(false);
+
+  async function saveTrialDate() {
+    setTrialSaving(true);
+    try {
+      const extra = { ...(member?.extra || {}), trial_date: trialDate || null };
+      const { error } = await supabase.from("members").update({ extra }).eq("id", member.id);
+      if (error) { alert("체험 날짜 저장 실패: " + error.message); return; }
+      if (onSaved) onSaved();
+      alert(trialDate ? `✅ 체험 날짜가 ${trialDate}로 설정되었습니다` : "✅ 체험 날짜가 해제되었습니다");
+    } finally { setTrialSaving(false); }
+  }
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -1122,6 +1159,19 @@ function IntakeDetailModal({ member, onClose, onMove }: any) {
           {(member.wish_days?.length > 0) && <Row label="희망 요일" value={(member.wish_days || []).join(", ")} />}
           {(member.wish_time_slots?.length > 0) && <Row label="희망 시간" value={(member.wish_time_slots || []).join(", ")} />}
           {f.wish_start_date && <Row label="희망 시작일" value={f.wish_start_date} />}
+          {/* ✅ v3.50.3: 체험예정일 직접 지정 (체험예정 상태일 때 강조) */}
+          <div className={`mt-2 p-3 rounded-xl border ${member.status === "trial_scheduled" ? "bg-blue-50 border-blue-200" : "bg-slate-50 border-slate-200"}`}>
+            <div className="text-xs font-bold text-slate-600 mb-1.5">📅 체험 날짜 지정 {member.status === "trial_scheduled" ? "" : "(체험예정으로 이동 후 설정 권장)"}</div>
+            <div className="flex items-center gap-2">
+              <input type="date" value={trialDate} onChange={(e) => setTrialDate(e.target.value)}
+                className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 text-sm" />
+              <button onClick={saveTrialDate} disabled={trialSaving}
+                className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:opacity-50">
+                {trialSaving ? "저장 중..." : "저장"}
+              </button>
+            </div>
+            <div className="text-[10px] text-slate-400 mt-1">지정한 날짜의 요일 칸에만 체험 표시가 나타납니다. 비우면 미배정 패널에 표시됩니다.</div>
+          </div>
           {member.memo && <div className="mt-2 p-2 bg-gray-50 rounded text-[11px] text-gray-600 whitespace-pre-wrap">{member.memo}</div>}
         </div>
         <div className="p-4 border-t flex flex-wrap gap-2">
