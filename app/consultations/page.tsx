@@ -67,6 +67,17 @@ function parseTimeToMinutes(hhmm: string): number {
  * 이전 버그: "19:20"이 "19:20~20:30" 슬롯의 timeStart="19:20"에 포함되어 오매칭
  * 해결: 각 wishTime을 (범위/단일시각/키워드) 3가지로 명확히 분류 후 엄격 매칭
  */
+// ✅ v3.50.1: 희망 시간에 '정확한 시각(HH:MM)'이 있는지 검사
+//   요일만 있거나 완전히 비어 있으면 매트릭스 산재 표시/증발 방지용
+function hasExplicitTime(wishTimesRaw: any[] | null | undefined): boolean {
+  return (wishTimesRaw || []).some((t: any) => /\d{1,2}:\d{2}/.test(String(t)));
+}
+function hasWishInfo(m: any): boolean {
+  const days = (m.wish_days || []).filter(Boolean);
+  const times = (m.wish_time_slots || []).filter(Boolean);
+  return days.length > 0 || times.length > 0;
+}
+
 function matchesWish(wishDaysRaw: any[] | null | undefined, wishTimesRaw: any[] | null | undefined, day: number, time: string): boolean {
   const dayName = DAYS[day - 1];
   const wishTimes = (wishTimesRaw || []).map((s: any) => String(s).trim()).filter(Boolean);
@@ -671,10 +682,29 @@ export default function ConsultationsPage() {
       .map((w, i) => ({ ...w, priority: i + 1 }));
   }
 
+  // ✅ v3.50.1: 희망 요일/시간이 없어 매트릭스 어느 칸에도 표시되지 않는 인원
+  //   기존 버그: 신규 회원을 대기중으로 바꿔도 희망정보가 비어 있으면 어디에도 안 뜸
+  const unmatchedWaiters = useMemo(() => {
+    return members
+      .filter(m => m.status === "waiting")
+      .filter(m => !fixedMemberIds.has(m.id))
+      .filter(m => !hasWishInfo(m))
+      .sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
+  }, [members, fixedMemberIds]);
+
+  const unmatchedTrials = useMemo(() => {
+    return members
+      .filter(m => m.status === "trial_scheduled")
+      .filter(m => !hasExplicitTime(m.wish_time_slots));
+  }, [members]);
+
   // v3.21.4: 체험예정 회원 – 시간표 매트릭스 셀에 자동 표시 (이중 예약 방지)
+  // ✅ v3.50.1: 정확한 시각(HH:MM)이 있는 경우에만 칸 매칭
+  //   기존 버그: 요일만 있으면 해당 요일 '모든 시간대'에 중복 표시 (이예한 케이스)
   function getTrialScheduled(day: number, time: string) {
     return members
       .filter(m => m.status === "trial_scheduled")
+      .filter(m => hasExplicitTime(m.wish_time_slots))  // 시각 없으면 산재 금지
       .filter(m => matchesWish(m.wish_days, m.wish_time_slots, day, time));
   }
 
@@ -777,7 +807,7 @@ export default function ConsultationsPage() {
           getMatchedWaiters={getMatchedWaiters}
           getTrialScheduled={getTrialScheduled}
           onCellClick={(day, time) => setSelectedCell({ day, time })}
-        />
+        unmatchedWaiters={unmatchedWaiters} unmatchedTrials={unmatchedTrials} />
       )}
 
       {/* ─── 탭 3: 대시보드 ─── */}
@@ -1116,7 +1146,7 @@ function Row({ label, value }: any) {
 
 /* ─────────────── 하위 컴포넌트: 매칭 ─────────────── */
 
-function MatchView({ matrix, members, staff, waiters, stats, getCell, getMatchedWaiters, getTrialScheduled, onCellClick }: any) {
+function MatchView({ matrix, members, staff, waiters, stats, getCell, getMatchedWaiters, getTrialScheduled, onCellClick, unmatchedWaiters = [], unmatchedTrials = [] }: any) {
   const staffMap = useMemo(() => {
     const m: any = {};
     staff.forEach((s: any) => { m[s.id] = s; });
@@ -1158,6 +1188,28 @@ function MatchView({ matrix, members, staff, waiters, stats, getCell, getMatched
           );
         })}
       </div>
+
+      {/* ✅ v3.50.1: 희망시간 미설정 인원 패널 (매트릭스 증발 방지) */}
+      {(unmatchedWaiters.length > 0 || unmatchedTrials.length > 0) && (
+        <div className="mb-3 bg-amber-50 border border-amber-200 rounded-xl p-3">
+          <div className="text-xs font-bold text-amber-800 mb-1.5">
+            ⚠️ 희망 시간 미설정 — 매트릭스에 표시되지 않는 인원 ({unmatchedWaiters.length + unmatchedTrials.length}명)
+          </div>
+          <div className="text-[11px] text-amber-700 mb-2">회원 카드에서 희망 요일·시간을 입력하면 아래 시간표에 자동 표시됩니다.</div>
+          <div className="flex flex-wrap gap-1.5">
+            {unmatchedWaiters.map((w: any) => (
+              <span key={w.id} className="px-2.5 py-1 rounded-full bg-yellow-100 text-yellow-800 text-xs font-semibold border border-yellow-300">
+                ⏳ {w.name}
+              </span>
+            ))}
+            {unmatchedTrials.map((w: any) => (
+              <span key={w.id} className="px-2.5 py-1 rounded-full bg-blue-100 text-blue-800 text-xs font-semibold border border-blue-300">
+                📅 {w.name}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ✨ v3.32.0: 매트릭스 - aqu-card + 라운드 격자 */}
       <div className="aqu-card bg-white overflow-hidden shadow-md border border-aqu-100" style={{ borderRadius: "16px" }}>

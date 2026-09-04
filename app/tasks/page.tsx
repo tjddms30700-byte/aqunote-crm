@@ -179,6 +179,16 @@ export default function TasksPage() {
     loadAll();
   }
 
+  // ✅ v3.50.1: 업무 삭제 (담당자 배정·메모는 DB CASCADE로 함께 삭제)
+  async function deleteTask(t: any) {
+    if (!confirm(`🗑️ '${t.title}' 업무를 삭제할까요?\n\n· 담당자 배정과 진행 메모도 함께 삭제됩니다\n· 이 작업은 되돌릴 수 없습니다`)) return;
+    const { error } = await supabase.from("work_tasks").delete().eq("id", t.id);
+    if (error) return alert("삭제 실패: " + error.message);
+    setShowForm(false);
+    setEditTarget(null);
+    loadAll();
+  }
+
   async function addMemo() {
     if (!memoText.trim()) return;
     const { error } = await supabase.from("work_task_memos")
@@ -397,6 +407,13 @@ export default function TasksPage() {
                 {editTarget ? "수정 저장" : "업무 등록"}
               </button>
             </div>
+            {/* ✅ v3.50.1: 수정 모드에서 삭제 버튼 */}
+            {editTarget && (
+              <button onClick={() => deleteTask(editTarget)}
+                className="w-full mt-2 py-2 rounded-xl bg-red-50 text-red-600 font-bold text-sm hover:bg-red-100">
+                🗑️ 이 업무 삭제
+              </button>
+            )}
           </div>
         </div>
       )}
