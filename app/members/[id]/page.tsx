@@ -526,17 +526,26 @@ export default function MemberDetail() {
   const [editingBasic, setEditingBasic] = useState(false);
   const [basicForm, setBasicForm] = useState<any>({});
   function openBasicEdit() {
+    // ✅ v3.51.0: 비어있는 필드는 상담폼(extra.consult_form) 원본으로 자동 채우기
+    const cf = member?.extra?.consult_form || {};
+    const pick = (cur: any, ...candidates: any[]) => {
+      if (cur !== null && cur !== undefined && String(cur).trim() !== "") return cur;
+      for (const c of candidates) {
+        if (c !== null && c !== undefined && String(c).trim() !== "") return c;
+      }
+      return cur || "";
+    };
     setBasicForm({
-      name: member.name || "",
-      member_type: member.member_type || "adult",
-      phone: member.phone || "",
-      birth: member.birth || "",
-      gender: member.gender || "",
-      guardian_name: member.guardian_name || "",
-      guardian_relation: member.guardian_relation || "",
-      address: member.address || "",
-      source: member.source || "",
-      diagnosis: member.extra?.diagnosis || "",
+      name: member.name || cf.name || cf.child_name || "",
+      member_type: member.member_type || cf.member_type || "adult",
+      phone: pick(member.phone, cf.phone, cf.guardian_phone),
+      birth: pick(member.birth, cf.birth),
+      gender: pick(member.gender, cf.gender),
+      guardian_name: pick(member.guardian_name, cf.guardian_name),
+      guardian_relation: pick(member.guardian_relation, cf.guardian_relation),
+      address: pick(member.address, cf.address),
+      source: pick(member.source, cf.source),
+      diagnosis: member.extra?.diagnosis || cf.diagnosis || "",
     });
     setEditingBasic(true);
   }
@@ -909,7 +918,6 @@ export default function MemberDetail() {
           const isGround = String((member as any)?.service_track || "").toLowerCase() === "ground";
           const allTabs = [
             { k: "info",          label: "📌 기본정보",           showFor: "all" },
-            { k: "chart",         label: "📝 상담차트",           showFor: "all" },
             { k: "history",       label: "💰 결제·회원권·출석",   showFor: "all" },
             { k: "assessment",    label: "🩺 수중기능평가",       showFor: "aqua" },
             { k: "sessions",      label: "📝 세션기록",           showFor: "all" },
@@ -948,20 +956,39 @@ export default function MemberDetail() {
               </div>
               {!editingBasic ? (
                 <>
+                  {/* ✅ v3.51.0: 비어있는 기본정보는 상담폼 원본에서 자동 보완 표시 */}
+                  {(() => {
+                    const cf = member?.extra?.consult_form || {};
+                    const fb = (cur: any, ...alts: any[]) => {
+                      if (cur !== null && cur !== undefined && String(cur).trim() !== "") return cur;
+                      for (const a of alts) if (a !== null && a !== undefined && String(a).trim() !== "") return a;
+                      return null;
+                    };
+                    const birthV = fb(member.birth, cf.birth);
+                    const genderV = fb(member.gender, cf.gender);
+                    const phoneV = fb(member.phone, member.guardian_phone, cf.phone, cf.guardian_phone);
+                    const addressV = fb(member.address, cf.address);
+                    const sourceV = fb(member.source, cf.source);
+                    const diagV = fb(member.extra?.diagnosis, cf.diagnosis);
+                    const gNameV = fb(member.guardian_name, cf.guardian_name);
+                    const gRelV = fb(member.guardian_relation, cf.guardian_relation);
+                    return (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <InfoRow label="이름" value={member.name || "-"} />
                     <InfoRow label="유형" value={member.member_type === "child" ? "🧒 아동" : "👤 성인"} />
-                    <InfoRow label="진단명" value={member.extra?.diagnosis || "-"} />
-                    <InfoRow label="생년월일" value={member.birth ? `${member.birth} (만 ${calcAge(member.birth)}세)` : "-"} />
-                    <InfoRow label="연락처" value={member.phone || member.guardian_phone || "-"} />
-                    <InfoRow label="성별" value={["F","female","여","여자"].includes(member.gender) ? "여" : ["M","male","남","남자"].includes(member.gender) ? "남" : (member.gender || "-")} />
-                    <InfoRow label="주소" value={member.address || "-"} />
-                    <InfoRow label="유입경로" value={member.source || "-"} />
+                    <InfoRow label="진단명" value={diagV || "-"} />
+                    <InfoRow label="생년월일" value={birthV ? `${birthV} (만 ${calcAge(birthV)}세)` : "-"} />
+                    <InfoRow label="연락처" value={phoneV || "-"} />
+                    <InfoRow label="성별" value={["F","female","여","여자"].includes(genderV) ? "여" : ["M","male","남","남자"].includes(genderV) ? "남" : (genderV || "-")} />
+                    <InfoRow label="주소" value={addressV || "-"} />
+                    <InfoRow label="유입경로" value={sourceV || "-"} />
                     <InfoRow label="상태" value={getStatusLabel(member.status)} highlight />
-                    {member.member_type === "child" && member.guardian_name && (
-                      <InfoRow label="보호자" value={`${member.guardian_name} (${member.guardian_relation || ""})`} />
+                    {member.member_type === "child" && gNameV && (
+                      <InfoRow label="보호자" value={`${gNameV} (${gRelV || ""})`} />
                     )}
                   </div>
+                    );
+                  })()}
 
                   {/* ✅ v3.13.3: 희망 시간대 자동 계산 + 수정 */}
                   <div className="mt-4">

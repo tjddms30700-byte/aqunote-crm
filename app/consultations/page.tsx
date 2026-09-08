@@ -107,7 +107,13 @@ function matchesWish(wishDaysRaw: any[] | null | undefined, wishTimesRaw: any[] 
 
   for (const raw of wishTimes) {
     const parts = raw.split(/[|,;]/).map((p: string) => p.trim()).filter(Boolean);
-    for (const p of parts) {
+    for (let p of parts) {
+      // ✅ v3.51.0: 요일 접두 포맷 ("월 18:10~19:20") — 접두 요일과 현재 칸 요일이 다르면 이 파트는 스킵
+      const dayPrefix = p.match(/^(월|화|수|목|금|토)\s+(.+)$/);
+      if (dayPrefix) {
+        if (dayPrefix[1] !== dayName) continue;  // 다른 요일 전용 시간대
+        p = dayPrefix[2].trim();                 // 접두 제거 후 시간만 파싱
+      }
       // (1) HH:MM ~ HH:MM 범위 우선 (핵심 수정)
       const rangeMin = p.match(/(\d{1,2}):(\d{2})\s*[~\-]\s*(\d{1,2}):(\d{2})/);
       if (rangeMin) {
