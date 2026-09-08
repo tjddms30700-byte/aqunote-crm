@@ -108,11 +108,19 @@ function matchesWish(wishDaysRaw: any[] | null | undefined, wishTimesRaw: any[] 
   for (const raw of wishTimes) {
     const parts = raw.split(/[|,;]/).map((p: string) => p.trim()).filter(Boolean);
     for (let p of parts) {
-      // ✅ v3.51.0: 요일 접두 포맷 ("월 18:10~19:20") — 접두 요일과 현재 칸 요일이 다르면 이 파트는 스킵
+      // ✅ v3.51.0/v3.51.1: 요일 지정이 있으면 그 요일 전용으로 제한
+      //   - 접두 포맷 "월 18:10~19:20" (그리드 저장 포맷)
+      //   - 텍스트 내 포함 "토요일 18:10~19:20" (상담폼 자유 텍스트) → 토요일 칸에만 매칭
       const dayPrefix = p.match(/^(월|화|수|목|금|토)\s+(.+)$/);
       if (dayPrefix) {
         if (dayPrefix[1] !== dayName) continue;  // 다른 요일 전용 시간대
         p = dayPrefix[2].trim();                 // 접두 제거 후 시간만 파싱
+      } else {
+        const dayHits = ["월","화","수","목","금","토"].filter(d => p.replace(/요일/g, "").includes(d));
+        if (dayHits.length > 0) {
+          if (!dayHits.includes(dayName)) continue;  // 이 파트는 다른 요일 전용
+          p = p.replace(/(월|화|수|목|금|토)(요일)?/g, " ").trim();  // 요일 토큰 제거 후 시간만 파싱
+        }
       }
       // (1) HH:MM ~ HH:MM 범위 우선 (핵심 수정)
       const rangeMin = p.match(/(\d{1,2}):(\d{2})\s*[~\-]\s*(\d{1,2}):(\d{2})/);

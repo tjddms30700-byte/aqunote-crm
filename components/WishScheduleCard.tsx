@@ -37,38 +37,63 @@ function parseWishDays(raw: string[] | null | undefined): string[] {
 
 const normSlot = (s: string) => s.replace(/\s/g, "");
 
-/** wish_days + wish_time_slots → { day: Set<slot>, __free: Set<자유텍스트> } */
+/** ✅ v3.51.1: 상담폼 자유 텍스트까지 파싱해 그리드를 자동으로 채움
+ *  - "월 18:10~19:20" (정규 포맷) → 해당 요일 칸에만 체크
+ *  - "토요일 18:10~19:20" (요일 포함 텍스트) → 토요일 칸에만 체크
+ *  - "4타임 17:00~18:10;5타임 18:10~19:20" (요일 없음) → 선택된 요일 전체 칸에 체크
+ *  - 시간 패턴이 전혀 없는 텍스트(예: "오후 늦게")만 자유 텍스트 칩으로 보존
+ *  → 직원이 일일이 다시 입력할 필요 없이, 기존 상담폼 정보가 그리드에 자동 반영됨
+ */
 function buildGrid(wishDays: string[] | null | undefined, wishTimeSlots: string[] | null | undefined) {
   const days = parseWishDays(wishDays);
   const times = (wishTimeSlots || []).map(String).filter(Boolean);
   const grid: Record<string, Set<string>> = {};
   const free = new Set<string>();
-  for (const d of days) grid[d] = new Set<string>();
+  const ensure = (d: string) => { if (!grid[d]) grid[d] = new Set<string>(); return grid[d]; };
+  for (const d of days) ensure(d);
+
+  const pad = (v: string) => v.padStart(2, "0");
+  const rangeRe = /(\d{1,2}):(\d{2})\s*[~\-]\s*(\d{1,2}):(\d{2})/g;
 
   for (const t of times) {
-    // ① v3.51.0 요일 접두 포맷: "월 18:10~19:20"
-    const pref = t.match(/^(월|화|수|목|금|토)\s+(.+)$/);
-    if (pref) {
-      const d = pref[1];
-      const slot = TIME_SLOTS.find(s => normSlot(s) === normSlot(pref[2]));
-      if (slot) {
-        if (!grid[d]) grid[d] = new Set<string>();
-        grid[d].add(slot);
+    const parts = t.split(/[|,;]/).map(s => s.trim()).filter(Boolean);
+    for (const p0 of parts) {
+      const p = p0;
+
+      // ① 이 텍스트에 포함된 요일 추출 ("토요일", "토" 등)
+      const dayHits = DAYS_KO.filter(d => p.replace(/요일/g, "").includes(d));
+
+      // ② 시간 범위(HH:MM~HH:MM) 전부 추출 → 슬롯 매핑
+      const slotsFound = new Set<string>();
+      let m: RegExpExecArray | null;
+      rangeRe.lastIndex = 0;
+      while ((m = rangeRe.exec(p)) !== null) {
+        const key = `${pad(m[1])}:${m[2]}~${pad(m[3])}:${m[4]}`;
+        const slot = TIME_SLOTS.find(ts => normSlot(ts) === normSlot(key));
+        if (slot) slotsFound.add(slot);
+      }
+      // 단일 시각(HH:MM)만 있는 경우 → 그 시각에 시작하는 슬롯
+      if (slotsFound.size === 0) {
+        const singles = p.match(/\d{1,2}:\d{2}/g) || [];
+        for (const s0 of singles) {
+          const [h, mm] = s0.split(":");
+          const key = `${pad(h)}:${mm}`;
+          const slot = TIME_SLOTS.find(ts => ts.split("~")[0] === key);
+          if (slot) slotsFound.add(slot);
+        }
+      }
+
+      if (slotsFound.size > 0) {
+        // 요일이 텍스트에 있으면 그 요일만 / 없으면 선택된 요일 전체에 펼침
+        const targets = dayHits.length > 0 ? dayHits : days;
+        if (targets.length === 0) { free.add(p0); continue; }  // 요일 정보가 아예 없으면 보존
+        for (const d of targets) for (const s of slotsFound) ensure(d).add(s);
         continue;
       }
+
+      // ③ 시간 패턴이 전혀 없는 자유 텍스트 → 칩으로 보존
+      free.add(p0);
     }
-    // ② 레거시: 요일 없는 슬롯 그대로 → 선택된 모든 요일에 펼침
-    const exact = TIME_SLOTS.find(s => normSlot(s) === normSlot(t));
-    if (exact) {
-      if (days.length > 0) {
-        for (const d of days) grid[d].add(exact);
-      } else {
-        free.add(t); // 요일도 없으면 자유 텍스트로 보존
-      }
-      continue;
-    }
-    // ③ 자유 텍스트 (예: "오후 14~17") → 칩으로 별도 보존
-    free.add(t);
   }
   return { grid, free };
 }
