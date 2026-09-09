@@ -13,37 +13,50 @@ import GroundBodyMap from "@/components/GroundBodyMap";
 
 // ✅ v3.41.0: Body Map 부위 전면 개편 - 앞면 22개 + 뒷면 9개 + 기타
 const BODY_PARTS = [
-  // ── 앞면 (Front) ──
-  { key: "neck_front", label: "목", region: "front" },
+  // ── 신체 앞쪽 (Front) ── ✅ v3.52.0: 좌/우 완전 분리 + 위팔·정강이 추가
+  { key: "neck_front", label: "목 (앞)", region: "front" },
   { key: "shoulder_l", label: "왼쪽 어깨", region: "front" },
   { key: "shoulder_r", label: "오른쪽 어깨", region: "front" },
   { key: "chest_l", label: "왼쪽 가슴", region: "front" },
   { key: "chest_r", label: "오른쪽 가슴", region: "front" },
+  { key: "upper_arm_l", label: "왼쪽 위팔", region: "front" },
+  { key: "upper_arm_r", label: "오른쪽 위팔", region: "front" },
   { key: "elbow_l", label: "왼쪽 팔꿈치", region: "front" },
   { key: "elbow_r", label: "오른쪽 팔꿈치", region: "front" },
   { key: "wrist_l", label: "왼쪽 손목", region: "front" },
   { key: "wrist_r", label: "오른쪽 손목", region: "front" },
-  { key: "fingers", label: "손가락", region: "front" },
+  { key: "fingers_l", label: "왼쪽 손가락", region: "front" },
+  { key: "fingers_r", label: "오른쪽 손가락", region: "front" },
   { key: "pelvis_l", label: "왼쪽 골반", region: "front" },
   { key: "pelvis_r", label: "오른쪽 골반", region: "front" },
-  { key: "hip_joint_l", label: "좌측 고관절", region: "front" },
-  { key: "hip_joint_r", label: "우측 고관절", region: "front" },
+  { key: "hip_joint_l", label: "왼쪽 고관절", region: "front" },
+  { key: "hip_joint_r", label: "오른쪽 고관절", region: "front" },
   { key: "groin_l", label: "왼쪽 사타구니", region: "front" },
   { key: "groin_r", label: "오른쪽 사타구니", region: "front" },
   { key: "knee_l", label: "왼쪽 무릎", region: "front" },
   { key: "knee_r", label: "오른쪽 무릎", region: "front" },
+  { key: "shin_l", label: "왼쪽 정강이", region: "front" },
+  { key: "shin_r", label: "오른쪽 정강이", region: "front" },
   { key: "ankle_l", label: "왼쪽 발목", region: "front" },
   { key: "ankle_r", label: "오른쪽 발목", region: "front" },
-  { key: "toes", label: "발가락", region: "front" },
-  // ── 뒷면 (Back) ──
-  { key: "neck_back", label: "목", region: "back" },
-  { key: "shoulder_back", label: "어깨", region: "back" },
-  { key: "scapula_spine", label: "날개뼈와 척추사이", region: "back" },
-  { key: "upper_back", label: "등 상부", region: "back" },
-  { key: "lower_back", label: "허리", region: "back" },
-  { key: "buttock", label: "엉덩이", region: "back" },
-  { key: "hamstring", label: "허벅지 뒤", region: "back" },
-  { key: "calf", label: "종아리", region: "back" },
+  { key: "toes_l", label: "왼쪽 발가락", region: "front" },
+  { key: "toes_r", label: "오른쪽 발가락", region: "front" },
+  // ── 신체 뒤쪽 (Back) ── ✅ v3.52.0: 등 상부/날개뼈와 척추사이/허벅지 뒤 제거
+  { key: "neck_back", label: "목 (뒤)", region: "back" },
+  { key: "shoulder_back_l", label: "왼쪽 어깨 (뒤)", region: "back" },
+  { key: "shoulder_back_r", label: "오른쪽 어깨 (뒤)", region: "back" },
+  { key: "scapula_l", label: "왼쪽 날개뼈 주변", region: "back" },
+  { key: "scapula_r", label: "오른쪽 날개뼈 주변", region: "back" },
+  { key: "lower_back_l", label: "왼쪽 허리", region: "back" },
+  { key: "lower_back_r", label: "오른쪽 허리", region: "back" },
+  { key: "buttock_l", label: "왼쪽 엉덩이(둔부)", region: "back" },
+  { key: "buttock_r", label: "오른쪽 엉덩이(둔부)", region: "back" },
+  { key: "calf_l", label: "왼쪽 종아리", region: "back" },
+  { key: "calf_r", label: "오른쪽 종아리", region: "back" },
+  { key: "achilles_l", label: "왼쪽 아킬레스 주변", region: "back" },
+  { key: "achilles_r", label: "오른쪽 아킬레스 주변", region: "back" },
+  { key: "heel_l", label: "왼쪽 뒤꿈치", region: "back" },
+  { key: "heel_r", label: "오른쪽 뒤꿈치", region: "back" },
   { key: "sole", label: "발바닥", region: "back" },
   // ── 기타 ──
   { key: "other", label: "기타 (직접 입력)", region: "other" },
@@ -51,6 +64,7 @@ const BODY_PARTS = [
 
 // ✅ v3.41.0: 교정/재활 목적 - "관절 가동범위 개선" → "움직임 범위 개선" 명칭 변경
 //   + 복수 선택 가능으로 변경 (단일 → 다중)
+// ✅ v3.52.0: 산후 회복·노인성 근감소증 예방 항목 제외
 const REHAB_PURPOSES = [
   "체형 교정",
   "만성 통증 완화",
@@ -59,28 +73,30 @@ const REHAB_PURPOSES = [
   "움직임 범위 개선",
   "자세 개선",
   "운동 수행능력 향상",
-  "산후 회복",
-  "노인성 근감소증 예방",
   "기타",
 ];
 
 // ✅ v3.39.0: 통증 양상 및 시기 옵션
 const PAIN_ONSET = ["1개월 미만", "1~6개월", "6개월 이상"];
 // ✅ v3.41.0: 발생 조건 - "자고 있을 때 통증" 신규 추가
+// ✅ v3.52.0: 발생 조건 5개 항목으로 통일
 const PAIN_TRIGGER = [
-  "가만히 있을 때도 통증",
-  "특정 동작/움직임 시 통증",
-  "체중을 실을 때 통증",
-  "자고 일어났을 때 통증",
-  "자고 있을 때 통증",
+  "가만히 있을 때 통증",
+  "체중 부하시 통증",
+  "숙면 중 통증",
+  "기상시 통증",
+  "보행시 통증",
 ];
 // ✅ v3.41.0: 느낌/양상 - "이외의 통증" 신규 추가
+// ✅ v3.52.0: 느낌/양상 7개 항목으로 교체
 const PAIN_QUALITY = [
-  "뻐근함·결림",
-  "찌릿함·날카로움",
-  "관절 소리/불안정",
-  "부종·피로감",
-  "이외의 통증",
+  "뻐근함/묵직함",
+  "담걸림",
+  "관절소리",
+  "부종",
+  "찌릿·시큰",
+  "피로감",
+  "통증은 없으나 불안함",
 ];
 
 // ✅ v3.39.0: 안전 사전 체크 (필수)
@@ -90,7 +106,9 @@ const SAFETY_CHECKS = [
   "금속 핀/체내 삽입물",
   "디스크 진단",
   "골절 회복 중",
+  // ✅ v3.52.0: 임신 중 / 임신 준비 중 분리
   "임신 중",
+  "임신 준비 중",
 ];
 
 // ✅ v3.40.7: 희망 요일 (다중 선택)
@@ -625,10 +643,11 @@ export default function GroundConsultationPage() {
 
         {/* 기타 요청사항 */}
         <div className="bg-white rounded-3xl shadow-lg p-6 mb-4">
-          <h2 className="text-lg font-bold text-slate-800 mb-2">💬 기타 요청사항</h2>
+          <h2 className="text-lg font-bold text-slate-800 mb-2">💬 기타 요청사항 · 치료 이력</h2>
+          <p className="text-xs text-slate-500 mb-2">✅ v3.52.0: 과거 치료 이력과 추가 병력을 함께 입력받습니다</p>
           <textarea value={form.memo} onChange={e => setForm({...form, memo: e.target.value})}
             rows={4}
-            placeholder="추가 병력, 요청사항 등 자유롭게 작성해주세요"
+            placeholder="치료 이력(병원·한의원·물리치료 등), 추가 병력(고혈압·당뇨 등), 기타 요청사항을 자유롭게 작성해주세요"
             className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:border-emerald-500 focus:outline-none resize-none" />
         </div>
 

@@ -14,40 +14,63 @@ import { useState } from "react";
 
 // ── 부위 정의 (신청폼과 완전 동일 key) ──
 export const GROUND_BODY_PARTS_FRONT = [
-  { key: "neck_front", label: "목", cx: 100, cy: 55, side: "front" },
+  // ✅ v3.52.0: 전면 부위 좌/우 완전 분리 + 위팔·정강이 신규 추가
+  { key: "neck_front", label: "목 (앞)", cx: 100, cy: 55, side: "front" },
   { key: "shoulder_l", label: "왼쪽 어깨", cx: 130, cy: 82, side: "front" },
   { key: "shoulder_r", label: "오른쪽 어깨", cx: 70, cy: 82, side: "front" },
   { key: "chest_l", label: "왼쪽 가슴", cx: 118, cy: 110, side: "front" },
   { key: "chest_r", label: "오른쪽 가슴", cx: 82, cy: 110, side: "front" },
+  { key: "upper_arm_l", label: "왼쪽 위팔", cx: 142, cy: 112, side: "front" },
+  { key: "upper_arm_r", label: "오른쪽 위팔", cx: 58, cy: 112, side: "front" },
   { key: "elbow_l", label: "왼쪽 팔꿈치", cx: 150, cy: 145, side: "front" },
   { key: "elbow_r", label: "오른쪽 팔꿈치", cx: 50, cy: 145, side: "front" },
   { key: "wrist_l", label: "왼쪽 손목", cx: 165, cy: 195, side: "front" },
   { key: "wrist_r", label: "오른쪽 손목", cx: 35, cy: 195, side: "front" },
-  { key: "fingers", label: "손가락", cx: 170, cy: 220, side: "front" },
+  { key: "fingers_l", label: "왼쪽 손가락", cx: 172, cy: 222, side: "front" },
+  { key: "fingers_r", label: "오른쪽 손가락", cx: 28, cy: 222, side: "front" },
   { key: "pelvis_l", label: "왼쪽 골반", cx: 118, cy: 195, side: "front" },
   { key: "pelvis_r", label: "오른쪽 골반", cx: 82, cy: 195, side: "front" },
-  { key: "hip_joint_l", label: "좌측 고관절", cx: 122, cy: 215, side: "front" },
-  { key: "hip_joint_r", label: "우측 고관절", cx: 78, cy: 215, side: "front" },
+  { key: "hip_joint_l", label: "왼쪽 고관절", cx: 122, cy: 215, side: "front" },
+  { key: "hip_joint_r", label: "오른쪽 고관절", cx: 78, cy: 215, side: "front" },
   { key: "groin_l", label: "왼쪽 사타구니", cx: 110, cy: 232, side: "front" },
   { key: "groin_r", label: "오른쪽 사타구니", cx: 90, cy: 232, side: "front" },
   { key: "knee_l", label: "왼쪽 무릎", cx: 115, cy: 295, side: "front" },
   { key: "knee_r", label: "오른쪽 무릎", cx: 85, cy: 295, side: "front" },
+  { key: "shin_l", label: "왼쪽 정강이", cx: 116, cy: 333, side: "front" },
+  { key: "shin_r", label: "오른쪽 정강이", cx: 84, cy: 333, side: "front" },
   { key: "ankle_l", label: "왼쪽 발목", cx: 115, cy: 370, side: "front" },
   { key: "ankle_r", label: "오른쪽 발목", cx: 85, cy: 370, side: "front" },
-  { key: "toes", label: "발가락", cx: 100, cy: 395, side: "front" },
+  { key: "toes_l", label: "왼쪽 발가락", cx: 112, cy: 398, side: "front" },
+  { key: "toes_r", label: "오른쪽 발가락", cx: 88, cy: 398, side: "front" },
 ];
 
 export const GROUND_BODY_PARTS_BACK = [
-  { key: "neck_back", label: "목", cx: 100, cy: 55, side: "back" },
-  { key: "shoulder_back", label: "어깨", cx: 100, cy: 82, side: "back" },
-  { key: "scapula_spine", label: "날개뼈와 척추사이", cx: 100, cy: 105, side: "back" },
-  { key: "upper_back", label: "등 상부", cx: 100, cy: 130, side: "back" },
-  { key: "lower_back", label: "허리", cx: 100, cy: 175, side: "back" },
-  { key: "buttock", label: "엉덩이", cx: 100, cy: 220, side: "back" },
-  { key: "hamstring", label: "허벅지 뒤", cx: 100, cy: 275, side: "back" },
-  { key: "calf", label: "종아리", cx: 100, cy: 335, side: "back" },
-  { key: "sole", label: "발바닥", cx: 100, cy: 395, side: "back" },
+  // ✅ v3.52.0: 후면 개편 — '등 상부'·'날개뼈와 척추사이'·'허벅지 뒤' 제거
+  //   신규: 날개뼈 주변(좌/우), 엉덩이(둔부)(좌/우), 아킬레스 주변(좌/우), 뒤꿈치(좌/우)
+  { key: "neck_back", label: "목 (뒤)", cx: 100, cy: 55, side: "back" },
+  { key: "shoulder_back_l", label: "왼쪽 어깨 (뒤)", cx: 130, cy: 82, side: "back" },
+  { key: "shoulder_back_r", label: "오른쪽 어깨 (뒤)", cx: 70, cy: 82, side: "back" },
+  { key: "scapula_l", label: "왼쪽 날개뼈 주변", cx: 118, cy: 112, side: "back" },
+  { key: "scapula_r", label: "오른쪽 날개뼈 주변", cx: 82, cy: 112, side: "back" },
+  { key: "lower_back_l", label: "왼쪽 허리", cx: 115, cy: 175, side: "back" },
+  { key: "lower_back_r", label: "오른쪽 허리", cx: 85, cy: 175, side: "back" },
+  { key: "buttock_l", label: "왼쪽 엉덩이(둔부)", cx: 115, cy: 220, side: "back" },
+  { key: "buttock_r", label: "오른쪽 엉덩이(둔부)", cx: 85, cy: 220, side: "back" },
+  { key: "calf_l", label: "왼쪽 종아리", cx: 112, cy: 335, side: "back" },
+  { key: "calf_r", label: "오른쪽 종아리", cx: 88, cy: 335, side: "back" },
+  { key: "achilles_l", label: "왼쪽 아킬레스 주변", cx: 112, cy: 368, side: "back" },
+  { key: "achilles_r", label: "오른쪽 아킬레스 주변", cx: 88, cy: 368, side: "back" },
+  { key: "heel_l", label: "왼쪽 뒤꿈치", cx: 112, cy: 390, side: "back" },
+  { key: "heel_r", label: "오른쪽 뒤꿈치", cx: 88, cy: 390, side: "back" },
+  { key: "sole", label: "발바닥", cx: 100, cy: 405, side: "back" },
 ];
+
+// ✅ v3.52.0: 이전 키 → 라벨 (기존 저장 데이터 표시용 하위 호환)
+export const GROUND_BODY_PARTS_LEGACY: Record<string, string> = {
+  fingers: "손가락", toes: "발가락", hip_joint_l: "좌측 고관절", hip_joint_r: "우측 고관절",
+  shoulder_back: "어깨 (뒤)", scapula_spine: "날개뼈와 척추사이", upper_back: "등 상부",
+  lower_back: "허리", buttock: "엉덩이", hamstring: "허벅지 뒤", calf: "종아리",
+};
 
 interface Props {
   selectedKeys: string[];
@@ -133,7 +156,7 @@ export default function GroundBodyMap({ selectedKeys, onToggle, readOnly = false
               : "bg-white text-slate-600 border-slate-200 hover:border-emerald-300"
           }`}
         >
-          🧍 앞면
+          🧍 신체 앞쪽
         </button>
         <button
           type="button"
@@ -202,7 +225,7 @@ export default function GroundBodyMap({ selectedKeys, onToggle, readOnly = false
         {/* 부위 텍스트 라벨 목록 */}
         <div className="flex-1 min-w-0">
           <div className="text-xs font-semibold text-slate-600 mb-2">
-            {view === "front" ? "🧍 앞면 부위" : "🚶 뒷면 부위"}
+            {view === "front" ? "🧍 신체 앞쪽 부위" : "🚶 뒷면 부위"}
             <span className="ml-2 text-slate-400">
               (클릭 시 선택 · 전체 선택 {selectedKeys.length}곳)
             </span>

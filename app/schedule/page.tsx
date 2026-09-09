@@ -3386,7 +3386,7 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
           {/* ═══ 섹션 4: 수업명 (보강·기타 포함) ═══ */}
           {!f.membership_id && (["lesson", "trial", "makeup", "revenue", "other"].includes(f.event_type)) && (
             <Field label={f.event_type === "makeup" ? "보강 수업명" : (f.event_type === "other" ? "일정 명칭" : "수업명 (직접 입력)")}>
-              <PlanPicker plans={plans} value={f.lesson_name} onChange={(name: string) => setF({ ...f, lesson_name: name })} />
+              <PlanPicker plans={plans} value={f.lesson_name} onChange={(name: string) => setF({ ...f, lesson_name: name })} track={trackTab} />
             </Field>
           )}
 
@@ -4020,7 +4020,7 @@ function DateActionSheet({ date, time, onReservation, onRevenue, onStaffSchedule
 // ═══════════════════════════════════════════════════════════════
 // 🎫 회원권 선택 - 정액권/횟수권 자동 판별
 // ═══════════════════════════════════════════════════════════════
-function PlanPicker({ plans, value, onChange }: any) {
+function PlanPicker({ plans, value, onChange, track }: any) {  // ✅ v3.52.0: track(aqua/ground) 전달 시 해당 카테고리 횟수권만 표시
   // plan_type 자동 판별:
   //  1) plans에 plan_type이 있으면 사용
   //  2) 없으면 이름에 "월/기간/무제한" 있으면 amount, "회" 있으면 session
@@ -4036,7 +4036,23 @@ function PlanPicker({ plans, value, onChange }: any) {
   const [tab, setTab] = useState<"session" | "amount" | "custom">("session");
   const [customInput, setCustomInput] = useState("");
 
-  const availablePlans = (plans || []).filter((p: any) => p.is_active !== false);
+  // ✅ v3.52.0: 트랙별 횟수권 분리 — 지상 시간표는 지상(ground)권만, 수중은 수중(aqua)권만 표시
+  //   category가 없는 기존 플랜은 이름에 '지상' 포함 여부로 추정, common/미분류는 양쪽 모두 표시
+  const planTrack = (p: any): string => {
+    const cat = String(p?.category || "").toLowerCase();
+    if (cat === "aqua" || cat === "ground" || cat === "device") return cat;
+    const nm = String(p?.name || "");
+    if (nm.includes("지상")) return "ground";
+    if (nm.includes("수중")) return "aqua";
+    return "common";
+  };
+  const trackMatched = (plans || []).filter((p: any) => {
+    if (p.is_active === false) return false;
+    if (!track) return true;
+    const pt = planTrack(p);
+    return pt === track || pt === "common";
+  });
+  const availablePlans = trackMatched;
   const sessionPlans = availablePlans.filter((p: any) => detectType(p) === "session");
   const amountPlans = availablePlans.filter((p: any) => detectType(p) === "amount");
 
