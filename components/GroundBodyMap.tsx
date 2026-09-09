@@ -10,7 +10,7 @@
  * - readOnly 모드 지원 (상담차트 뷰에서 그림만 표시)
  */
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 
 // ── 부위 정의 (신청폼과 완전 동일 key) ──
 export const GROUND_BODY_PARTS_FRONT = [
@@ -230,26 +230,69 @@ export default function GroundBodyMap({ selectedKeys, onToggle, readOnly = false
               (클릭 시 선택 · 전체 선택 {selectedKeys.length}곳)
             </span>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-            {parts.map((p) => {
-              const selected = isSel(p.key);
+          {/* v3.52.1: 왼쪽/오른쪽 컬럼 분리 - 부위별 한 줄에 좌/우 나란히 */}
+          {(() => {
+            const neutral = parts.filter((p: any) => !/_l$|_r$/.test(p.key)); // 목, 발바닥 등 중립 부위
+            const leftParts = parts.filter((p: any) => p.key.endsWith("_l"));
+            const rightMap: Record<string, any> = {};
+            parts.filter((p: any) => p.key.endsWith("_r")).forEach((p: any) => {
+              rightMap[p.key.replace(/_r$/, "")] = p;
+            });
+            const stripSide = (label: string) => label.replace(/^왼쪽\s?|^오른쪽\s?|^좌측\s?|^우측\s?/, "");
+            const renderBtn = (bp: any) => {
+              const selected = isSel(bp.key);
               return (
                 <button
-                  key={p.key}
+                  key={bp.key}
                   type="button"
                   disabled={readOnly}
-                  onClick={() => handleClick(p.key)}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition ${
-                    selected
-                      ? "bg-red-500 text-white border-red-600 shadow"
-                      : "bg-white text-slate-600 border-slate-200 hover:border-red-300 hover:bg-red-50"
-                  } ${readOnly ? "cursor-default opacity-90" : "cursor-pointer"}`}
+                  onClick={() => handleClick(bp.key)}
+                  className={"px-2 py-1.5 rounded-lg text-xs font-medium border transition " + (selected
+                    ? "bg-red-500 text-white border-red-600 shadow"
+                    : "bg-white text-slate-600 border-slate-200 hover:border-red-300 hover:bg-red-50") + (readOnly ? " cursor-default opacity-90" : " cursor-pointer")}
                 >
-                  {selected ? "● " : ""}{p.label}
+                  {stripSide(bp.label)}
                 </button>
               );
-            })}
-          </div>
+            };
+            return (
+              <div>
+                {neutral.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {neutral.map((bp: any) => {
+                      const selected = isSel(bp.key);
+                      return (
+                        <button
+                          key={bp.key}
+                          type="button"
+                          disabled={readOnly}
+                          onClick={() => handleClick(bp.key)}
+                          className={"px-3 py-1.5 rounded-lg text-xs font-bold border transition " + (selected
+                            ? "bg-red-500 text-white border-red-600 shadow"
+                            : "bg-slate-100 text-slate-700 border-slate-300 hover:border-red-300 hover:bg-red-50") + (readOnly ? " cursor-default opacity-90" : " cursor-pointer")}
+                        >
+                          {bp.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-1.5">
+                  <div className="text-center text-[10px] font-bold text-blue-600 bg-blue-50 rounded-lg py-1">◀ 왼쪽</div>
+                  <div className="text-center text-[10px] font-bold text-rose-600 bg-rose-50 rounded-lg py-1">오른쪽 ▶</div>
+                  {leftParts.map((lp: any) => {
+                    const rp = rightMap[lp.key.replace(/_l$/, "")];
+                    return (
+                      <Fragment key={lp.key}>
+                        {renderBtn(lp)}
+                        {rp ? renderBtn(rp) : <div />}
+                      </Fragment>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
 

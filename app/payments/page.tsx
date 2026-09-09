@@ -1070,11 +1070,34 @@ function isPaymentCancelled(p: any, memberships?: any[]): boolean {
               <select value={f.plan_id} onChange={e => selectPlan(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none">
                 <option value="">-- 회원권 선택 (또는 직접입력) --</option>
-                {plans.map((p: any) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} · {p.sessions === 0 ? "무제한" : p.sessions + "회"} · ₩{p.price.toLocaleString()}
-                  </option>
-                ))}
+                {/* v3.52.1: 카테고리별 그룹 표시 - 지상재활은 지상끼리, 수중재활은 수중끼리 */}
+                {(() => {
+                  const CAT_LABEL: Record<string, string> = { aqua: "💧 수중재활", ground: "🏋️ 지상재활", device: "⚙️ 디바이스 케어", common: "📦 공통/기타" };
+                  const catOf = (pl: any) => {
+                    const c = String(pl.category || "").toLowerCase();
+                    if (["aqua","ground","device"].includes(c)) return c;
+                    const nm = String(pl.name || "");
+                    if (nm.includes("지상")) return "ground";
+                    if (nm.includes("수중")) return "aqua";
+                    return "common";
+                  };
+                  const groups: Record<string, any[]> = {};
+                  for (const pl of plans) {
+                    const c = catOf(pl);
+                    (groups[c] = groups[c] || []).push(pl);
+                  }
+                  return ["aqua", "ground", "device", "common"]
+                    .filter(c => groups[c]?.length)
+                    .map(c => (
+                      <optgroup key={c} label={CAT_LABEL[c]}>
+                        {groups[c].map((pl: any) => (
+                          <option key={pl.id} value={pl.id}>
+                            {pl.name} · {pl.sessions === 0 ? "무제한" : pl.sessions + "회"} · ₩{pl.price.toLocaleString()}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ));
+                })()}
               </select>
               <div className="text-[11px] text-gray-500 mt-1">
                 <Link href="/settings/catalog?tab=plans" className="text-aqu-600 hover:underline">회원권 관리</Link>에서 새 상품 추가 가능

@@ -2202,6 +2202,7 @@ export default function SchedulePage() {
           modal={modal}
           members={members} staff={staff} plans={plans}
           timeSlotOptions={timeSlotOptions}
+          track={trackTab}
           onClose={() => setModal(null)}
           onSave={saveSlot}
           onDelete={f.id ? (opts?: any) => { deleteSlot(f.id, opts); setModal(null); } : undefined}
@@ -3123,7 +3124,7 @@ function DayView({ date, setDate, slots, members, staff, onCellClick, onCellDoub
 }
 
 /* ═════ 등록/수정 모달 (반복예약 옵션 포함) ═════ */
-function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onClose, onSave, onDelete, saving }: any) {
+function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onClose, onSave, onDelete, saving, track = "aqua" }: any) {  // ✅ v3.52.1: track prop 추가 (trackTab 스코프 오류 수정)
   const isEditing = !!f.id;
   const isRecurring = !!f.recurring_id;
   // 예약 날짜 기준 재직 중인 직원만 노출 (퇴사일 이후엔 선택 불가)
@@ -3386,7 +3387,7 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
           {/* ═══ 섹션 4: 수업명 (보강·기타 포함) ═══ */}
           {!f.membership_id && (["lesson", "trial", "makeup", "revenue", "other"].includes(f.event_type)) && (
             <Field label={f.event_type === "makeup" ? "보강 수업명" : (f.event_type === "other" ? "일정 명칭" : "수업명 (직접 입력)")}>
-              <PlanPicker plans={plans} value={f.lesson_name} onChange={(name: string) => setF({ ...f, lesson_name: name })} track={trackTab} />
+              <PlanPicker plans={plans} value={f.lesson_name} onChange={(name: string) => setF({ ...f, lesson_name: name })} track={track} />
             </Field>
           )}
 
