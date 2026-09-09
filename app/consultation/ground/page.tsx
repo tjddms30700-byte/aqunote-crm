@@ -57,7 +57,8 @@ const BODY_PARTS = [
   { key: "achilles_r", label: "오른쪽 아킬레스 주변", region: "back" },
   { key: "heel_l", label: "왼쪽 뒤꿈치", region: "back" },
   { key: "heel_r", label: "오른쪽 뒤꿈치", region: "back" },
-  { key: "sole", label: "발바닥", region: "back" },
+  { key: "sole_l", label: "왼쪽 발바닥", region: "back" },
+  { key: "sole_r", label: "오른쪽 발바닥", region: "back" },
   // ── 기타 ──
   { key: "other", label: "기타 (직접 입력)", region: "other" },
 ];
@@ -82,6 +83,7 @@ const PAIN_ONSET = ["1개월 미만", "1~6개월", "6개월 이상"];
 // ✅ v3.52.0: 발생 조건 5개 항목으로 통일
 const PAIN_TRIGGER = [
   "가만히 있을 때 통증",
+  "움직일 때 통증",
   "체중 부하시 통증",
   "숙면 중 통증",
   "기상시 통증",
@@ -122,6 +124,15 @@ const WEEKDAYS_GROUND = [
   { key: "일", label: "일" },
 ];
 
+// ✅ v3.53.0: 지상재활 희망 시간 — 30분 단위 시간 목록 (09:00~21:30)
+const GROUND_TIME_OPTIONS: string[] = (() => {
+  const out: string[] = [];
+  for (let h = 9; h <= 21; h++) for (const m of [0, 30]) {
+    out.push(String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0"));
+  }
+  return out;
+})();
+
 // ✅ v3.40.7: 성별
 const GENDERS = [
   { key: "female", label: "여성" },
@@ -150,6 +161,7 @@ export default function GroundConsultationPage() {
     //   지상재활은 시간표 미확정이라 고정 슬롯 대신 자유 텍스트로 접수
     wish_days: [] as string[],
     wish_time_text: "",       // 예: "평일 오전 10~12시", "주말 저녁 아무때나"
+    wish_time_grid: [] as string[],  // ✅ v3.53.0: 요일+시간 선택 그리드 (예: "월 10:00")
     contact_time: "",         // 예: "평일 오후 6시 이후 연락 가능"
     pain_areas: [] as string[],
     pain_area_other: "", // ✅ v3.39.0: 기타/상세 부위 텍스트
@@ -191,6 +203,17 @@ export default function GroundConsultationPage() {
   }
 
   // ✅ v3.40.7: 희망 요일 다중 선택 토글
+  // ✅ v3.53.0: 희망 시간 그리드 칸 토글 ("월 10:00" 형식)
+  function toggleWishTimeCell(day: string, time: string) {
+    const key = `${day} ${time}`;
+    setForm(f => ({
+      ...f,
+      wish_time_grid: f.wish_time_grid.includes(key)
+        ? f.wish_time_grid.filter((x: string) => x !== key)
+        : [...f.wish_time_grid, key],
+    }));
+  }
+
   function toggleWishDay(day: string) {
     setForm(f => ({
       ...f,
@@ -243,7 +266,10 @@ export default function GroundConsultationPage() {
         guardian_phone: form.guardian_phone || null,
         member_type: form.member_type,
         wish_days: form.wish_days.length > 0 ? form.wish_days : null,
-        wish_time_slots: form.wish_time_text ? [form.wish_time_text] : null,
+        // ✅ v3.53.0: 그리드 선택("월 10:00") + 자유텍스트 병합 저장 — 지상 시간표 매칭에서 사용
+        wish_time_slots: (form.wish_time_grid.length > 0 || form.wish_time_text)
+          ? [...form.wish_time_grid, ...(form.wish_time_text ? [form.wish_time_text] : [])]
+          : null,
         source: "web_ground",
         service_track: "ground",
         pain_areas: form.pain_areas,
@@ -266,6 +292,7 @@ export default function GroundConsultationPage() {
           // ── 희망 스케줄 (지상은 시간표 미확정 → 자유 텍스트) ──
           wish_days: form.wish_days,
           wish_time_text: form.wish_time_text,   // 예: "평일 오전 10~12시"
+          wish_time_grid: form.wish_time_grid,   // ✅ v3.53.0: 요일+시간 그리드 선택값
           contact_time: form.contact_time,       // 예: "평일 저녁 이후 연락"
           // ── 지상재활 특화 필드 ──
           service_track: "ground",
@@ -402,16 +429,46 @@ export default function GroundConsultationPage() {
             </div>
           </div>
 
-          {/* 희망 시간대 (자유 텍스트) */}
+          {/* ✅ v3.53.0: 희망 시간대 — 요일×30분 그리드에서 직접 선택 */}
           <div className="mb-4">
             <div className="text-xs font-semibold text-slate-700 mb-1.5">
-              희망 시간대 <span className="text-slate-400">(자유롭게 작성)</span>
+              희망 시간대 <span className="text-slate-400">(칸을 눌러 선택 · 30분 단위 · 복수 가능 · 선택 {form.wish_time_grid.length}칸)</span>
+            </div>
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-2 overflow-x-auto">
+              <table className="w-full text-[11px] border-separate" style={{ borderSpacing: "2px", minWidth: 420 }}>
+                <thead>
+                  <tr>
+                    <th className="w-12 p-1 text-slate-400 font-semibold">시간</th>
+                    {WEEKDAYS_GROUND.slice(0, 6).map(d => (
+                      <th key={d.key} className="p-1 rounded-md font-bold bg-emerald-100 text-emerald-800">{d.label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {GROUND_TIME_OPTIONS.map(t => (
+                    <tr key={t}>
+                      <td className="p-1 text-center font-mono text-slate-500">{t}</td>
+                      {WEEKDAYS_GROUND.slice(0, 6).map(d => {
+                        const key = `${d.key} ${t}`;
+                        const on = form.wish_time_grid.includes(key);
+                        return (
+                          <td key={d.key}
+                            onClick={() => toggleWishTimeCell(d.key, t)}
+                            className={`p-1 rounded-md text-center cursor-pointer transition-colors ${on ? "bg-emerald-500 text-white font-bold shadow" : "bg-white text-slate-300 hover:bg-emerald-100 hover:text-emerald-500"}`}>
+                            {on ? "✓" : ""}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
             <input type="text"
-              placeholder="예) 평일 오전 10~12시 / 주말 저녁 아무때나 / 화·목 오후 3시 이후"
+              placeholder="추가 메모 (선택) 예) 점심시간만 가능"
               value={form.wish_time_text}
               onChange={e => setForm({...form, wish_time_text: e.target.value})}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:border-emerald-500 focus:outline-none" />
+              className="w-full mt-2 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:border-emerald-500 focus:outline-none" />
           </div>
 
           {/* 연락 가능 시간 (선택) */}

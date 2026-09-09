@@ -3213,7 +3213,8 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
                     className="w-full px-3 py-2.5 border border-emerald-200 rounded-lg text-sm font-semibold focus:ring-2 focus:ring-emerald-400 focus:outline-none bg-white">
                     {(() => {
                       const opts: string[] = [];
-                      for (let h = 9; h <= 21; h++) for (const m of [0, 10, 20, 30, 40, 50]) {
+                      // ✅ v3.53.0: 지상재활은 30분 단위 (10:00, 10:30, 11:00 ...)
+                      for (let h = 9; h <= 21; h++) for (const m of [0, 30]) {
                         opts.push(String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0"));
                       }
                       const cur = f.time_slot?.slice(0, 5);
@@ -3222,7 +3223,7 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
                       return opts.map(t => <option key={t} value={t}>{t}</option>);
                     })()}
                   </select>
-                  <div className="text-[10px] text-emerald-600">🏋️‍♂️ 지상재활은 10분 단위로 자유롭게 선택할 수 있습니다</div>
+                  <div className="text-[10px] text-emerald-600">🏋️‍♂️ 지상재활은 30분 단위로 선택할 수 있습니다</div>
                 </div>
               ) : timeSlotOptions && timeSlotOptions.length > 0 ? (
                 <div className="bg-white border border-gray-200 rounded-xl p-2.5 space-y-2">

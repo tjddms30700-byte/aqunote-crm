@@ -62,14 +62,16 @@ export const GROUND_BODY_PARTS_BACK = [
   { key: "achilles_r", label: "오른쪽 아킬레스 주변", cx: 88, cy: 368, side: "back" },
   { key: "heel_l", label: "왼쪽 뒤꿈치", cx: 112, cy: 390, side: "back" },
   { key: "heel_r", label: "오른쪽 뒤꿈치", cx: 88, cy: 390, side: "back" },
-  { key: "sole", label: "발바닥", cx: 100, cy: 405, side: "back" },
+  // ✅ v3.53.0: 발바닥 좌/우 분리
+  { key: "sole_l", label: "왼쪽 발바닥", cx: 112, cy: 408, side: "back" },
+  { key: "sole_r", label: "오른쪽 발바닥", cx: 88, cy: 408, side: "back" },
 ];
 
 // ✅ v3.52.0: 이전 키 → 라벨 (기존 저장 데이터 표시용 하위 호환)
 export const GROUND_BODY_PARTS_LEGACY: Record<string, string> = {
   fingers: "손가락", toes: "발가락", hip_joint_l: "좌측 고관절", hip_joint_r: "우측 고관절",
   shoulder_back: "어깨 (뒤)", scapula_spine: "날개뼈와 척추사이", upper_back: "등 상부",
-  lower_back: "허리", buttock: "엉덩이", hamstring: "허벅지 뒤", calf: "종아리",
+  lower_back: "허리", buttock: "엉덩이", hamstring: "허벅지 뒤", calf: "종아리", sole: "발바닥",
 };
 
 interface Props {
@@ -156,7 +158,7 @@ export default function GroundBodyMap({ selectedKeys, onToggle, readOnly = false
               : "bg-white text-slate-600 border-slate-200 hover:border-emerald-300"
           }`}
         >
-          🧍 신체 앞쪽
+          🧍 신체 앞면
         </button>
         <button
           type="button"
@@ -167,7 +169,7 @@ export default function GroundBodyMap({ selectedKeys, onToggle, readOnly = false
               : "bg-white text-slate-600 border-slate-200 hover:border-emerald-300"
           }`}
         >
-          🚶 뒷면
+          🚶 신체 뒷면
         </button>
       </div>
 
@@ -225,7 +227,7 @@ export default function GroundBodyMap({ selectedKeys, onToggle, readOnly = false
         {/* 부위 텍스트 라벨 목록 */}
         <div className="flex-1 min-w-0">
           <div className="text-xs font-semibold text-slate-600 mb-2">
-            {view === "front" ? "🧍 신체 앞쪽 부위" : "🚶 뒷면 부위"}
+            {view === "front" ? "🧍 신체 앞면 부위" : "🚶 신체 뒷면 부위"}
             <span className="ml-2 text-slate-400">
               (클릭 시 선택 · 전체 선택 {selectedKeys.length}곳)
             </span>

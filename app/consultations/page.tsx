@@ -158,7 +158,7 @@ function matchesWish(wishDaysRaw: any[] | null | undefined, wishTimesRaw: any[] 
 /* ─────────────── 메인 페이지 ─────────────── */
 
 export default function ConsultationsPage() {
-  const [tab, setTab] = useState<"kanban" | "match" | "dashboard" | "faq">("kanban");
+  const [tab, setTab] = useState<"kanban" | "match" | "ground_match" | "dashboard" | "faq">("kanban");
   const [members, setMembers] = useState<Member[]>([]);
   const [staff, setStaff] = useState<any[]>([]);
   const [matrix, setMatrix] = useState<MatrixCell[]>([]);
@@ -703,6 +703,17 @@ export default function ConsultationsPage() {
       });
   }, [members, fixedMemberIds]);
 
+  // ✅ v3.53.0: 지상재활 대기자 (체험예정 포함) — 지상 전용 시간표 매칭용
+  const groundWaiters = useMemo(() => {
+    const isGround = (m: any) =>
+      String(m.service_track || m.extra?.service_track || "") === "ground" ||
+      (Array.isArray(m.service_tags) && m.service_tags.includes("ground"));
+    return members
+      .filter(m => isGround(m))
+      .filter(m => m.status === "waiting" || m.status === "trial_scheduled")
+      .sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || ""))); // 접수일 오름차순 = 대기 순위
+  }, [members]);
+
   function getMatchedWaiters(day: number, time: string) {
     return waiters
       .filter(w => matchesWish(w.wish_days, w.wish_time_slots, day, time))
@@ -824,6 +835,7 @@ export default function ConsultationsPage() {
         <div className="pill-tab-group">
           <button onClick={() => setTab("kanban")} className={`pill-tab ${tab === "kanban" ? "pill-tab-active" : ""}`}>📋 칸반 (파이프라인)</button>
           <button onClick={() => setTab("match")} className={`pill-tab ${tab === "match" ? "pill-tab-active" : ""}`}>🗓️ 시간표 매칭</button>
+          <button onClick={() => setTab("ground_match")} className={`pill-tab ${tab === "ground_match" ? "pill-tab-active" : ""}`}>🏋️‍♂️ 지상 시간표</button>
           <button onClick={() => setTab("dashboard")} className={`pill-tab ${tab === "dashboard" ? "pill-tab-active" : ""}`}>📊 대시보드</button>
           <button onClick={() => setTab("faq")} className={`pill-tab ${tab === "faq" ? "pill-tab-active" : ""}`}>💬 상담 FAQ</button>
         </div>
@@ -847,6 +859,11 @@ export default function ConsultationsPage() {
           getTrialScheduled={getTrialScheduled}
           onCellClick={(day, time) => setSelectedCell({ day, time })}
         unmatchedWaiters={unmatchedWaiters} unmatchedTrials={unmatchedTrials} />
+      )}
+
+      {/* ─── ✅ v3.53.0: 지상재활 전용 시간표 (대기자 순위) ─── */}
+      {tab === "ground_match" && (
+        <GroundMatchView waiters={groundWaiters} />
       )}
 
       {/* ─── 탭 3: 대시보드 ─── */}
@@ -1212,6 +1229,102 @@ function Row({ label, value }: any) {
 }
 
 /* ─────────────── 하위 컴포넌트: 매칭 ─────────────── */
+
+/* ═══════════ ✅ v3.53.0: 지상재활 전용 시간표 매칭 — 대기자 순위 표시 ═══════════ */
+const GROUND_DAYS = ["월", "화", "수", "목", "금", "토"];
+const GROUND_TIMES: string[] = (() => {
+  const out: string[] = [];
+  for (let h = 9; h <= 21; h++) for (const m of [0, 30]) out.push(String(h).padStart(2,"0") + ":" + String(m).padStart(2,"0"));
+  return out;
+})();
+
+// 지상 대기자의 희망 그리드("월 10:00")가 특정 요일·시간과 일치하는지
+function groundMatches(m: any, day: string, time: string): boolean {
+  const grid: string[] = Array.isArray(m.wish_time_slots) ? m.wish_time_slots
+    : Array.isArray(m.extra?.wish_time_grid) ? m.extra.wish_time_grid
+    : Array.isArray(m.extra?.consult_form?.wish_time_grid) ? m.extra.consult_form.wish_time_grid
+    : [];
+  const want = `${day} ${time}`;
+  if (grid.includes(want)) return true;
+  // 자유 텍스트 폴백: 요일+시간이 둘 다 텍스트에 있으면 매칭 (예: "월요일 10시")
+  for (const t of grid) {
+    const s = String(t);
+    if (s.includes(day) && s.includes(time.slice(0, 2) + ":" + time.slice(3))) return true;
+  }
+  return false;
+}
+
+function GroundMatchView({ waiters }: any) {
+  const GROUND_DAYS_LIST = GROUND_DAYS;
+  const waitersWithGrid = waiters.filter((w: any) => {
+    const grid = Array.isArray(w.wish_time_slots) ? w.wish_time_slots : [];
+    return grid.some((s: string) => /^[월화수목금토]\s\d{1,2}:\d{2}$/.test(String(s)));
+  });
+  const noGrid = waiters.filter((w: any) => !waitersWithGrid.includes(w));
+
+  return (
+    <div className="max-w-7xl mx-auto">
+      <div className="mb-3 bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+        <div className="text-sm font-bold text-emerald-800">🏋️‍♂️ 지상재활 시간표 매칭</div>
+        <div className="text-xs text-emerald-600 mt-0.5">지상 대기·체험예정 회원의 희망 시간을 요일별로 표시합니다. 번호는 대기 순위(접수일 순)입니다.</div>
+      </div>
+
+      {/* 희망 시간 미설정 인원 */}
+      {noGrid.length > 0 && (
+        <div className="mb-3 bg-amber-50 border border-amber-200 rounded-xl p-3">
+          <div className="text-xs font-bold text-amber-800 mb-1.5">⚠️ 희망 시간 미설정 — 시간표에 표시되지 않는 지상 인원 ({noGrid.length}명)</div>
+          <div className="flex flex-wrap gap-1.5">
+            {noGrid.map((w: any, i: number) => (
+              <span key={w.id} className="px-2.5 py-1 rounded-full bg-white border border-amber-300 text-amber-800 text-xs font-semibold">
+                {waiters.indexOf(w) + 1}순위 · {w.name}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white rounded-2xl border border-emerald-100 shadow-sm overflow-x-auto">
+        <table className="w-full text-[11px] border-separate" style={{ borderSpacing: 3, minWidth: 640 }}>
+          <thead>
+            <tr>
+              <th className="w-14 p-1.5 rounded-lg bg-emerald-100 text-emerald-800 font-bold">시간</th>
+              {GROUND_DAYS_LIST.map(d => (
+                <th key={d} className="p-1.5 rounded-lg font-bold bg-emerald-100 text-emerald-800">{d}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {GROUND_TIMES.map(t => (
+              <tr key={t}>
+                <td className="p-1.5 text-center font-mono text-slate-500">{t}</td>
+                {GROUND_DAYS_LIST.map(d => {
+                  const matched = waitersWithGrid.filter((w: any) => groundMatches(w, d, t));
+                  return (
+                    <td key={d} className={"p-1.5 rounded-lg align-top min-w-[90px] " + (matched.length > 0 ? "bg-emerald-50 border border-emerald-200" : "bg-slate-50 border border-slate-100")}>
+                      {matched.map((w: any) => {
+                        const rank = waiters.indexOf(w) + 1;
+                        const isTrial = w.status === "trial_scheduled";
+                        return (
+                          <div key={w.id} className="flex items-center gap-1 mb-0.5" title={(w.status === "waiting" ? "대기중" : "체험예정") + " · 접수 " + String(w.created_at || "").slice(0, 10)}>
+                            <span className={"inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[9px] font-bold flex-shrink-0 " + (isTrial ? "bg-blue-500" : rank === 1 ? "bg-red-500" : rank === 2 ? "bg-orange-500" : "bg-emerald-500")}>
+                              {isTrial ? "체" : rank}
+                            </span>
+                            <span className="truncate text-slate-700 font-medium">{w.name}</span>
+                          </div>
+                        );
+                      })}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-2 text-[11px] text-slate-400 text-center">빨강=1순위 · 주황=2순위 · 초록=그 이후 대기 · 파랑(체)=체험예정</div>
+    </div>
+  );
+}
 
 function MatchView({ matrix, members, staff, waiters, stats, getCell, getMatchedWaiters, getTrialScheduled, onCellClick, unmatchedWaiters = [], unmatchedTrials = [] }: any) {
   const staffMap = useMemo(() => {
