@@ -111,6 +111,9 @@ export async function POST(req: Request) {
       diagnosis: body.diagnosis || null,
       status: "new", // 파이프라인 [NEW 신규] 컬럼 직행
       source: body.source || "웹신청",
+      // ✅ v3.52.2: 수중 신청폼 자동승격 시 트랙 명시 (null 방지 — 회원 DB 필터 정합성)
+      service_track: body.service_track || "aqua",
+      service_tags: body.service_track === "ground" ? ["ground"] : ["aqua"],
       memo,
       wish_days: body.wish_days?.length > 0 ? body.wish_days : null,
       wish_time_slots: body.wish_time_slots?.length > 0 ? body.wish_time_slots : null,

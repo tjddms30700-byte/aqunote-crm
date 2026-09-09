@@ -3205,7 +3205,26 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
                   {timeSlotOptions?.length || 0}개 타임 등록됨
                 </span>
               </div>
-              {timeSlotOptions && timeSlotOptions.length > 0 ? (
+              {/* ✅ v3.52.2: 지상재활 시간표는 10분 단위 드롭다운 (프리셋 그리드 대신) */}
+              {track === "ground" ? (
+                <div className="bg-white border border-emerald-200 rounded-xl p-2.5 space-y-2">
+                  <select value={f.time_slot?.slice(0, 5) || "10:00"}
+                    onChange={e => setF({ ...f, time_slot: e.target.value })}
+                    className="w-full px-3 py-2.5 border border-emerald-200 rounded-lg text-sm font-semibold focus:ring-2 focus:ring-emerald-400 focus:outline-none bg-white">
+                    {(() => {
+                      const opts: string[] = [];
+                      for (let h = 9; h <= 21; h++) for (const m of [0, 10, 20, 30, 40, 50]) {
+                        opts.push(String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0"));
+                      }
+                      const cur = f.time_slot?.slice(0, 5);
+                      if (cur && !opts.includes(cur)) opts.push(cur);
+                      opts.sort();
+                      return opts.map(t => <option key={t} value={t}>{t}</option>);
+                    })()}
+                  </select>
+                  <div className="text-[10px] text-emerald-600">🏋️‍♂️ 지상재활은 10분 단위로 자유롭게 선택할 수 있습니다</div>
+                </div>
+              ) : timeSlotOptions && timeSlotOptions.length > 0 ? (
                 <div className="bg-white border border-gray-200 rounded-xl p-2.5 space-y-2">
                   {/* 프리셋 버튼 그리드 */}
                   <div className="grid grid-cols-4 gap-1">

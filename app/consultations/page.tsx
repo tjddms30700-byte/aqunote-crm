@@ -479,6 +479,9 @@ export default function ConsultationsPage() {
       memo: payload.memo || null,
       wish_days: payload.wish_days?.length > 0 ? payload.wish_days : null,
       wish_time_slots: payload.wish_time_slots?.length > 0 ? payload.wish_time_slots : null,
+      // ✅ v3.52.2: 수동 등록 시 선택한 서비스 트랙 저장 — 회원 DB 수중/지상 필터와 연동
+      service_track: payload.service_track || "aqua",
+      service_tags: payload.service_track === "ground" ? ["ground"] : ["aqua"],
       // ✅ v3.40.2: extra.consult_form(중첩) + flat 두 구조 병행 저장
       //   - 상담폼 탭 / 상담차트 자동채우기는 extra.consult_form 을 우선 조회
       //   - 리거시 화면은 extra.* flat 필드 사용
@@ -1738,6 +1741,8 @@ function QuickAddModal({ onClose, onSave, saving }: any) {
     most_worry: "", most_improve: "", avoid_situation: "", expected_change: "",
     // 섭션 6 - 마무리
     source: "직접등록", additional_memo: "", memo: "",
+    // ✅ v3.52.2: 수동 등록 시 서비스 트랙 선택 (수중/지상) — 미선택 시 수중 기본
+    service_track: "aqua" as "aqua" | "ground",
     // 섭션 7 - 동의
     agree_privacy: false, agree_sensitive: false,
   });
@@ -1811,6 +1816,20 @@ function QuickAddModal({ onClose, onSave, saving }: any) {
                   className={`py-3 rounded-lg text-sm border-2 ${isChild ? "bg-blue-100 border-blue-500 text-blue-700 font-bold" : "bg-white border-gray-200 text-gray-500"}`}>
                   🧒 아동
                 </button>
+              </div>
+              {/* ✅ v3.52.2: 서비스 트랙 선택 — 지상 신청자가 지상재활 회원 DB에 정상 표시되도록 */}
+              <div>
+                <div className="text-xs font-semibold text-gray-600 mb-1">서비스 트랙 *</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={() => setForm({ ...form, service_track: "aqua" })}
+                    className={`py-2.5 rounded-lg text-sm border-2 ${form.service_track === "aqua" ? "bg-cyan-100 border-cyan-500 text-cyan-700 font-bold" : "bg-white border-gray-200 text-gray-500"}`}>
+                    🌊 수중재활
+                  </button>
+                  <button onClick={() => setForm({ ...form, service_track: "ground" })}
+                    className={`py-2.5 rounded-lg text-sm border-2 ${form.service_track === "ground" ? "bg-emerald-100 border-emerald-500 text-emerald-700 font-bold" : "bg-white border-gray-200 text-gray-500"}`}>
+                    🏋️‍♂️ 지상재활
+                  </button>
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <F label={isChild ? "아동 이름 *" : "성함 *"}>
