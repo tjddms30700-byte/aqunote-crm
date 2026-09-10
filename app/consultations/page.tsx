@@ -167,6 +167,7 @@ export default function ConsultationsPage() {
   const [orgId, setOrgId] = useState<string | null>(null);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [selectedCell, setSelectedCell] = useState<{ day: number; time: string } | null>(null);
+  const [groundDetail, setGroundDetail] = useState<any>(null); // ✅ v3.54.0: 지상대기시간표 이름 클릭
   const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => { loadAll(); }, []);
@@ -834,8 +835,8 @@ export default function ConsultationsPage() {
       <div className="max-w-7xl mx-auto mb-5">
         <div className="pill-tab-group">
           <button onClick={() => setTab("kanban")} className={`pill-tab ${tab === "kanban" ? "pill-tab-active" : ""}`}>📋 칸반 (파이프라인)</button>
-          <button onClick={() => setTab("match")} className={`pill-tab ${tab === "match" ? "pill-tab-active" : ""}`}>🗓️ 시간표 매칭</button>
-          <button onClick={() => setTab("ground_match")} className={`pill-tab ${tab === "ground_match" ? "pill-tab-active" : ""}`}>🏋️‍♂️ 지상 시간표</button>
+          <button onClick={() => setTab("match")} className={`pill-tab ${tab === "match" ? "pill-tab-active" : ""}`}>🗓️ 수중대기시간표</button>
+          <button onClick={() => setTab("ground_match")} className={`pill-tab ${tab === "ground_match" ? "pill-tab-active" : ""}`}>🏋️‍♂️ 지상대기시간표</button>
           <button onClick={() => setTab("dashboard")} className={`pill-tab ${tab === "dashboard" ? "pill-tab-active" : ""}`}>📊 대시보드</button>
           <button onClick={() => setTab("faq")} className={`pill-tab ${tab === "faq" ? "pill-tab-active" : ""}`}>💬 상담 FAQ</button>
         </div>
@@ -863,7 +864,7 @@ export default function ConsultationsPage() {
 
       {/* ─── ✅ v3.53.0: 지상재활 전용 시간표 (대기자 순위) ─── */}
       {tab === "ground_match" && (
-        <GroundMatchView waiters={groundWaiters} />
+        <GroundMatchView waiters={groundWaiters} onSelectMember={(m: any) => setGroundDetail(m)} />
       )}
 
       {/* ─── 탭 3: 대시보드 ─── */}
@@ -917,6 +918,11 @@ export default function ConsultationsPage() {
             await saveCell(selectedCell.day, selectedCell.time, { status: "open", fixed_name: null, member_id: null, staff_id: null });
           }}
         />
+      )}
+
+      {/* ✅ v3.54.0: 지상대기시간표 — 이름 클릭 시 상세·등록 창 */}
+      {groundDetail && (
+        <IntakeDetailModal member={groundDetail} onClose={() => setGroundDetail(null)} onMove={moveMember} onSaved={loadAll} />
       )}
 
       {/* 신규 상담 등록 모달 */}
@@ -1254,7 +1260,7 @@ function groundMatches(m: any, day: string, time: string): boolean {
   return false;
 }
 
-function GroundMatchView({ waiters }: any) {
+function GroundMatchView({ waiters, onSelectMember }: any) {
   const GROUND_DAYS_LIST = GROUND_DAYS;
   const waitersWithGrid = waiters.filter((w: any) => {
     const grid = Array.isArray(w.wish_time_slots) ? w.wish_time_slots : [];
@@ -1265,7 +1271,7 @@ function GroundMatchView({ waiters }: any) {
   return (
     <div className="max-w-7xl mx-auto">
       <div className="mb-3 bg-emerald-50 border border-emerald-200 rounded-xl p-3">
-        <div className="text-sm font-bold text-emerald-800">🏋️‍♂️ 지상재활 시간표 매칭</div>
+        <div className="text-sm font-bold text-emerald-800">🏋️‍♂️ 지상재활 대기시간표</div>
         <div className="text-xs text-emerald-600 mt-0.5">지상 대기·체험예정 회원의 희망 시간을 요일별로 표시합니다. 번호는 대기 순위(접수일 순)입니다.</div>
       </div>
 
@@ -1305,7 +1311,7 @@ function GroundMatchView({ waiters }: any) {
                         const rank = waiters.indexOf(w) + 1;
                         const isTrial = w.status === "trial_scheduled";
                         return (
-                          <div key={w.id} className="flex items-center gap-1 mb-0.5" title={(w.status === "waiting" ? "대기중" : "체험예정") + " · 접수 " + String(w.created_at || "").slice(0, 10)}>
+                          <div key={w.id} onClick={() => onSelectMember?.(w)} className="flex items-center gap-1 mb-0.5 cursor-pointer hover:bg-emerald-100 rounded px-0.5" title={(w.status === "waiting" ? "대기중" : "체험예정") + " · 접수 " + String(w.created_at || "").slice(0, 10)}>
                             <span className={"inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[9px] font-bold flex-shrink-0 " + (isTrial ? "bg-blue-500" : rank === 1 ? "bg-red-500" : rank === 2 ? "bg-orange-500" : "bg-emerald-500")}>
                               {isTrial ? "체" : rank}
                             </span>
@@ -2322,6 +2328,7 @@ const FAQ_CATEGORIES = [
   { v: "refund",      label: "🔄 보강/이월/환불", color: "bg-orange-100 text-orange-700" },
   { v: "preparation", label: "🎒 준비물/안내", color: "bg-green-100 text-green-700" },
   { v: "reservation", label: "📅 체험예약", color: "bg-pink-100 text-pink-700" },
+  { v: "ground",      label: "🏋️‍♂️ 지상", color: "bg-emerald-100 text-emerald-700" }, // ✅ v3.54.0
   { v: "general",     label: "ℹ️ 일반", color: "bg-slate-100 text-slate-700" },
   { v: "template",    label: "📩 카톡 템플릿", color: "bg-amber-100 text-amber-700" },
 ];

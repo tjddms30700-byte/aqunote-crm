@@ -996,6 +996,7 @@ export default function MemberDetail() {
                       memberId={member.id}
                       wishDays={member.wish_days}
                       wishTimeSlots={member.wish_time_slots}
+                      serviceTrack={(member as any)?.service_track}
                       onSaved={async () => {
                         const { data } = await supabase.from("members").select("*").eq("id", member.id).single();
                         if (data) setMember(data as any);

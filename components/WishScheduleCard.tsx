@@ -20,6 +20,12 @@ const TIME_SLOTS = [
 ];
 // 시간 표기를 짧게 (18:10~19:20 → 18:10)
 const shortTime = (slot: string) => slot.split("~")[0];
+// ✅ v3.54.0: 지상재활 트랙은 30분 단위 그리드 (신청폼과 동일 포맷 "월 10:30")
+const GROUND_SLOTS: string[] = (() => {
+  const out: string[] = [];
+  for (let h = 9; h <= 21; h++) for (const m of [0, 30]) out.push(String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0"));
+  return out;
+})();
 
 function parseWishDays(raw: string[] | null | undefined): string[] {
   if (!raw) return [];
@@ -44,7 +50,7 @@ const normSlot = (s: string) => s.replace(/\s/g, "");
  *  - 시간 패턴이 전혀 없는 텍스트(예: "오후 늦게")만 자유 텍스트 칩으로 보존
  *  → 직원이 일일이 다시 입력할 필요 없이, 기존 상담폼 정보가 그리드에 자동 반영됨
  */
-function buildGrid(wishDays: string[] | null | undefined, wishTimeSlots: string[] | null | undefined) {
+function buildGrid(wishDays: string[] | null | undefined, wishTimeSlots: string[] | null | undefined, slotList: string[] = TIME_SLOTS) {
   const days = parseWishDays(wishDays);
   const times = (wishTimeSlots || []).map(String).filter(Boolean);
   const grid: Record<string, Set<string>> = {};
@@ -69,7 +75,7 @@ function buildGrid(wishDays: string[] | null | undefined, wishTimeSlots: string[
       rangeRe.lastIndex = 0;
       while ((m = rangeRe.exec(p)) !== null) {
         const key = `${pad(m[1])}:${m[2]}~${pad(m[3])}:${m[4]}`;
-        const slot = TIME_SLOTS.find(ts => normSlot(ts) === normSlot(key));
+        const slot = slotList.find(ts => normSlot(ts) === normSlot(key));
         if (slot) slotsFound.add(slot);
       }
       // 단일 시각(HH:MM)만 있는 경우 → 그 시각에 시작하는 슬롯
@@ -78,7 +84,7 @@ function buildGrid(wishDays: string[] | null | undefined, wishTimeSlots: string[
         for (const s0 of singles) {
           const [h, mm] = s0.split(":");
           const key = `${pad(h)}:${mm}`;
-          const slot = TIME_SLOTS.find(ts => ts.split("~")[0] === key);
+          const slot = slotList.find(ts => ts.split("~")[0] === key);
           if (slot) slotsFound.add(slot);
         }
       }
@@ -102,14 +108,18 @@ export default function WishScheduleCard({
   memberId,
   wishDays,
   wishTimeSlots,
+  serviceTrack,
   onSaved,
 }: {
   memberId: string;
   wishDays: string[] | null | undefined;
   wishTimeSlots: string[] | null | undefined;
+  serviceTrack?: string | null;
   onSaved?: () => void;
 }) {
-  const initial = buildGrid(wishDays, wishTimeSlots);
+  const isGround = String(serviceTrack || "").toLowerCase() === "ground"; // ✅ v3.54.0
+  const SLOT_LIST = isGround ? GROUND_SLOTS : TIME_SLOTS;
+  const initial = buildGrid(wishDays, wishTimeSlots, SLOT_LIST);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   // 편집용 상태
@@ -140,7 +150,7 @@ export default function WishScheduleCard({
       const next: Record<string, Set<string>> = {};
       for (const [d, set] of Object.entries(prev)) next[d] = new Set(set);
       const cur = next[day] || new Set();
-      next[day] = cur.size === TIME_SLOTS.length ? new Set() : new Set(TIME_SLOTS);
+      next[day] = cur.size === SLOT_LIST.length ? new Set() : new Set(SLOT_LIST);
       return next;
     });
   }
@@ -160,7 +170,7 @@ export default function WishScheduleCard({
       const set = grid[d];
       if (set && set.size > 0) {
         outDays.push(d);
-        for (const s of TIME_SLOTS) if (set.has(s)) outSlots.push(`${d} ${s}`);
+        for (const s of SLOT_LIST) if (set.has(s)) outSlots.push(`${d} ${s}`);
       }
     }
     const { error } = await supabase.from("members")
@@ -176,7 +186,7 @@ export default function WishScheduleCard({
   }
 
   function cancelEdit() {
-    const re = buildGrid(wishDays, wishTimeSlots);
+    const re = buildGrid(wishDays, wishTimeSlots, SLOT_LIST);
     const g: Record<string, Set<string>> = {};
     for (const [d, set] of Object.entries(re.grid)) g[d] = new Set(set);
     setGrid(g);
@@ -193,7 +203,7 @@ export default function WishScheduleCard({
       <div className="flex justify-between items-center mb-3">
         <h3 className="text-sm font-bold text-blue-900 flex items-center gap-1.5">
           <Calendar className="w-4 h-4" /> 희망 수업 시간대
-          <span className="text-xs text-blue-600 font-normal">(요일별로 시간대 개별 선택)</span>
+          <span className="text-xs text-blue-600 font-normal">(요일별로 시간대 개별 선택{isGround ? " · 지상 30분 단위" : ""})</span>
         </h3>
         {!editing ? (
           <button onClick={() => setEditing(true)}
@@ -237,7 +247,7 @@ export default function WishScheduleCard({
               </tr>
             </thead>
             <tbody>
-              {TIME_SLOTS.map(slot => (
+              {SLOT_LIST.map(slot => (
                 <tr key={slot}>
                   <td className="p-1 text-center font-mono text-slate-500 whitespace-nowrap">{shortTime(slot)}</td>
                   {DAYS_KO.map(d => {
