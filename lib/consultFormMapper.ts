@@ -66,6 +66,115 @@ function arrOrStr(v: any): string {
  * @param memberType "child" | "adult"
  * @returns 매핑된 7개 필드
  */
+
+/* ============================================================
+   ✅ v3.55.0 - 지상재활폼 그대로 매핑
+============================================================ */
+// 지상 바디맵 부위 키 → 한글 라벨 (GroundBodyMap.tsx 와 동기화)
+const GROUND_PART_LABELS: Record<string, string> = {
+  neck_front: "목 (앞)", shoulder_l: "왼쪽 어깨", shoulder_r: "오른쪽 어깨",
+  chest_l: "왼쪽 가슴", chest_r: "오른쪽 가슴",
+  upper_arm_l: "왼쪽 위팔", upper_arm_r: "오른쪽 위팔",
+  elbow_l: "왼쪽 팔꿈치", elbow_r: "오른쪽 팔꿈치",
+  wrist_l: "왼쪽 손목", wrist_r: "오른쪽 손목",
+  fingers_l: "왼쪽 손가락", fingers_r: "오른쪽 손가락",
+  pelvis_l: "왼쪽 골반", pelvis_r: "오른쪽 골반",
+  hip_joint_l: "왼쪽 고관절", hip_joint_r: "오른쪽 고관절",
+  groin_l: "왼쪽 사타구니", groin_r: "오른쪽 사타구니",
+  knee_l: "왼쪽 무릎", knee_r: "오른쪽 무릎",
+  shin_l: "왼쪽 정강이", shin_r: "오른쪽 정강이",
+  ankle_l: "왼쪽 발목", ankle_r: "오른쪽 발목",
+  toes_l: "왼쪽 발가락", toes_r: "오른쪽 발가락",
+  neck_back: "목 (뒤)", shoulder_back_l: "왼쪽 어깨 (뒤)", shoulder_back_r: "오른쪽 어깨 (뒤)",
+  scapula_l: "왼쪽 날개뼈 주변", scapula_r: "오른쪽 날개뼈 주변",
+  lower_back_l: "왼쪽 허리", lower_back_r: "오른쪽 허리",
+  buttock_l: "왼쪽 엉덩이(둔부)", buttock_r: "오른쪽 엉덩이(둔부)",
+  calf_l: "왼쪽 종아리", calf_r: "오른쪽 종아리",
+  achilles_l: "왼쪽 아킬레스 주변", achilles_r: "오른쪽 아킬레스 주변",
+  heel_l: "왼쪽 뒤꿈치", heel_r: "오른쪽 뒤꿈치",
+  sole_l: "왼쪽 발바닥", sole_r: "오른쪽 발바닥",
+  // 레거시 키
+  fingers: "손가락", toes: "발가락", shoulder_back: "어깨 (뒤)",
+  scapula_spine: "날개뼈와 척추사이", upper_back: "등 상부",
+  lower_back: "허리", buttock: "엉덩이", hamstring: "허벅지 뒤",
+  calf: "종아리", sole: "발바닥",
+};
+
+/** 부위 키 배열 → 한글 라벨 문자열 */
+export function labelGroundParts(keys: any): string {
+  if (!keys) return "";
+  if (typeof keys === "string") return GROUND_PART_LABELS[keys] || keys;
+  if (!Array.isArray(keys)) return String(keys);
+  return keys
+    .map((k) => GROUND_PART_LABELS[String(k)] || String(k))
+    .filter(Boolean)
+    .join(", ");
+}
+
+/** 지상폼(service_track=ground) 원본 그대로 한글 블록으로 풀어서 반환 */
+function mapGroundFormToMemberInfo(form: ConsultFormRaw): MappedInfo {
+  const arrOrEmpty = (v: any): string => {
+    if (!v) return "";
+    if (Array.isArray(v)) return v.filter(Boolean).join(", ");
+    return String(v).trim();
+  };
+  const nrs = form.nrs_score != null && form.nrs_score !== "" ? `${form.nrs_score}/10` : "";
+  const partsText = labelGroundParts(form.pain_areas);
+  const days = arrOrEmpty(form.wish_days);
+  // 희망시간: wish_time_grid ("월 10:30") → 요일별 그룹화
+  const grid: string[] = Array.isArray(form.wish_time_grid) ? form.wish_time_grid : [];
+  const grouped: Record<string, string[]> = {};
+  for (const g of grid) {
+    const m = String(g).match(/^([월화수목금토일])\s*(.+)$/);
+    if (m) {
+      if (!grouped[m[1]]) grouped[m[1]] = [];
+      grouped[m[1]].push(m[2]);
+    }
+  }
+  const DAY_ORDER = ["월", "화", "수", "목", "금", "토", "일"];
+  const gridText = DAY_ORDER.filter((d) => grouped[d])
+    .map((d) => `${d} ${grouped[d].join(" ")}`)
+    .join(" / ");
+  const wishText = [
+    days && `[희망 요일] ${days}`,
+    gridText && `[희망 시간] ${gridText}`,
+    form.wish_time_text && `[시간 메모] ${form.wish_time_text}`,
+    form.contact_time && `[연락 가능 시간] ${form.contact_time}`,
+  ].filter(Boolean).join("\n");
+
+  return {
+    // 🚑 현재 상태 — 통증/생활 정보 전부
+    current_status: [
+      partsText && `[통증 부위] ${partsText}`,
+      form.pain_area_other && `[기타 부위] ${form.pain_area_other}`,
+      nrs && `[통증 강도(NRS)] ${nrs}`,
+      form.pain_onset && `[통증 시작] ${form.pain_onset}`,
+      arrOrEmpty(form.pain_triggers) && `[통증 유발 상황] ${arrOrEmpty(form.pain_triggers)}`,
+      form.pain_trigger_detail && `[유발 상세] ${form.pain_trigger_detail}`,
+      arrOrEmpty(form.pain_quality) && `[통증 양상] ${arrOrEmpty(form.pain_quality)}`,
+      arrOrEmpty(form.lifestyle) && `[생활 습관] ${arrOrEmpty(form.lifestyle)}`,
+      form.lifestyle_hobby && `[운동/취미] ${form.lifestyle_hobby}`,
+    ].filter(Boolean).join("\n").trim(),
+    // ⚠️ 주 증상 — 통증 부위+강도+양상 요약
+    main_symptom: [
+      partsText && `부위: ${partsText}`,
+      nrs && `강도: ${nrs}`,
+      arrOrEmpty(form.pain_quality) && `양상: ${arrOrEmpty(form.pain_quality)}`,
+      form.pain_trigger_detail && `상세: ${form.pain_trigger_detail}`,
+    ].filter(Boolean).join("\n").trim(),
+    medication: "",
+    treatment_history: "",
+    // 🌟 기대하는 변화 — 재활 목적 그대로
+    expected_change: arrOrEmpty(form.rehab_purposes) || arrOrEmpty(form.rehab_purpose),
+    // 📌 특이사항 — 안전 체크 + 희망 일정
+    special_notes: [
+      arrOrEmpty(form.safety_checks) && `[안전 체크] ${arrOrEmpty(form.safety_checks)}`,
+      wishText,
+    ].filter(Boolean).join("\n").trim(),
+    diagnosis: arrOrEmpty(form.diagnosis),
+  };
+}
+
 export function mapConsultFormToMemberInfo(
   form: ConsultFormRaw | null | undefined,
   memberType?: "child" | "adult"
@@ -80,6 +189,11 @@ export function mapConsultFormToMemberInfo(
     diagnosis: "",
   };
   if (!form || typeof form !== "object") return empty;
+
+  // ✅ v3.55.0: 지상재활폼은 전용 매퍼로 "폼 그대로" 풀어냄
+  if (form.service_track === "ground" || Array.isArray((form as any).pain_areas) || (form as any).nrs_score !== undefined) {
+    return mapGroundFormToMemberInfo(form);
+  }
 
   const isChild = memberType === "child" || form.member_type === "child";
   const isAdult = memberType === "adult" || form.member_type === "adult";
@@ -262,6 +376,7 @@ export function parseWishDaysFromForm(form: ConsultFormRaw | null | undefined): 
   }
   // wish_time_slots 내부에 요일명이 들어있는 경우도 수집
   if (form.wish_time_slots) raw.push(form.wish_time_slots);
+  if (form.wish_time_grid) raw.push(form.wish_time_grid); // ✅ v3.55.0
   if (form.saturday_option) raw.push(form.saturday_option);
 
   const collected = new Set<string>();
@@ -287,7 +402,7 @@ export function parseWishDaysFromForm(form: ConsultFormRaw | null | undefined): 
 export function parseWishTimeSlotsFromForm(form: ConsultFormRaw | null | undefined): string[] {
   if (!form) return [];
   const candidates: any[] = [];
-  for (const k of ["wish_time_slots", "wish_times", "wish_time", "prefer_times", "available_times", "희망시간"]) {
+  for (const k of ["wish_time_slots", "wish_time_grid", "wish_times", "wish_time", "prefer_times", "available_times", "희망시간"]) {
     if (form[k]) candidates.push(form[k]);
   }
   if (form.saturday_option) candidates.push(form.saturday_option);

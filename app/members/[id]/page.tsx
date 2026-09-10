@@ -1098,25 +1098,30 @@ export default function MemberDetail() {
                   <button
                     type="button"
                     onClick={async () => {
-                      const mode = confirm(
-                        "상담폼 데이터로 상세 정보 + 희망 시간대를 자동 채움니다.\n\n✅ 확인: 비어있는 칸만 채우기 (기존 값 보존)\n❌ 취소: 작업 중단"
+                      // ✅ v3.55.0: 확인=빈칸만 채우기 / 취소=전부 덮어쓰기
+                      const fillEmptyOnly = confirm(
+                        "상담폼 데이터로 상세 정보 + 희망 시간대를 자동 채웁니다.\n\n✅ 확인: 비어있는 칸만 채우기 (기존 값 보존)\n🔄 취소: 상담폼 내용으로 전부 덮어쓰기 (폼 그대로 반영)"
                       );
-                      if (!mode) return;
+                      // 두 번째 확인창: 덮어쓰기는 한 번 더 확인, ESC 2번이면 중단
+                      if (!fillEmptyOnly) {
+                        if (!confirm("⚠️ 기존에 입력된 상세 정보가 모두 상담폼 내용으로 바뀝니다.\n계속할까요?")) return;
+                      }
                       try {
                         const { mapConsultFormToMemberInfo, mergeMappedInfo, extractWishFieldsForMember } = await import("@/lib/consultFormMapper");
                         const consultForm = member?.extra?.consult_form || {};
                         const mapped = mapConsultFormToMemberInfo(consultForm, member?.member_type);
-                        const merged = mergeMappedInfo(extInfo, mapped, "fill_empty");
+                        const merged = mergeMappedInfo(extInfo, mapped, fillEmptyOnly ? "fill_empty" : "overwrite");
                         setExtInfo(merged);
 
                         // ✅ v3.13.11: 희망 요일/시간대 자동 파싱 + 즉시 저장
                         const parsedWish = extractWishFieldsForMember(consultForm);
                         const wishPatch: any = {};
                         // 기존 값이 비어있을 때만 채우기 (수정한 값 보존)
-                        if (parsedWish.wish_days && (!member.wish_days || member.wish_days.length === 0)) {
+                        // ✅ v3.55.0: 덮어쓰기 모드면 희망 일정도 폼 그대로 반영
+                        if (parsedWish.wish_days && (fillEmptyOnly ? (!member.wish_days || member.wish_days.length === 0) : true)) {
                           wishPatch.wish_days = parsedWish.wish_days;
                         }
-                        if (parsedWish.wish_time_slots && (!member.wish_time_slots || member.wish_time_slots.length === 0)) {
+                        if (parsedWish.wish_time_slots && (fillEmptyOnly ? (!member.wish_time_slots || member.wish_time_slots.length === 0) : true)) {
                           wishPatch.wish_time_slots = parsedWish.wish_time_slots;
                         }
 
@@ -1137,7 +1142,7 @@ export default function MemberDetail() {
                         }
 
                         const summary: string[] = [];
-                        summary.push("상세 정보가 매핑되었습니다");
+                        summary.push(fillEmptyOnly ? "상세 정보가 매핑되었습니다 (빈 칸만 채움)" : "상세 정보가 상담폼 내용으로 교체되었습니다 (폼 그대로)");
                         if (wishPatch.wish_days) summary.push(`희망 요일 ${wishPatch.wish_days.length}개 자동 저장 (${wishPatch.wish_days.join(", ")})`);
                         if (wishPatch.wish_time_slots) summary.push(`희망 시간 ${wishPatch.wish_time_slots.length}개 자동 저장`);
                         summary.push("검토 후 [상세 정보 저장] 버튼으로 마무리해주세요.");
