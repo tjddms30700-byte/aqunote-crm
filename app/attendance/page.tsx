@@ -1211,21 +1211,41 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
         const used = activeMs?.used_sessions || 0;
         const remain = Math.max(0, total - used);
 
-        // 2) 최근 60일 내 병결/개인사정 이력 (보강 필요)
+        // ✅ v3.56.0: 보강필요 = makeup_history 기준 (pending/reserved만 집계)
+        //   - schedule_slots.status 는 원본 결석 유형만 저장
+        //   - makeup_history.status 가 'completed'/'waived' 면 보강필요에서 제외
+        //   - absent/sick/personal 모두 포함 (carryover=이월 · cancel=취소 는 제외)
         const past60 = (() => {
           const d = new Date(date + "T00:00:00Z");
           d.setUTCDate(d.getUTCDate() - 60);
           return d.toISOString().slice(0, 10);
         })();
-        const { data: absList } = await supabase.from("schedule_slots").select("id,event_date,time_slot,status,makeup_waived,makeup_completed")
+        const { data: mhList } = await supabase.from("makeup_history")
+          .select("id,absence_date,absence_type,status,original_slot_id,makeup_deadline")
           .eq("member_id", member.id)
-          .in("status", ["sick", "personal"])
-          .gte("event_date", past60)
-          .lte("event_date", date)
+          .in("status", ["pending", "reserved"])
+          .gte("absence_date", past60)
+          .lte("absence_date", date)
           .is("deleted_at", null)
-          .order("event_date", { ascending: false })
+          .order("absence_date", { ascending: false })
           .limit(20);
-        const recentAbsences = (absList || []).filter((a: any) => !a.makeup_completed && !a.makeup_waived);
+        // 원본 slot 정보(시간대) 병합
+        const slotIds = (mhList || []).map((m: any) => m.original_slot_id).filter(Boolean);
+        let slotMap: Record<string, any> = {};
+        if (slotIds.length > 0) {
+          const { data: sl } = await supabase.from("schedule_slots")
+            .select("id,time_slot,event_date,status")
+            .in("id", slotIds);
+          (sl || []).forEach((r: any) => { slotMap[r.id] = r; });
+        }
+        const recentAbsences = (mhList || []).map((m: any) => ({
+          id: m.original_slot_id,
+          makeup_history_id: m.id,
+          event_date: m.absence_date,
+          time_slot: slotMap[m.original_slot_id]?.time_slot || "",
+          status: m.absence_type,   // sick/personal/absent
+          makeup_deadline: m.makeup_deadline,
+        }));
         setMemberInfo({ activeMs, remain, total, recentAbsences, needsMakeup: recentAbsences.length, loading: false });
       } catch (e) {
         console.warn("[v3.32.2] 사인 팝업 자동조회 예외:", e);
@@ -1673,6 +1693,19 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
                         <div className="text-[10px] text-orange-600 font-semibold">+{memberInfo.recentAbsences.length - 3}건 더</div>
                       )}
                     </div>
+                    {/* ✅ v3.56.0: 원본 결석에서 바로 보강 예약 잡기 */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const first = memberInfo.recentAbsences[0];
+                        if (!first?.id) { alert('원본 결석 정보를 찾을 수 없습니다.'); return; }
+                        const url = `/schedule?makeup_for=${first.id}&member_id=${member.id}`;
+                        window.open(url, '_blank');
+                      }}
+                      className="mt-2 w-full px-3 py-1.5 rounded-lg text-[11px] font-bold bg-orange-500 hover:bg-orange-600 text-white shadow-sm"
+                    >
+                      🔁 보강 예약 잡기 (원본 결석 자동 연결)
+                    </button>
                   </>
                 )}
               </div>

@@ -172,6 +172,37 @@ export default function SchedulePage() {
   const [dayListModal, setDayListModal] = useState<{ date: string; slots: any[] } | null>(null);
   // ✅ v3.29.0: 보강 선택 모드 - 상단 보강 배지 클릭 시 설정
   const [makeupSelectMode, setMakeupSelectMode] = useState<{ member_id: string; makeup_ticket_id?: string; member_name?: string } | null>(null);
+  // ✅ v3.56.0: URL ?makeup_for=<slot_id>&member_id=<id> 진입 시 새 일정 모달 자동 오픈 + 원본 결석 자동 연결
+  useEffect(() => {
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      const makeupFor = sp.get('makeup_for');
+      const memId = sp.get('member_id');
+      if (makeupFor && memId) {
+        // 원본 결석 slot 조회 후 modal 프리셋
+        (async () => {
+          const { data: orig } = await supabase.from('schedule_slots')
+            .select('id,event_date,time_slot,staff_id,lesson_name,track')
+            .eq('id', makeupFor).maybeSingle();
+          if (!orig) { alert('원본 결석 정보를 찾을 수 없습니다.'); return; }
+          setModal({
+            id: '',
+            member_id: memId,
+            event_date: new Date().toISOString().slice(0,10),
+            time_slot: orig.time_slot || '',
+            staff_id: orig.staff_id || null,
+            lesson_name: orig.lesson_name || '보강 수업',
+            track: orig.track || 'aqua',
+            event_type: 'makeup',
+            is_makeup_reservation: true,
+            original_absence_slot_id: orig.id,
+            status: 'scheduled',
+          } as any);
+        })();
+      }
+    } catch (e) { console.warn('[v3.56.0] makeup URL 파싱 실패:', e); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // ✅ v3.20.1: 사인 출결 모달
   const [signatureSlot, setSignatureSlot] = useState<any | null>(null);
   // ✅ v3.20.11: 매출 상세 팝오버 (셔 설정 날짜별)
@@ -598,7 +629,8 @@ export default function SchedulePage() {
     try {
       const isMakeupSlot = slot.event_type === "makeup" || slot.is_makeup_reservation === true;
 
-      if ((status === "sick" || status === "personal") && !isMakeupSlot) {
+      // ✅ v3.56.0: absent(결석)도 보강 대상에 포함 (이월/취소 제외)
+      if ((status === "sick" || status === "personal" || status === "absent") && !isMakeupSlot) {
         // 이미 있는지 체크 (중복 방지)
         const { data: existing } = await supabase.from("makeup_history")
           .select("id, status")
