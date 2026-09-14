@@ -139,6 +139,8 @@ export default function SchedulePage() {
   const [view, setView] = useState<"month" | "week" | "day">("month");
   // ✅ v3.38.0: 수중/지상 시간표 토글 (aqua = 수중재활, ground = 지상재활)
   const [trackTab, setTrackTab] = useState<"aqua" | "ground">("aqua");
+  // ✅ v3.57.0: 보강 대기 드로어
+  const [makeupDrawer, setMakeupDrawer] = useState(false);
   // ✅ v3.38.0: 지상재활 수업 완료 후 다음 예약 팝업
   const [nextBookingPopup, setNextBookingPopup] = useState<{ member_id: string; member_name: string; last_staff_id?: string; last_time?: string } | null>(null);
   // ✅ v3.26.9: hydration mismatch 방지 - 초기값 0 / 빈문자열, 마운트 후 useEffect에서 설정
@@ -1061,6 +1063,8 @@ export default function SchedulePage() {
       status: "scheduled",
       note: "",
       amount: 0,
+      // ✅ v3.57.1: 현재 탭의 트랙 자동 세팅
+      track: trackTab,
       // 반복예약 관련
       recurring_enabled: false,
       recurring_weeks: 4,
@@ -1083,6 +1087,11 @@ export default function SchedulePage() {
       recurring_id: slot.recurring_id,
       recurring_enabled: false,
       recurring_weeks: 0,
+      // ✅ v3.57.1: 기존 슬롯의 track/보강 연결 유지
+      track: slot.track || trackTab,
+      is_makeup_reservation: slot.is_makeup_reservation || false,
+      original_absence_slot_id: slot.original_absence_slot_id || null,
+      makeup_for_id: slot.makeup_for_id || null,
     });
     setModal({ date: slot.event_date, time: slot.time_slot, editing: slot });
   }
@@ -1106,7 +1115,13 @@ export default function SchedulePage() {
       status: effectiveStatus,
       lesson_name: f.lesson_name || null,
       note: f.note || null,
+      // ✅ v3.57.1: 지상/수중 트랙 저장 (누락 시 지상 등록이 수중으로 들어가는 버그 수정)
+      track: f.track || trackTab || "aqua",
     };
+    // ✅ v3.57.1: 보강 배정 연결 필드 저장
+    if (f.is_makeup_reservation) basePayload.is_makeup_reservation = true;
+    if (f.original_absence_slot_id) basePayload.original_absence_slot_id = f.original_absence_slot_id;
+    if (f.makeup_for_id) basePayload.makeup_for_id = f.makeup_for_id;
     if (orgId) basePayload.org_id = orgId;
     if (f.member_id) basePayload.member_id = f.member_id;
     // v3.23.0: staff_id 미지정 시 회원의 요일별 담당 강사 (members.staff_by_day) 자동 매핑
@@ -1716,6 +1731,132 @@ export default function SchedulePage() {
 
   return (
     <main className="max-w-7xl mx-auto px-3 md:px-6 py-4 md:py-8 bg-gradient-to-br from-sky-50 via-white to-cyan-50 min-h-screen">
+      {/* ✅ v3.57.0: '⚡ 보강 대기 X명' 미니 바 (시간표 상단 상시 노출) */}
+      {makeupNeededList.length > 0 && (
+        <div className="mb-3 flex items-center justify-between bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-xl px-4 py-2.5 shadow-md">
+          <div className="flex items-center gap-2 text-sm font-bold">
+            <span className="text-lg">⚡</span>
+            보강 대기
+            <span className="px-2 py-0.5 bg-white text-orange-600 text-xs rounded-full font-extrabold">{makeupNeededList.length}명</span>
+          </div>
+          <button type="button" onClick={() => setMakeupDrawer(true)}
+            className="px-3 py-1.5 bg-white text-orange-600 rounded-lg text-xs font-bold hover:bg-orange-50 shadow-sm">
+            🔁 빠른 배정 열기
+          </button>
+        </div>
+      )}
+
+      {/* ✅ v3.57.0: 보강 빠른 배정 드로어 (우측 슬라이드) */}
+      {makeupDrawer && (
+        <div className="fixed inset-0 z-50 flex" onClick={() => setMakeupDrawer(false)}>
+          <div className="flex-1 bg-black/40" />
+          <div className="w-full max-w-md bg-white shadow-2xl h-full overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="sticky top-0 bg-gradient-to-r from-orange-500 to-amber-500 text-white px-4 py-3 flex items-center justify-between shadow">
+              <div className="font-bold text-base flex items-center gap-2">
+                ⚡ 보강 빠른 배정
+                <span className="text-[11px] px-2 py-0.5 bg-white/25 rounded-full">{makeupNeededList.length}명</span>
+              </div>
+              <button onClick={() => setMakeupDrawer(false)} className="text-white/90 hover:text-white text-xl leading-none">×</button>
+            </div>
+            <div className="p-3 space-y-2">
+              <div className="text-[11px] text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
+                💡 회원의 [배정] 버튼을 누르면 <b>이번 주 빈 슬롯 추천</b>과 함께 예약 모달이 자동으로 열립니다.
+              </div>
+              {makeupNeededList.map((r: any, i: number) => {
+                const m = (members || []).find((mm: any) => mm.id === r.member_id);
+                if (!m) return null;
+                // 이번 주 빈 슬롯 추천 (회원 희망 요일/시간 + 해당 셀에 예약 없음)
+                const today = new Date();
+                const weekStart = new Date(today); weekStart.setDate(today.getDate() - today.getDay() + 1); // 월요일
+                const wishDays: string[] = Array.isArray(m.wish_days) ? m.wish_days : [];
+                const wishSlots: string[] = Array.isArray(m.wish_time_slots) ? m.wish_time_slots : [];
+                const dayMap: Record<string, number> = { "월": 0, "화": 1, "수": 2, "목": 3, "금": 4, "토": 5, "일": 6 };
+                const suggestions: { date: string; time: string }[] = [];
+                wishDays.forEach((wd) => {
+                  const off = dayMap[wd]; if (off === undefined) return;
+                  const d = new Date(weekStart); d.setDate(weekStart.getDate() + off);
+                  const dateStr = d.toISOString().slice(0, 10);
+                  if (dateStr < new Date().toISOString().slice(0, 10)) return; // 지난 날짜 제외
+                  wishSlots.slice(0, 3).forEach((wt) => {
+                    const timeMatch = String(wt).match(/(\d{1,2}:\d{2})/);
+                    const time = timeMatch ? timeMatch[1] : "";
+                    if (!time) return;
+                    // 해당 셀에 이미 예약 있는지 검사
+                    const taken = slots.some((sl: any) => sl.event_date === dateStr && (sl.time_slot || "").slice(0, 5) === time.slice(0, 5) && (sl.track || "aqua") === trackTab);
+                    if (!taken && suggestions.length < 3) suggestions.push({ date: dateStr, time });
+                  });
+                });
+                return (
+                  <div key={`drawer_${r.member_id}_${i}`} className="bg-white border border-orange-100 rounded-xl p-3 shadow-sm hover:border-orange-300 transition">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-orange-600">
+                          {r.status === "sick" ? "🤒 병결" : r.status === "personal" ? "📝 개인사정" : "❌ 결석"}
+                        </span>
+                        <b className="text-sm text-slate-800">{m.name}</b>
+                        <span className="text-[10px] text-slate-500">{m.member_type === "child" ? "👶" : "👤"}</span>
+                      </div>
+                      <div className="text-[10px] text-slate-500">{(r.date || "").slice(5)}</div>
+                    </div>
+                    {suggestions.length > 0 ? (
+                      <div className="space-y-1">
+                        <div className="text-[10px] font-bold text-emerald-700 mb-1">✨ 이번 주 추천 빈 슬롯</div>
+                        {suggestions.map((sg, k) => (
+                          <button key={k} type="button"
+                            onClick={() => {
+                              setMakeupDrawer(false);
+                              setF({
+                                event_date: sg.date, time_slot: sg.time,
+                                event_type: "makeup", is_makeup_reservation: true,
+                                original_absence_slot_id: r.slot_id || r.id,
+                                makeup_for_id: r.slot_id || r.id,
+                                member_id: r.member_id,
+                                staff_id: r.staff_id || (m.staff_id) || "",
+                                lesson_name: "보강 수업",
+                                status: "scheduled",
+                                note: "", amount: 0,
+                                recurring_enabled: false, recurring_weeks: 0,
+                              });
+                              setModal({ date: sg.date, time: sg.time });
+                            }}
+                            className="w-full flex items-center justify-between px-3 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-xs font-semibold text-emerald-800 transition">
+                            <span>📅 {sg.date} · ⏰ {sg.time}</span>
+                            <span className="text-[10px] px-2 py-0.5 bg-emerald-500 text-white rounded-full">배정</span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-[10px] text-slate-500 italic mb-1.5">이번 주 추천 슬롯이 없어요. 아래에서 직접 지정하세요.</div>
+                    )}
+                    <button type="button"
+                      onClick={() => {
+                        setMakeupDrawer(false);
+                        const today = new Date().toISOString().slice(0, 10);
+                        setF({
+                          event_date: today, time_slot: (timeSlotOptions?.[0] || "10:00"),
+                          event_type: "makeup", is_makeup_reservation: true,
+                          original_absence_slot_id: r.slot_id || r.id,
+                          makeup_for_id: r.slot_id || r.id,
+                          member_id: r.member_id,
+                          staff_id: r.staff_id || (m.staff_id) || "",
+                          lesson_name: "보강 수업",
+                          status: "scheduled",
+                          note: "", amount: 0,
+                          recurring_enabled: false, recurring_weeks: 0,
+                        });
+                        setModal({ date: today });
+                      }}
+                      className="mt-1.5 w-full px-3 py-1.5 border border-orange-300 text-orange-700 rounded-lg text-[11px] font-bold hover:bg-orange-50">
+                      🖊️ 날짜·시간 직접 지정
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ✨ v3.32.0: 보강 필요 회원 - 보강완료(날짜/시간 기록) + 이월(보강안함) 재설계 */}
       {makeupNeededList.length > 0 && (
         <div className="mb-4 aqu-card bg-gradient-to-br from-orange-50 via-amber-50 to-rose-50 border-2 border-orange-200 p-4 shadow-sm">
@@ -2235,6 +2376,7 @@ export default function SchedulePage() {
           members={members} staff={staff} plans={plans}
           timeSlotOptions={timeSlotOptions}
           track={trackTab}
+          makeupPending={makeupNeededList}
           onClose={() => setModal(null)}
           onSave={saveSlot}
           onDelete={f.id ? (opts?: any) => { deleteSlot(f.id, opts); setModal(null); } : undefined}
@@ -3156,7 +3298,7 @@ function DayView({ date, setDate, slots, members, staff, onCellClick, onCellDoub
 }
 
 /* ═════ 등록/수정 모달 (반복예약 옵션 포함) ═════ */
-function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onClose, onSave, onDelete, saving, track = "aqua" }: any) {  // ✅ v3.52.1: track prop 추가 (trackTab 스코프 오류 수정)
+function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onClose, onSave, onDelete, saving, track = "aqua", makeupPending = [] }: any) {  // ✅ v3.57.0: makeupPending prop 추가 (보강 대기 회원 자동 필터)
   const isEditing = !!f.id;
   const isRecurring = !!f.recurring_id;
   // 예약 날짜 기준 재직 중인 직원만 노출 (퇴사일 이후엔 선택 불가)
@@ -3195,6 +3337,30 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
   const selectedMs = memberMemberships.find((m: any) => m.id === f.membership_id);
   const selectedMember = (members || []).find((m: any) => m.id === f.member_id);
 
+  // ✅ v3.57.0: [일반 예약] / [🔁 보강 배정] 탭 (신규 예약에서만 노출)
+  const [reservTab, setReservTab] = useState<"normal" | "makeup">(
+    (f.event_type === "makeup" || f.is_makeup_reservation) ? "makeup" : "normal"
+  );
+  // 보강 배정 탭 활성 시 보강 대기 회원만 필터
+  const makeupCandidates = (makeupPending || []).filter((r: any) => {
+    const m = (members || []).find((mm: any) => mm.id === r.member_id);
+    return !!m;
+  });
+  // 회원 선택 시 원본 결석 자동 연결
+  function pickMakeupMember(r: any) {
+    const m = (members || []).find((mm: any) => mm.id === r.member_id);
+    setF({
+      ...f,
+      member_id: r.member_id,
+      event_type: "makeup",
+      is_makeup_reservation: true,
+      original_absence_slot_id: r.slot_id || r.id,
+      makeup_for_id: r.slot_id || r.id,
+      staff_id: f.staff_id || r.staff_id || (m?.staff_id) || "",
+      lesson_name: f.lesson_name || "보강 수업",
+    });
+  }
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3"
       onClick={onClose}>
@@ -3217,6 +3383,71 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
         </div>
 
         <div className="p-5 space-y-4">
+          {/* ✅ v3.57.0: [일반 예약] / [🔁 보강 배정] 탭 - 신규 예약에서만 노출 */}
+          {!isEditing && (
+            <div className="bg-white border border-slate-200 rounded-xl p-1 flex gap-1">
+              <button type="button"
+                onClick={() => { setReservTab("normal"); setF({ ...f, event_type: "lesson", is_makeup_reservation: false, original_absence_slot_id: null, makeup_for_id: null }); }}
+                className={`flex-1 py-2 rounded-lg text-sm font-bold transition ${reservTab === "normal" ? "bg-aqu-500 text-white shadow" : "text-slate-600 hover:bg-slate-50"}`}>
+                📅 일반 예약
+              </button>
+              <button type="button"
+                onClick={() => setReservTab("makeup")}
+                className={`flex-1 py-2 rounded-lg text-sm font-bold transition relative ${reservTab === "makeup" ? "bg-orange-500 text-white shadow" : "text-slate-600 hover:bg-orange-50"}`}>
+                🔁 보강 배정
+                {makeupCandidates.length > 0 && (
+                  <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full font-bold ${reservTab === "makeup" ? "bg-white text-orange-600" : "bg-orange-500 text-white"}`}>
+                    {makeupCandidates.length}
+                  </span>
+                )}
+              </button>
+            </div>
+          )}
+
+          {/* ✅ v3.57.0: 보강 배정 탭 활성 시 보강 대기 회원 자동 필터 리스트 */}
+          {!isEditing && reservTab === "makeup" && (
+            <div className="bg-gradient-to-br from-orange-50 via-amber-50 to-rose-50 border-2 border-orange-200 rounded-xl p-3">
+              <div className="text-xs font-bold text-orange-800 mb-2 flex items-center gap-1.5">
+                🔔 보강 대기 회원 ({makeupCandidates.length}명)
+                <span className="text-[10px] font-normal text-orange-600">회원 선택 시 원본 결석과 자동 연결됩니다</span>
+              </div>
+              {makeupCandidates.length === 0 ? (
+                <div className="text-xs text-slate-500 italic py-3 text-center">보강 대기 중인 회원이 없습니다.</div>
+              ) : (
+                <div className="space-y-1.5 max-h-56 overflow-y-auto">
+                  {makeupCandidates.map((r: any, i: number) => {
+                    const m = (members || []).find((mm: any) => mm.id === r.member_id);
+                    const isPicked = f.member_id === r.member_id && (f.original_absence_slot_id === (r.slot_id || r.id));
+                    return (
+                      <button key={`${r.member_id}_${r.date || r.id}_${i}`} type="button"
+                        onClick={() => pickMakeupMember(r)}
+                        className={`w-full text-left px-3 py-2 rounded-lg border-2 transition ${isPicked ? "bg-orange-500 border-orange-600 text-white shadow" : "bg-white border-orange-100 hover:border-orange-400 hover:shadow"}`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-[10px] font-bold ${isPicked ? "text-white" : "text-orange-600"}`}>
+                              {r.status === "sick" ? "🤒 병결" : r.status === "personal" ? "📝 개인사정" : "❌ 결석"}
+                            </span>
+                            <b className={`text-sm ${isPicked ? "text-white" : "text-slate-800"}`}>{m?.name || "(회원)"}</b>
+                            <span className={`text-[10px] ${isPicked ? "text-orange-100" : "text-slate-500"}`}>{m?.member_type === "child" ? "👶" : "👤"}</span>
+                          </div>
+                          <div className={`text-[10px] ${isPicked ? "text-orange-50" : "text-slate-500"}`}>
+                            {(r.date || "").slice(5)} {r.time_slot ? `· ${r.time_slot}` : ""}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {f.member_id && f.original_absence_slot_id && (
+                <div className="mt-2 px-3 py-2 bg-white rounded-lg border border-orange-300">
+                  <div className="text-[10px] font-bold text-orange-700">✅ 원본 결석 자동 연결됨</div>
+                  <div className="text-[10px] text-slate-600 mt-0.5">저장 시 원본 보강 이력이 완료 처리됩니다.</div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ═══ 섹션 1: 기본 정보 (v3.20.6 재디자인) ═══ */}
           <div className="bg-gradient-to-br from-aqu-50/40 to-blue-50/40 border border-aqu-100 rounded-xl p-4">
             <div className="text-xs font-bold text-aqu-800 mb-3 flex items-center gap-1.5">
