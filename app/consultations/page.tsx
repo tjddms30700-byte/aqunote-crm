@@ -591,7 +591,11 @@ export default function ConsultationsPage() {
       const m = (error.message || "").match(/column "([^"]+)"/i);
       if (m?.[1] && m[1] in insertData) { delete insertData[m[1]]; continue; }
       setSaving(false);
-      alert("등록 실패: " + error.message);
+      // ✅ v3.57.4: 실패 원인을 자세히 표시 (어느 필드/어떤 오류인지) + 입력값은 모달에 그대로 유지됨
+      alert("❌ 등록 실패\n\n원인: " + (error.message || "알 수 없음") +
+        (error.code ? "\n코드: " + error.code : "") +
+        "\n\n💡 입력하신 내용은 창을 닫지 않으면 유지됩니다.\n화면을 캡처해서 관리자에게 보내주세요.");
+      console.error("[quickAdd] 등록 실패 상세:", { error, payloadTried: insertData });
       return;
     }
 

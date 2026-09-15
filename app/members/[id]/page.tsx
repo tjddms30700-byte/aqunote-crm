@@ -1337,7 +1337,7 @@ export default function MemberDetail() {
             {sessions.length > 0 && (() => {
               const lastSess = sessions[0]; // 가장 최근 세션
               const acts = Array.isArray(lastSess.activities) ? lastSess.activities : [];
-              const memoPreview = String(lastSess.memo || "").slice(0, 200);
+              const memoPreview = String(lastSess.memo || "");  // ✅ v3.57.4: 전체 표시
               return (
                 <div className="mb-4 aqu-card bg-gradient-to-br from-sky-50 via-cyan-50 to-blue-50 border-2 border-sky-200 rounded-2xl p-4 shadow-sm">
                   <div className="flex items-center justify-between mb-3">
@@ -1375,7 +1375,7 @@ export default function MemberDetail() {
                     <div className="bg-white/80 rounded-xl p-3 border border-sky-100">
                       <div className="text-[10px] font-bold text-sky-700 mb-2">📝 관찰 메모</div>
                       {memoPreview ? (
-                        <div className="text-xs text-slate-700 whitespace-pre-wrap line-clamp-6">
+                        <div className="text-xs text-slate-700 whitespace-pre-wrap">{/* ✅ v3.57.4: line-clamp 제거 */}
                           {memoPreview}
                           {String(lastSess.memo || "").length > 200 && <span className="text-sky-500 font-semibold">…더보기</span>}
                         </div>
@@ -1554,8 +1554,8 @@ export default function MemberDetail() {
                     : Array.isArray(s.labels) ? s.labels
                     : Array.isArray(s.tags) ? s.tags.filter((t: string) => !t.startsWith("status:")) : [];
                   const memoStr = (s.memo || "").toString();
-                  // memo 요약: 120자 이내 (지난수업내용 카드처럼 짧게)
-                  const memoPreview = memoStr.length > 120 ? memoStr.slice(0, 120) + "…" : memoStr;
+                  // ✅ v3.57.4: memo 전체 표시 (120자 말줄임 제거 - 잘려서 안 보이던 문제 수정)
+                  const memoPreview = memoStr;
                   return (
                   <div key={s.id || i} className="p-3 bg-gray-50 rounded-lg text-sm hover:bg-gray-100 transition group">
                     <div className="flex items-center justify-between mb-1">
