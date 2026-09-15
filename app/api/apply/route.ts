@@ -85,6 +85,10 @@ export async function POST(req: Request) {
       wish_time_slots: body.wish_time_slots || null,
       wish_start_date: body.wish_start_date || null,
       raw_payload: body,   // 원본 그대로 백업
+      // ✅ v3.57.6: processed=false 명시 — members INSERT 실패 시에도
+      //   상담관리 신규 탭에 미처리 리드로 표시되도록 보장 (고아 방지)
+      processed: false,
+      status: "new",
     };
 
     // v3.31.0: 종만감이 자동 승격 - leads_inbox 메이보다 members + consultations 직접 INSERT
@@ -145,7 +149,11 @@ export async function POST(req: Request) {
         const matched =
           branchRows.find((b: any) => wish && String(b.name || "").replace(/\s/g, "").includes(wish.replace(/점$/, "").replace(/본점$/, ""))) ||
           branchRows.find((b: any) => wish && wish.includes(String(b.name || "").replace(/점$/, ""))) ||
-          branchRows[0]; // 폴백: 본점(첫 번째)
+          // ✅ v3.57.6: 매칭 실패 시 branch_type='head'(본점/위례점) 우선 폴백
+          //   (기존: 목록 첫 번째 → 직영점(광주)으로 잘못 들어가 위례점 화면에서 안 보이던 버그)
+          branchRows.find((b: any) => b.branch_type === "head") ||
+          branchRows.find((b: any) => b.branch_type === "branch") ||
+          branchRows[0];
         memberPayload.branch_id = matched.id;
       }
     } catch (e) { console.warn("[v3.49.5] branch 매핑 실패 (무시):", e); }
