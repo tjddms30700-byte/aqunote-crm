@@ -314,6 +314,15 @@ export default function ConsultationsPage() {
 
           const rp = (lead as any).raw_payload || (lead as any).consult_form || {};
           const branchId = getActiveBranchId();
+          // ✅ v3.57.5: 성별 정규화 - 원본의 female/male 을 여/남 으로 변환
+          //   (apply API 와 동일 규칙. 미변환 시 회원카드에 'female' 그대로 표시되던 버그)
+          const _normGender = (g: any): string | null => {
+            const s = String(g || "").trim().toLowerCase();
+            if (!s) return null;
+            if (s === "female" || s === "f" || s === "여" || s === "여자" || s === "여성") return "여";
+            if (s === "male" || s === "m" || s === "남" || s === "남자" || s === "남성") return "남";
+            return String(g);
+          };
 
           // 2) 이미 승격된 이력이 있으면 그 members row 를 재사용
           let memberId: string | null = (lead as any).promoted_member_id || null;
@@ -325,7 +334,7 @@ export default function ConsultationsPage() {
               name: (lead as any).name || rp.name || "(미입력)",
               phone: (lead as any).phone || rp.phone || null,
               birth: (lead as any).birth || rp.birth || null,
-              gender: (lead as any).gender || rp.gender || null,
+              gender: _normGender((lead as any).gender || rp.gender),  // ✅ v3.57.5
               address: (lead as any).address || rp.address || null,
               guardian_name: (lead as any).guardian_name || rp.guardian_name || null,
               guardian_relation: rp.guardian_relation || null,

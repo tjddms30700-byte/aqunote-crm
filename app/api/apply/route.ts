@@ -158,7 +158,14 @@ export async function POST(req: Request) {
 
     if (memberErr) {
       console.error("[v3.31.0] members 자동 승격 실패:", memberErr);
-      return NextResponse.json({ error: memberErr.message }, { status: 500 });
+      // ✅ v3.57.5: members INSERT 가 실패해도 leads_inbox 백업(leadId)이 있으면 데이터 유실은 없음을 응답에 명시
+      //   데스크가 상담관리 신규 탭에서 재승격할 수 있으므로, 원본 보관 여부를 함께 반환
+      return NextResponse.json({
+        error: memberErr.message,
+        backed_up: !!leadId,
+        leadId,
+        hint: leadId ? "신청 원본은 접수함에 안전하게 저장되었습니다. 상담관리 > 신규 탭에서 다시 등록할 수 있습니다." : "접수함 백업도 실패했습니다. 신청자에게 재작성을 안내해주세요.",
+      }, { status: 500 });
     }
 
     // 3) consultations 테이블에도 기록 (상담 이력 추적용 - 있으면)
