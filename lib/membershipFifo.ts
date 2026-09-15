@@ -26,13 +26,23 @@ export function remainingOf(m: any): number {
  */
 export function pickFifoMembership(list: any[], date?: string): any | null {
   const today = date || new Date().toISOString().slice(0, 10);
-  const pool = (list || []).filter((m: any) =>
+  // ✅ v3.57.2: 1순위 - 기간 유효 + 잔여 있는 회원권
+  const valid = (list || []).filter((m: any) =>
     m.status !== "cancelled" &&
     remainingOf(m) > 0 &&
     (!m.start_date || m.start_date <= today) &&
     (!m.end_date || m.end_date >= today)
   );
-  return fifoSort(pool)[0] || null;
+  if (valid.length > 0) return fifoSort(valid)[0];
+  // ✅ v3.57.2: 2순위(폴백) - 기한은 지났지만 잔여가 남은 회원권도 출석 허용
+  //   (센터 재량으로 기간연장 없이 수강 허용하는 운영 방침 반영 / UI에 ⚠️기한만료 배지 표시)
+  const expired = (list || []).filter((m: any) =>
+    m.status !== "cancelled" &&
+    remainingOf(m) > 0 &&
+    (!m.start_date || m.start_date <= today) &&
+    m.end_date && m.end_date < today
+  );
+  return fifoSort(expired)[0] || null;
 }
 
 /**
