@@ -376,8 +376,12 @@ export default function GroundConsultationPage() {
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:border-emerald-500 focus:outline-none" />
             <input type="tel" placeholder="연락처 * (예: 010-1234-5678)" value={form.phone} onChange={e => setForm({...form, phone: e.target.value})}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:border-emerald-500 focus:outline-none" />
-            <input type="date" placeholder="생년월일" value={form.birth} onChange={e => setForm({...form, birth: e.target.value})}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:border-emerald-500 focus:outline-none" />
+            {/* ✅ v3.57.3: date 입력은 placeholder가 안 보이므로 라벨 명시 */}
+            <div>
+              <div className="text-xs font-semibold text-slate-700 mb-1.5">생년월일을 입력해주세요 <span className="text-slate-400 font-normal">(달력 아이콘을 눌러 선택)</span></div>
+              <input type="date" aria-label="생년월일" value={form.birth} onChange={e => setForm({...form, birth: e.target.value})}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:border-emerald-500 focus:outline-none" />
+            </div>
             <input type="text" placeholder="주소" value={form.address} onChange={e => setForm({...form, address: e.target.value})}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:border-emerald-500 focus:outline-none" />
 
