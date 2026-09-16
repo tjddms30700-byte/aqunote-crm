@@ -1,5 +1,12 @@
 "use client";
 
+
+// v3.59.3: 해당 월의 실제 말일 반환 (9/4/6/11월 "-31" 하드코딩 버그 수정)
+function monthEnd(month: string) {
+  const y = Number(month.slice(0, 4)), m = Number(month.slice(5, 7));
+  return month + "-" + String(new Date(y, m, 0).getDate()).padStart(2, "0");
+}
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -31,7 +38,7 @@ function PayrollConfigInner() {
       supabase.from("staff").select("*").is("resign_date", null).order("name"),
       supabase.from("schedule_slots").select("staff_id, status, event_date, event_type")
         .gte("event_date", slotsMonth + "-01")
-        .lte("event_date", slotsMonth + "-31")
+        .lte("event_date", monthEnd(slotsMonth))
         .is("deleted_at", null),
       supabase.from("payroll_history").select("*").order("pay_year", { ascending: false }).order("pay_month", { ascending: false }).limit(50),
     ]);

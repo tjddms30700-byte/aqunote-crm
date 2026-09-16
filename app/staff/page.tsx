@@ -1,4 +1,11 @@
 "use client";
+
+// v3.59.3: 해당 월의 실제 말일 반환 (9/4/6/11월 "-31" 하드코딩 버그 수정)
+function monthEnd(month: string) {
+  const y = Number(month.slice(0, 4)), m = Number(month.slice(5, 7));
+  return month + "-" + String(new Date(y, m, 0).getDate()).padStart(2, "0");
+}
+
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { useBranchContext, ALL_BRANCHES } from "@/lib/branchContext";  // ✅ v3.49.0: 센터장 지점 격리
@@ -139,7 +146,7 @@ export default function StaffPage() {
         const r = await supabase.from("attendance")
           .select("*")
           .gte(col, slotsMonth + "-01")
-          .lte(col, slotsMonth + "-31");
+          .lte(col, monthEnd(slotsMonth));
         if (!r.error) {
           // _date 필드 통일
           return { data: (r.data || []).map((a: any) => ({ ...a, _date: a[col] || a.attend_date || a.date || a.attendance_date || a.session_date || a.check_date })), error: null };
@@ -183,7 +190,7 @@ export default function StaffPage() {
       loadAttendanceLogs(),
       supabase.from("schedule_slots").select("id, staff_id, status, event_date, event_type, member_id")
         .gte("event_date", slotsMonth + "-01")
-        .lte("event_date", slotsMonth + "-31")
+        .lte("event_date", monthEnd(slotsMonth))
         .is("deleted_at", null),
       loadMonthAttendance(),
       loadMembersLite(),

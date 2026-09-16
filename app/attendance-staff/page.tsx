@@ -13,6 +13,11 @@ import {
 } from "lucide-react";
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
+// v3.59.3: 해당 월의 실제 말일 반환 (9/4/6/11월 "-31" 하드코딩 버그 수정)
+function monthEnd(month: string) {
+  const y = Number(month.slice(0, 4)), m = Number(month.slice(5, 7));
+  return month + "-" + String(new Date(y, m, 0).getDate()).padStart(2, "0");
+}
 function nowIso() { return new Date().toISOString(); }
 function fmtTime(iso?: string) { return iso ? new Date(iso).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }) : "-"; }
 function diffHours(a: string, b: string) { return (new Date(b).getTime() - new Date(a).getTime()) / 3600000; }
@@ -156,10 +161,10 @@ function StaffAttendancePage() {
       // v3.20.36: 재직자 전용 필터 - status='resigned'/'retired'/'inactive' 제외 + is_active=false/is_resigned=true 제외
       supabase.from("staff").select("*").order("name"),
       supabase.from("attendance_logs").select("*").gte("log_date", month + "-01")
-        .lte("log_date", month + "-31").order("log_date", { ascending: false }),
+        .lte("log_date", monthEnd(month)).order("log_date", { ascending: false }),
       supabase.from("leave_requests").select("*").order("created_at", { ascending: false }),
       supabase.from("expenses").select("*").gte("spent_at", month + "-01")
-        .lte("spent_at", month + "-31").order("spent_at", { ascending: false }),
+        .lte("spent_at", monthEnd(month)).order("spent_at", { ascending: false }),
       supabase.from("posts").select("*").order("is_pinned", { ascending: false }).order("created_at", { ascending: false }),
     ]);
     // v3.20.36: 퇴사자 제외 – 컬럼 명칭이 어떤 것(이든) 모두 안전하게 대응

@@ -1,5 +1,12 @@
 "use client";
 
+
+// v3.59.3: 해당 월의 실제 말일 반환 (9/4/6/11월 "-31" 하드코딩 버그 수정)
+function monthEnd(month: string) {
+  const y = Number(month.slice(0, 4)), m = Number(month.slice(5, 7));
+  return month + "-" + String(new Date(y, m, 0).getDate()).padStart(2, "0");
+}
+
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
@@ -30,7 +37,7 @@ export default function AttendanceStatsPage() {
   async function loadAll() {
     setLoading(true);
     const from = month + "-01";
-    const to   = month + "-31";
+    const to   = monthEnd(month);
     // ✅ v3.20.15: work_date / log_date 양쪽 조회
     const sRes = await supabase.from("staff").select("id, name, role, color, is_resigned").order("name");
     let logsData: any[] = [];
