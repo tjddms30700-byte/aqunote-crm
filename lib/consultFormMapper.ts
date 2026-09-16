@@ -832,7 +832,7 @@ export function buildFormRawRows(form: ConsultFormRaw | null | undefined): { lab
   if (!form || typeof form !== "object") return [];
   const rows: { label: string; value: string }[] = [];
   for (const [key, raw] of Object.entries(form)) {
-    if (INTERNAL_KEYS.has(key)) continue;
+    if (INTERNAL_KEYS.has(key) || key.startsWith("_")) continue;  // ✅ v3.58.1: _접두 내부키 전부 제외
     if (raw === null || raw === undefined || raw === "") continue;
     if (Array.isArray(raw) && raw.length === 0) continue;
     let value: string;
@@ -851,5 +851,85 @@ export function buildFormRawRows(form: ConsultFormRaw | null | undefined): { lab
     rows.push({ label: FORM_FIELD_LABELS[key] || key, value });
   }
   return rows;
+}
+
+// ═══════════════════════════════════════════════════════════
+// ✅ v3.58.1: 신청폼 원본을 "실제 신청서처럼" 섹션 카드로 렌더링
+//   폼의 섹션 구성(기본 정보/희망 스케줄/통증 정보/재활 목적...)과 동일한 순서·이름으로 그룹화
+// ═══════════════════════════════════════════════════════════
+
+export type FormSectionRow = { label: string; value: string };
+export type FormSection = { title: string; icon: string; rows: FormSectionRow[] };
+
+/** 폼 섹션 정의 (신청폼 실제 구성 순서와 동일) */
+const FORM_SECTION_DEFS: { title: string; icon: string; keys: string[] }[] = [
+  { title: "기본 정보", icon: "👤", keys: [
+    "name", "child_name", "member_type", "birth", "gender", "phone", "address",
+    "guardian_name", "guardian_phone", "guardian_relation", "school", "institution", "diagnosis", "source",
+  ] },
+  { title: "희망 스케줄", icon: "📅", keys: [
+    "wish_days", "wish_time_slots", "wish_time_grid", "wish_time_text", "wish_branch", "wish_start_date", "contact_time",
+  ] },
+  { title: "통증 / 불편 부위", icon: "🩺", keys: [
+    "pain_areas", "pain_area_other", "nrs_score", "pain_onset", "pain_triggers", "pain_trigger_detail", "pain_quality",
+  ] },
+  { title: "재활 목적", icon: "🎯", keys: ["rehab_purpose", "rehab_purposes"] },
+  { title: "건강 · 병력 정보", icon: "🏥", keys: [
+    "main_symptom", "pain_area", "pain_scale", "pain_start", "worsening_factor",
+    "medical_history", "surgery_history", "medication", "allergy", "caution", "treatment_history", "height_weight",
+  ] },
+  { title: "생활 · 운동", icon: "🏃", keys: [
+    "lifestyle", "lifestyle_hobby", "water_experience", "likes", "dislikes", "current_institution", "siblings", "visit_reason", "expected_goal",
+  ] },
+  { title: "안전 사전 체크", icon: "🛡️", keys: ["safety_checks"] },
+  { title: "기대 · 요청 사항", icon: "🌟", keys: ["expected_change", "special_notes", "requests", "memo"] },
+  { title: "개인정보 동의", icon: "✅", keys: ["agree_privacy", "agree_sensitive", "agree_medical"] },
+];
+
+/** 단일 값 포맷 (빈 값이면 null = 표시 안 함) */
+function formatFormValue(key: string, raw: any): string | null {
+  if (raw === null || raw === undefined || raw === "") return null;
+  if (Array.isArray(raw) && raw.length === 0) return null;
+  if (Array.isArray(raw)) return raw.join(", ");
+  if (typeof raw === "boolean") return raw ? "✅ 동의함" : "미동의";
+  if (key === "nrs_score" || key === "pain_scale") return `${raw}점`;
+  if (key === "gender") {
+    const g = String(raw).toLowerCase();
+    return ["female", "f", "여", "여자", "여성"].includes(g) ? "여성"
+      : ["male", "m", "남", "남자", "남성"].includes(g) ? "남성" : String(raw);
+  }
+  if (key === "member_type") return raw === "child" ? "아동" : "성인";
+  if (key === "pain_areas") return labelGroundParts(raw);
+  return String(raw);
+}
+
+/** 신청폼 원본을 섹션 배열로 변환 (실제 폼 구성 순서, 빈 섹션/빈 값 제외) */
+export function buildFormSections(form: ConsultFormRaw | null | undefined): FormSection[] {
+  if (!form || typeof form !== "object") return [];
+  const usedKeys = new Set<string>();
+  const sections: FormSection[] = [];
+  for (const def of FORM_SECTION_DEFS) {
+    const rows: FormSectionRow[] = [];
+    for (const key of def.keys) {
+      if (!(key in form)) continue;
+      if (INTERNAL_KEYS.has(key) || key.startsWith("_")) continue;
+      const value = formatFormValue(key, (form as any)[key]);
+      if (value === null) continue;
+      usedKeys.add(key);
+      rows.push({ label: FORM_FIELD_LABELS[key] || key, value });
+    }
+    if (rows.length > 0) sections.push({ title: def.title, icon: def.icon, rows });
+  }
+  // 정의에 없는 나머지 키 → 기타 항목
+  const extras: FormSectionRow[] = [];
+  for (const [key, raw] of Object.entries(form)) {
+    if (usedKeys.has(key)) continue;
+    if (INTERNAL_KEYS.has(key) || key.startsWith("_")) continue;
+    const value = formatFormValue(key, raw);
+    if (value === null) continue;
+    extras.push({ label: FORM_FIELD_LABELS[key] || key, value });
+  }
+  if (extras.length > 0) sections.push({ title: "기타 항목", icon: "📝", rows: extras });
+  return sections;
 }
 

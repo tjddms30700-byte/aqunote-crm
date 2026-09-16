@@ -2,7 +2,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { pickFifoMembership, fifoSort, remainingOf, recalcMemberFifo } from "@/lib/membershipFifo";  // ✅ v3.48.0: FIFO 차감/재계산
-import { buildFormRawRows } from "@/lib/consultFormMapper";  // ✅ v3.58.0: 신청폼 원본 그대로 보기
+import { buildFormSections } from "@/lib/consultFormMapper";  // ✅ v3.58.1: 신청폼 원본 섹션 카드 렌더링
 import { recommendIepGoals, detectBehaviors } from "@/lib/sessionAnalyzer";
 import IepGoalLibraryBrowser from "@/components/IepGoalLibraryBrowser";
 // ✅ v3.45.3: ReportFallbackPreview는 SSR 우회를 위해 dynamic import로 아래에서 로드
@@ -1033,24 +1033,36 @@ export default function MemberDetail() {
                     />
                   </div>
 
-                  {/* ✅ v3.58.0: 신청폼 원본 그대로 보기 (수중/지상 폼 공통) */}
+                  {/* ✅ v3.58.1: 신청폼 원본 그대로 - 실제 신청서처럼 섹션 카드로 표시 */}
                   {(() => {
                     const cf = (member?.extra?.consult_form || {}) as any;
-                    const rows = buildFormRawRows(cf);
-                    if (rows.length === 0) return null;
+                    const sections = buildFormSections(cf);
+                    if (sections.length === 0) return null;
+                    const isGround = (member as any)?.service_track === "ground";
+                    const formTitle = isGround
+                      ? "지상재활 상담 신청서"
+                      : (member.member_type === "child" ? "수중재활 상담·체험 신청서 (아동)" : "수중재활 상담·체험 신청서 (성인)");
                     return (
-                      <div className="mt-4 bg-emerald-50/50 border border-emerald-200 rounded-xl p-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <h5 className="text-sm font-bold text-emerald-900">📋 신청폼 원본 그대로</h5>
-                          <span className="text-[10px] text-emerald-600 bg-white px-2 py-0.5 rounded-full border border-emerald-200">
-                            {(member as any)?.service_track === "ground" ? "🏋️‍♂️ 지상재활 신청폼" : "🌊 수중재활 신청폼"}
-                          </span>
+                      <div className="mt-4 rounded-2xl overflow-hidden border border-emerald-200 shadow-sm">
+                        {/* 폼 헤더 (실제 신청서 상단 배너처럼) */}
+                        <div className={`px-4 py-3 text-white font-bold text-sm flex items-center justify-between ${isGround ? "bg-gradient-to-r from-emerald-500 to-teal-500" : "bg-gradient-to-r from-aqu-500 to-cyan-500"}`}>
+                          <span>{isGround ? "🏋️‍♂️" : "🌊"} {formTitle}</span>
+                          <span className="text-[10px] font-normal bg-white/20 px-2 py-0.5 rounded-full">제출된 신청폼 원본</span>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1.5">
-                          {rows.map((r, i) => (
-                            <div key={i} className="flex items-start gap-2 text-xs">
-                              <span className="font-semibold text-emerald-800 whitespace-nowrap min-w-[90px]">{r.label}</span>
-                              <span className="text-slate-700 whitespace-pre-wrap break-all">{r.value}</span>
+                        <div className="bg-slate-50 p-3 space-y-3">
+                          {sections.map((sec, si2) => (
+                            <div key={si2} className="bg-white rounded-xl border border-slate-200 p-4">
+                              <div className="text-xs font-bold text-slate-800 mb-2.5 pb-2 border-b border-slate-100 flex items-center gap-1.5">
+                                <span>{sec.icon}</span> {sec.title}
+                              </div>
+                              <div className="space-y-1.5">
+                                {sec.rows.map((r, i) => (
+                                  <div key={i} className="flex items-start gap-2 text-xs">
+                                    <span className="font-semibold text-slate-500 whitespace-nowrap min-w-[110px]">{r.label}</span>
+                                    <span className="text-slate-800 whitespace-pre-wrap break-all font-medium">{r.value}</span>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           ))}
                         </div>
