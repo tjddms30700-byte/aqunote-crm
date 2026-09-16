@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { Car, Plus, X, Trash2, Download, ChevronLeft, Pencil } from "lucide-react";
+import StaffNavTabs from "@/components/StaffNavTabs";
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 
@@ -268,6 +269,9 @@ export default function VehiclesPage() {
           <ChevronLeft className="w-4 h-4" /> 홈으로
         </Link>
       </div>
+
+      {/* ✅ v3.61.0: 공통 직원 탭 바 */}
+      <StaffNavTabs active="vehicle" />
 
       {/* 차량 선택 + 등록 */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 mb-4">

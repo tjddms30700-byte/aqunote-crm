@@ -7,6 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { uploadToStorage } from "@/lib/storageUpload";  // ✅ v3.47.0: 영수증 이미지 업로드
 import HomeButton from "@/components/HomeButton";
+import StaffNavTabs from "@/components/StaffNavTabs";
 import {
   Clock, Play, Square, TrendingUp, FileCheck, MessageSquare, UserCog,
   Plus, X, Check, XCircle, Pin, Trash2, Eye, Wallet,
@@ -536,31 +537,12 @@ function StaffAttendancePage() {
         <HomeButton />
       </div>
 
-      {/* v3.20.34: 알약형 세그먼트 탭 */}
-      <div className="bg-slate-100 p-1.5 rounded-2xl inline-flex flex-wrap gap-1 mb-6 shadow-inner">
-        {[
-          { k: "attendance", label: "⏱️ 출퇴근·근태" },
-          { k: "leave",      label: "🌴 휴가 신청" },
-          { k: "vehicle",    label: "🚗 차량운행일지" },
-          { k: "expense",    label: "💸 지출·경비" },
-          { k: "board",      label: "📢 공지사항" },
-          { k: "tasks",      label: "📋 업무·프로젝트" },
-        ].map(t => (
-          // ✅ v3.60.0: 차량/업무 탭은 전용 페이지로 이동 (6개 메뉴 한 곳에서 접근)
-          <button key={t.k} onClick={() => {
-            if (t.k === "vehicle") { window.location.href = "/vehicles"; return; }
-            if (t.k === "tasks") { window.location.href = "/tasks"; return; }
-            setTab(t.k as TabKey);
-          }}
-            className={`px-4 md:px-5 py-2 rounded-xl text-sm transition-all ${
-              tab === t.k
-                ? "bg-white shadow-sm font-bold text-blue-600"
-                : "text-slate-600 hover:text-slate-800 font-medium"
-            }`}>
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {/* ✅ v3.61.0: 공통 직원 탭 바 (6개 메뉴 모든 페이지 공유) */}
+      <StaffNavTabs active={
+        tab === "attendance" ? "commute" :
+        tab === "leave" ? "leave" :
+        tab === "expense" ? "expense" : "notice"
+      } />
 
       {tab === "attendance" && (
         <div className="space-y-5">

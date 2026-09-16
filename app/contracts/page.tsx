@@ -30,10 +30,12 @@ function todayStr() {
 }
 
 // ✅ v3.60.0: 전자서명 링크 복사 (유형별 공개 서명 페이지 URL)
-function copySignLink(contractType: string) {
-  const url = `${window.location.origin}/contract-sign?type=${contractType}`;
+// ✅ v3.61.0: 대상 지정 시 해당 회원/직원 정보가 자동 입력되는 링크 생성
+function copySignLink(contractType: string, target?: { kind: "member" | "staff"; id: string; name: string }) {
+  let url = `${window.location.origin}/contract-sign?type=${contractType}`;
+  if (target?.id) url += `&${target.kind}=${target.id}`;
   navigator.clipboard.writeText(url).then(
-    () => alert(`✅ 서명 링크가 복사되었습니다.\n\n${url}\n\n카카오톡·문자로 전달하면 상대방이 바로 작성·서명할 수 있습니다.`),
+    () => alert(`✅ 서명 링크가 복사되었습니다.${target ? `\n\n👤 대상: ${target.name} (정보 자동 입력)` : ""}\n\n${url}\n\n카카오톡·문자로 전달하면 상대방이 바로 작성·서명할 수 있습니다.`),
     () => prompt("아래 링크를 복사하세요:", url)
   );
 }
@@ -52,6 +54,9 @@ function ContractsPage() {
   const [staffList, setStaffList] = useState<any[]>([]);
   // ✅ v3.39.0: 등록된 회원권 목록 로드 (가변 선택용)
   const [plans, setPlans] = useState<any[]>([]);
+  // ✅ v3.61.0: 전자서명 링크 대상 선택 (자동입력)
+  const [signMemberId, setSignMemberId] = useState("");
+  const [signStaffId, setSignStaffId] = useState("");
   // ✅ v3.39.3: 관리자 설정 페이지(/settings/programs)의 이용 프로그램 목록 로드
   const [servicePrograms, setServicePrograms] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1269,15 +1274,9 @@ function ContractsPage() {
           <h1 className="text-2xl md:text-3xl font-bold text-aqu-900 flex items-center gap-2">
             <FileSignature className="w-7 h-7 text-emerald-600" /> 계약서 관리
           </h1>
-          <div className="flex gap-2">
-            <button onClick={() => openNew("staff")}
-              className="px-3 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-semibold flex items-center gap-1">
-              <Plus className="w-4 h-4" /> 근로계약서
-            </button>
-            <button onClick={() => openNew("member")}
-              className="px-3 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-lg text-sm font-semibold flex items-center gap-1">
-              <Plus className="w-4 h-4" /> 회원 계약서
-            </button>
+          {/* ✅ v3.61.0: 서식 직접 작성 제거 — 아래 링크 패널로 전자서명 진행 */}
+          <div className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+            💡 아래 <b>전자서명 링크 보내기</b>에서 계약을 진행하세요
           </div>
         </div>
 
@@ -1410,20 +1409,60 @@ function ContractsPage() {
                       console.log("[v3.39.3] 계약서 재오픈:", c.id, "form_data 정규화 완료", safe.form_data);
                       setEditing(safe);
                     }} className="text-xs text-emerald-600 hover:text-emerald-800 mr-2">보기/편집</button>
-      {/* ✅ v3.60.0: 링크 기반 전자서명 — 상담신청폼처럼 링크 전달 → 상대방이 직접 작성·서명 */}
+      {/* ✅ v3.61.0: 링크 기반 전자서명 — 회원용/직원용 분리 + 대상 선택 시 정보 자동입력 */}
       <div className="no-print bg-blue-50/70 border border-blue-100 rounded-2xl p-4 mb-4">
-        <div className="flex items-center gap-2 mb-2">
+        <div className="flex items-center gap-2 mb-3">
           <Link2 className="w-4 h-4 text-blue-600" />
           <span className="text-sm font-bold text-slate-800">전자서명 링크 보내기</span>
-          <span className="text-[11px] text-slate-500">링크를 전달하면 상대방이 본문 확인 → 동의 체크 → 서명까지 직접 완료합니다</span>
+          <span className="text-[11px] text-slate-500">대상을 선택하면 정보가 자동 입력된 링크가 만들어집니다</span>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {CONTRACT_TYPES.filter(t => t.cat !== "other").map(t => (
-            <button key={t.v} onClick={() => copySignLink(t.v)}
-              className={`text-xs px-3 py-1.5 rounded-full border bg-white hover:shadow-sm transition-all ${t.color}`}>
-              🔗 {t.l.replace(/^[^ ]+ /, "")}
-            </button>
-          ))}
+        <div className="grid md:grid-cols-2 gap-3">
+          {/* 회원용 */}
+          <div className="bg-white rounded-xl border border-purple-100 p-3">
+            <div className="text-xs font-bold text-purple-700 mb-2">👥 회원용 계약서</div>
+            <select value={signMemberId} onChange={e => setSignMemberId(e.target.value)}
+              className="w-full mb-2 border border-purple-200 rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-purple-400">
+              <option value="">대상 선택 없이 보내기 (직접 입력)</option>
+              {members.map((m: any) => (
+                <option key={m.id} value={m.id}>{m.name}{m.phone ? ` · ${m.phone}` : ""}{m._badge ? ` (${m._badge})` : ""}</option>
+              ))}
+            </select>
+            <div className="flex flex-wrap gap-1.5">
+              {CONTRACT_TYPES.filter(t => t.cat === "member").map(t => (
+                <button key={t.v}
+                  onClick={() => {
+                    const target = signMemberId ? { kind: "member" as const, id: signMemberId, name: members.find((m: any) => m.id === signMemberId)?.name || "" } : undefined;
+                    copySignLink(t.v, target);
+                  }}
+                  className={`text-xs px-3 py-1.5 rounded-full border bg-white hover:shadow-sm transition-all ${t.color}`}>
+                  🔗 {t.l.replace(/^[^ ]+ /, "")}
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* 직원용 */}
+          <div className="bg-white rounded-xl border border-blue-100 p-3">
+            <div className="text-xs font-bold text-blue-700 mb-2">👨‍💼 직원용 계약서</div>
+            <select value={signStaffId} onChange={e => setSignStaffId(e.target.value)}
+              className="w-full mb-2 border border-blue-200 rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-400">
+              <option value="">대상 선택 없이 보내기 (직접 입력)</option>
+              {staffList.map((s: any) => (
+                <option key={s.id} value={s.id}>{s.name}{s.role ? ` · ${s.role}` : ""}</option>
+              ))}
+            </select>
+            <div className="flex flex-wrap gap-1.5">
+              {CONTRACT_TYPES.filter(t => t.cat === "staff").map(t => (
+                <button key={t.v}
+                  onClick={() => {
+                    const target = signStaffId ? { kind: "staff" as const, id: signStaffId, name: staffList.find((s: any) => s.id === signStaffId)?.name || "" } : undefined;
+                    copySignLink(t.v, target);
+                  }}
+                  className={`text-xs px-3 py-1.5 rounded-full border bg-white hover:shadow-sm transition-all ${t.color}`}>
+                  🔗 {t.l.replace(/^[^ ]+ /, "")}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 

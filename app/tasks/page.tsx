@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import HomeButton from "@/components/HomeButton";
+import StaffNavTabs from "@/components/StaffNavTabs";
 import { Plus, RefreshCw, X, ClipboardList, MessageSquare } from "lucide-react";
 
 const STATUSES = ["대기중", "진행중", "검토중", "보류", "완료"] as const;
@@ -227,6 +228,9 @@ export default function TasksPage() {
           <HomeButton />
         </div>
       </div>
+
+      {/* ✅ v3.61.0: 공통 직원 탭 바 */}
+      <StaffNavTabs active="tasks" />
 
       {/* 탭: 내 업무 / 요청한 업무 / 전체 업무 */}
       <div className="flex flex-wrap gap-2 mb-4">
