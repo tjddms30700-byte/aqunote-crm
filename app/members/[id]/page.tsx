@@ -1155,38 +1155,7 @@ export default function MemberDetail() {
               )}
             </div>
 
-            {/* 확장 정보 - 편집 가능 */}
-            <div className="border-t border-aqu-100 pt-4">
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="text-sm font-bold text-aqu-900">📋 상세 정보</h4>
-                )}
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <EditableField label="🚑 현재 상태" fieldKey="current_status"
-                  value={extInfo.current_status} onChange={(v) => setExtInfo({...extInfo, current_status: v})}
-                  placeholder="예: 걸음이 늘어났으나 계단 오르내림이 불안정함" large fullWidth />
-                <EditableField label="⚠️ 주 증상" fieldKey="main_symptom"
-                  value={extInfo.main_symptom} onChange={(v) => setExtInfo({...extInfo, main_symptom: v})}
-                  placeholder="예: 오른쪽 다리 근력 약화, 균형 잡기 어려움" large fullWidth />
-                <EditableField label="💊 복용 약" fieldKey="medication"
-                  value={extInfo.medication} onChange={(v) => setExtInfo({...extInfo, medication: v})}
-                  placeholder="예: 항경련제(케프라), 학복약물" />
-                <EditableField label="🏥 치료 이력" fieldKey="treatment_history"
-                  value={extInfo.treatment_history} onChange={(v) => setExtInfo({...extInfo, treatment_history: v})}
-                  placeholder="예: OO병원 물리치료 6개월, 감각통합치료 1년" />
-                <EditableField label="🌟 기대하는 변화" fieldKey="expected_change"
-                  value={extInfo.expected_change} onChange={(v) => setExtInfo({...extInfo, expected_change: v})}
-                  placeholder="예: 물에 적응 · 자신감 향상 · 근력 강화" fullWidth />
-                <EditableField label="📌 특이사항" fieldKey="special_notes"
-                  value={extInfo.special_notes} onChange={(v) => setExtInfo({...extInfo, special_notes: v})}
-                  placeholder="예: 물에 대한 공포, 안전 방지 필요 필요" fullWidth />
-              </div>
-              <button onClick={saveExtInfo} disabled={savingExt}
-                className="mt-3 px-4 py-2 bg-aqu-600 hover:bg-aqu-700 text-white rounded-lg text-sm flex items-center gap-1 disabled:opacity-50">
-                <Save className="w-4 h-4" /> {savingExt ? "저장 중..." : "상세 정보 저장"}
-              </button>
-              {extSaveStatus && <span className="ml-2 text-xs text-aqu-600">{extSaveStatus}</span>}
-            </div>
+
 
 
 
