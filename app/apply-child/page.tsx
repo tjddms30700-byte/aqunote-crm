@@ -342,7 +342,7 @@ export default function ApplyChildPage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  희망 요일 <span className="text-red-500">*</span>
+                  희망 요일 <span className="text-red-500">*</span> <span className="text-[10px] text-gray-400 font-normal">(아래 그리드에서 칸을 고르면 자동 설정됩니다)</span>
                   <span className="ml-2 text-xs text-gray-500">({form.wish_days.length}개 선택)</span>
                 </label>
                 <div className="grid grid-cols-6 gap-2">
@@ -378,12 +378,17 @@ export default function ApplyChildPage() {
                 {(() => {
                   const SLOT_STARTS = ["10:00", "11:10", "12:20", "13:30", "14:40", "15:50", "17:00", "18:10", "19:20", "20:30"];
                   const picked = new Set(form.wish_time_slots);
+                  // ✅ v3.59.2: 칸 선택 시 희망 요일(wish_days)도 자동 동기화
+                  //   (기존: 시간만 저장되고 요일이 비어 카드/매칭이 전 요일로 펼쳐 보이던 버그)
                   const toggleCell = (day: string, tm: string) => {
                     const key = day + " " + tm;
-                    const next = picked.has(key)
-                      ? form.wish_time_slots.filter((x: string) => x !== key)
-                      : [...form.wish_time_slots, key];
-                    update("wish_time_slots", next);
+                    setForm((prev: any) => {
+                      const cur = new Set<string>(prev.wish_time_slots || []);
+                      if (cur.has(key)) cur.delete(key); else cur.add(key);
+                      const nextSlots = Array.from(cur);
+                      const nextDays = Array.from(new Set(nextSlots.map(x => String(x).split(" ")[0])));
+                      return { ...prev, wish_time_slots: nextSlots, wish_days: nextDays };
+                    });
                   };
                   const satOnly = form.wish_days.includes("토") && !form.wish_days.some((d: string) => d !== "토");
                   return (
@@ -430,7 +435,7 @@ export default function ApplyChildPage() {
                       <div className="px-3 py-2 bg-gray-50 text-[10px] text-gray-500 flex items-center justify-between">
                         <span>선택된 칸: <b className="text-purple-600">{form.wish_time_slots.length}개</b> · 칸을 눌러 요일별로 원하는 시간을 고르세요</span>
                         {form.wish_time_slots.length > 0 && (
-                          <button type="button" onClick={() => update("wish_time_slots", [])} className="text-red-500 font-bold">전체 해제</button>
+                          <button type="button" onClick={() => setForm((prev: any) => ({ ...prev, wish_time_slots: [], wish_days: [] }))} className="text-red-500 font-bold">전체 해제</button>
                         )}
                       </div>
                     </div>
