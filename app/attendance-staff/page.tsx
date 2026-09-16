@@ -541,10 +541,17 @@ function StaffAttendancePage() {
         {[
           { k: "attendance", label: "⏱️ 출퇴근·근태" },
           { k: "leave",      label: "🌴 휴가 신청" },
+          { k: "vehicle",    label: "🚗 차량운행일지" },
           { k: "expense",    label: "💸 지출·경비" },
           { k: "board",      label: "📢 공지사항" },
+          { k: "tasks",      label: "📋 업무·프로젝트" },
         ].map(t => (
-          <button key={t.k} onClick={() => setTab(t.k as TabKey)}
+          // ✅ v3.60.0: 차량/업무 탭은 전용 페이지로 이동 (6개 메뉴 한 곳에서 접근)
+          <button key={t.k} onClick={() => {
+            if (t.k === "vehicle") { window.location.href = "/vehicles"; return; }
+            if (t.k === "tasks") { window.location.href = "/tasks"; return; }
+            setTab(t.k as TabKey);
+          }}
             className={`px-4 md:px-5 py-2 rounded-xl text-sm transition-all ${
               tab === t.k
                 ? "bg-white shadow-sm font-bold text-blue-600"
