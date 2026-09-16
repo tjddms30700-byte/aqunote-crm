@@ -890,16 +890,18 @@ const FORM_SECTION_DEFS: { title: string; icon: string; keys: string[] }[] = [
 function formatFormValue(key: string, raw: any): string | null {
   if (raw === null || raw === undefined || raw === "") return null;
   if (Array.isArray(raw) && raw.length === 0) return null;
-  if (Array.isArray(raw)) return raw.join(", ");
-  if (typeof raw === "boolean") return raw ? "✅ 동의함" : "미동의";
-  if (key === "nrs_score" || key === "pain_scale") return `${raw}점`;
+  // ✅ v3.59.0: 키별 특수 변환을 배열 join 보다 먼저 실행
+  //   (기존: 배열이 먼저 join 돼서 pain_areas 가 'neck_front, shoulder_l' 같은 영어 코드로 표시되던 버그)
+  if (key === "pain_areas") return labelGroundParts(raw);
   if (key === "gender") {
     const g = String(raw).toLowerCase();
     return ["female", "f", "여", "여자", "여성"].includes(g) ? "여성"
       : ["male", "m", "남", "남자", "남성"].includes(g) ? "남성" : String(raw);
   }
   if (key === "member_type") return raw === "child" ? "아동" : "성인";
-  if (key === "pain_areas") return labelGroundParts(raw);
+  if (key === "nrs_score" || key === "pain_scale") return `${raw}점`;
+  if (Array.isArray(raw)) return raw.join(", ");
+  if (typeof raw === "boolean") return raw ? "✅ 동의함" : "미동의";
   return String(raw);
 }
 

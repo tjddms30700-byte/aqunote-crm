@@ -371,21 +371,72 @@ export default function ApplyChildPage() {
                     ⚠️ 토요일은 <strong>모든 시간대가 현재 운영하고 있지 않습니다.</strong> 추후 오픈 시 수업을 원하시는 분만 시간대를 선택해 주세요.
                   </div>
                 )}
-                <div className="grid grid-cols-2 gap-2">
-                  {TIME_SLOTS.map(t => {
-                    // v3.20.27: 토요일만 선택된 경우 모든 시간대가 미운영, 그 외에는 오전 3개 타임만 미운영
-                    const satSelected = form.wish_days.includes("토") && !form.wish_days.some((d: string) => d !== "토");
-                    const unavailable = UNAVAILABLE_TIMES.includes(t) || satSelected;
-                    return (
-                      <button key={t} type="button" onClick={() => toggleArray("wish_time_slots", t)}
-                        className={`py-2 px-2 rounded-lg border-2 text-sm relative ${form.wish_time_slots.includes(t) ? "bg-purple-500 border-purple-500 text-white" : unavailable ? "border-red-200 text-red-500 bg-red-50/40 hover:border-red-300" : "border-gray-200 text-gray-700 hover:border-purple-300"}`}>
-                        {t}
-                        {unavailable && <span className="absolute -top-1 -right-1 text-[8px] bg-red-500 text-white rounded-full px-1">미운영</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="text-[11px] text-red-700 mt-1">※ 10시, 11시 10분, 12시 20분 타임 <strong>및 토요일 전 시간대</strong>는 미운영 상태이며 추후 오픈 시 수업을 원하시는 분만 선택해 주세요.</div>
+                
+                {/* ✅ v3.59.0: 요일별 시간 그리드 — 시간표 보듯 요일 컬럼 x 시간 행에서 개별 선택 */}
+                {/*   기존: 요일과 시간대를 따로 선택 -> '월요일은 이 시간' 지정 불가 */}
+                {/*   저장: wish_time_slots = ["월 15:50", ...] 형태 (기존 매칭 로직과 호환) */}
+                {(() => {
+                  const SLOT_STARTS = ["10:00", "11:10", "12:20", "13:30", "14:40", "15:50", "17:00", "18:10", "19:20", "20:30"];
+                  const picked = new Set(form.wish_time_slots);
+                  const toggleCell = (day: string, tm: string) => {
+                    const key = day + " " + tm;
+                    const next = picked.has(key)
+                      ? form.wish_time_slots.filter((x: string) => x !== key)
+                      : [...form.wish_time_slots, key];
+                    update("wish_time_slots", next);
+                  };
+                  const satOnly = form.wish_days.includes("토") && !form.wish_days.some((d: string) => d !== "토");
+                  return (
+                    <div className="border-2 border-gray-200 rounded-xl overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="bg-purple-50">
+                              <th className="p-2 text-gray-500 font-medium w-14">시간</th>
+                              {DAYS.map(d => (
+                                <th key={d} className={"p-2 font-bold " + (form.wish_days.includes(d) ? "text-purple-700 bg-purple-100" : "text-gray-400")}>{d}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {SLOT_STARTS.map(tm => {
+                              const tmUnavailable = UNAVAILABLE_TIMES.some(u => u.startsWith(tm));
+                              return (
+                                <tr key={tm} className="border-t border-gray-100">
+                                  <td className="p-1.5 text-gray-500 font-medium text-center">{tm}</td>
+                                  {DAYS.map(d => {
+                                    const key = d + " " + tm;
+                                    const on = picked.has(key);
+                                    const unavailable = tmUnavailable || d === "토" || satOnly;
+                                    return (
+                                      <td key={d} className="p-0.5">
+                                        <button type="button" onClick={() => toggleCell(d, tm)}
+                                          className={"w-full py-1.5 rounded border text-[10px] font-bold transition " + (
+                                            on ? "bg-purple-500 border-purple-500 text-white"
+                                              : unavailable ? "border-red-100 bg-red-50/40 text-red-300 hover:border-red-300"
+                                              : "border-gray-200 hover:border-purple-300 hover:bg-purple-50"
+                                          )}>
+                                          {on ? "✓" : ""}
+                                        </button>
+                                      </td>
+                                    );
+                                  })}
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="px-3 py-2 bg-gray-50 text-[10px] text-gray-500 flex items-center justify-between">
+                        <span>선택된 칸: <b className="text-purple-600">{form.wish_time_slots.length}개</b> · 칸을 눌러 요일별로 원하는 시간을 고르세요</span>
+                        {form.wish_time_slots.length > 0 && (
+                          <button type="button" onClick={() => update("wish_time_slots", [])} className="text-red-500 font-bold">전체 해제</button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+                <div className="text-[11px] text-red-700 mt-1">※ 10시, 11시 10분, 12시 20분 타임 및 토요일 전 시간대는 미운영 상태이며 추후 오픈 시 수업을 원하시는 분만 선택해 주세요.</div>
               </div>
 
               <Field label="희망 시작일 (선택)" type="date" value={form.wish_start_date}

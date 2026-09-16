@@ -1159,68 +1159,6 @@ export default function MemberDetail() {
             <div className="border-t border-aqu-100 pt-4">
               <div className="flex items-center justify-between mb-3">
                 <h4 className="text-sm font-bold text-aqu-900">📋 상세 정보</h4>
-                {/* ✅ v3.12.3: 상담폼에서 자동 채우기 버튼 */}
-                {member?.extra?.consult_form && (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      // ✅ v3.55.0: 확인=빈칸만 채우기 / 취소=전부 덮어쓰기
-                      const fillEmptyOnly = confirm(
-                        "상담폼 데이터로 상세 정보 + 희망 시간대를 자동 채웁니다.\n\n✅ 확인: 비어있는 칸만 채우기 (기존 값 보존)\n🔄 취소: 상담폼 내용으로 전부 덮어쓰기 (폼 그대로 반영)"
-                      );
-                      // 두 번째 확인창: 덮어쓰기는 한 번 더 확인, ESC 2번이면 중단
-                      if (!fillEmptyOnly) {
-                        if (!confirm("⚠️ 기존에 입력된 상세 정보가 모두 상담폼 내용으로 바뀝니다.\n계속할까요?")) return;
-                      }
-                      try {
-                        const { mapConsultFormToMemberInfo, mergeMappedInfo, extractWishFieldsForMember } = await import("@/lib/consultFormMapper");
-                        const consultForm = member?.extra?.consult_form || {};
-                        const mapped = mapConsultFormToMemberInfo(consultForm, member?.member_type);
-                        const merged = mergeMappedInfo(extInfo, mapped, fillEmptyOnly ? "fill_empty" : "overwrite");
-                        setExtInfo(merged);
-
-                        // ✅ v3.13.11: 희망 요일/시간대 자동 파싱 + 즉시 저장
-                        const parsedWish = extractWishFieldsForMember(consultForm);
-                        const wishPatch: any = {};
-                        // 기존 값이 비어있을 때만 채우기 (수정한 값 보존)
-                        // ✅ v3.55.0: 덮어쓰기 모드면 희망 일정도 폼 그대로 반영
-                        if (parsedWish.wish_days && (fillEmptyOnly ? (!member.wish_days || member.wish_days.length === 0) : true)) {
-                          wishPatch.wish_days = parsedWish.wish_days;
-                        }
-                        if (parsedWish.wish_time_slots && (fillEmptyOnly ? (!member.wish_time_slots || member.wish_time_slots.length === 0) : true)) {
-                          wishPatch.wish_time_slots = parsedWish.wish_time_slots;
-                        }
-
-                        // 진단명도 extra에 보완 (기존이 비어있을 때만)
-                        let newExtra = member.extra || {};
-                        let extraChanged = false;
-                        if (mapped.diagnosis && !member?.extra?.diagnosis) {
-                          newExtra = { ...newExtra, diagnosis: mapped.diagnosis };
-                          extraChanged = true;
-                        }
-
-                        // 통합 저장 (wish + extra)
-                        const updatePayload: any = { ...wishPatch };
-                        if (extraChanged) updatePayload.extra = newExtra;
-                        if (Object.keys(updatePayload).length > 0) {
-                          await supabase.from("members").update(updatePayload).eq("id", member.id);
-                          setMember({ ...member, ...updatePayload });
-                        }
-
-                        const summary: string[] = [];
-                        summary.push(fillEmptyOnly ? "상세 정보가 매핑되었습니다 (빈 칸만 채움)" : "상세 정보가 상담폼 내용으로 교체되었습니다 (폼 그대로)");
-                        if (wishPatch.wish_days) summary.push(`희망 요일 ${wishPatch.wish_days.length}개 자동 저장 (${wishPatch.wish_days.join(", ")})`);
-                        if (wishPatch.wish_time_slots) summary.push(`희망 시간 ${wishPatch.wish_time_slots.length}개 자동 저장`);
-                        summary.push("검토 후 [상세 정보 저장] 버튼으로 마무리해주세요.");
-                        alert("✅ " + summary.join("\n• "));
-                      } catch (e: any) {
-                        alert("자동 채우기 실패: " + (e?.message || e));
-                      }
-                    }}
-                    className="text-xs px-3 py-1.5 rounded-lg bg-gradient-to-br from-purple-500 to-indigo-500 text-white font-semibold hover:opacity-90 shadow-sm flex items-center gap-1"
-                    title="상담폼(네이버폼/구글폼)에서 수집한 데이터로 자동 채움 + 희망시간대 생성">
-                    🔄 상담폼에서 자동 채우기
-                  </button>
                 )}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -3381,12 +3319,6 @@ function ConsultationChartPanel({ memberId, member, painMap, setPainMap, sensati
               <option value="adult">👤 성인 차트</option>
               <option value="child">🧒 아동 차트</option>
             </select>
-            {/* ✅ v3.15.3: 상담폼에서 자동 채우기 */}
-            <button onClick={() => autoFillFromConsultForm(false)} disabled={autofilling}
-              className="px-3 py-1.5 bg-gradient-to-r from-yellow-400 to-amber-500 hover:from-yellow-500 hover:to-amber-600 text-white rounded-lg text-sm font-bold shadow-sm disabled:opacity-50 flex items-center gap-1"
-              title="상담폼(유입 데이터)에서 빈 필드를 자동으로 채웁니다">
-              {autofilling ? "생성 중..." : "✨ 상담폼 → 자동채우기"}
-            </button>
             <a href={`/members/${memberId}/chart-print`} target="_blank" rel="noopener noreferrer"
               className="px-4 py-1.5 bg-white border border-blue-300 text-blue-700 rounded-lg text-sm hover:bg-blue-50">
               📄 A4
@@ -3813,10 +3745,6 @@ function ConsultFormEmbedded({ member, onImport }: { member: any; onImport: () =
           </div>
         </div>
         <div className="flex gap-2">
-          <button onClick={onImport}
-            className="px-3 py-1.5 bg-gradient-to-r from-yellow-400 to-amber-500 hover:from-yellow-500 hover:to-amber-600 text-white rounded-lg text-xs font-bold shadow-sm flex items-center gap-1">
-            ✨ 자동채우기
-          </button>
           <button onClick={() => setExpanded(!expanded)}
             className="px-3 py-1.5 bg-white border border-amber-300 text-amber-800 rounded-lg text-xs">
             {expanded ? "접기" : "자세히 보기"}
