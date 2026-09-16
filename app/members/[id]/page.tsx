@@ -2,6 +2,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { pickFifoMembership, fifoSort, remainingOf, recalcMemberFifo } from "@/lib/membershipFifo";  // ✅ v3.48.0: FIFO 차감/재계산
+import { buildFormRawRows } from "@/lib/consultFormMapper";  // ✅ v3.58.0: 신청폼 원본 그대로 보기
 import { recommendIepGoals, detectBehaviors } from "@/lib/sessionAnalyzer";
 import IepGoalLibraryBrowser from "@/components/IepGoalLibraryBrowser";
 // ✅ v3.45.3: ReportFallbackPreview는 SSR 우회를 위해 dynamic import로 아래에서 로드
@@ -938,6 +939,34 @@ export default function MemberDetail() {
       <div className="aqu-card bg-white shadow-md border border-aqu-100 p-6" style={{ borderRadius: "20px" }}>
         {tab === "info" && (
           <div className="space-y-6">
+            {/* ✅ v3.58.0: 회원 메모를 최상단으로 이동 - 실무에서 가장 자주 쓰는 입력창 */}
+            {/* 회원 메모 섹션 */}
+            <div className="border-t border-aqu-100 pt-4">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-aqu-900 flex items-center gap-1">
+                  📝 회원 메모
+                </label>
+                <span className="text-xs text-gray-400">{(memberMemo || "").length}자</span>
+              </div>
+              <textarea
+                value={memberMemo}
+                onChange={(e) => setMemberMemo(e.target.value)}
+                rows={5}
+                placeholder="이 회원에 대한 자유 메모를 남기세요.
+
+예시:
+- 매주 화요일 15시 정기 방문
+- 물을 무서워하니 천천히 진행
+- 조부모님이 데려오심 (대기실 있음)
+- 특정 코치 선호"
+                className="w-full p-3 rounded-lg border border-aqu-200 text-sm bg-yellow-50/30"
+              />
+              <button onClick={saveMemberMemo}
+                className="mt-2 px-4 py-2 bg-aqu-600 text-white rounded-lg text-sm hover:bg-aqu-700 flex items-center gap-1">
+                <Save className="w-4 h-4" /> 메모 저장
+              </button>
+            </div>
+
             {/* 기본 정보 - 회원유형/이름/연락처 수정 가능 */}
             <div className="bg-aqu-50/30 border border-aqu-100 rounded-xl p-4">
               <div className="flex items-center justify-between mb-3">
@@ -1003,6 +1032,31 @@ export default function MemberDetail() {
                       }}
                     />
                   </div>
+
+                  {/* ✅ v3.58.0: 신청폼 원본 그대로 보기 (수중/지상 폼 공통) */}
+                  {(() => {
+                    const cf = (member?.extra?.consult_form || {}) as any;
+                    const rows = buildFormRawRows(cf);
+                    if (rows.length === 0) return null;
+                    return (
+                      <div className="mt-4 bg-emerald-50/50 border border-emerald-200 rounded-xl p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <h5 className="text-sm font-bold text-emerald-900">📋 신청폼 원본 그대로</h5>
+                          <span className="text-[10px] text-emerald-600 bg-white px-2 py-0.5 rounded-full border border-emerald-200">
+                            {(member as any)?.service_track === "ground" ? "🏋️‍♂️ 지상재활 신청폼" : "🌊 수중재활 신청폼"}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1.5">
+                          {rows.map((r, i) => (
+                            <div key={i} className="flex items-start gap-2 text-xs">
+                              <span className="font-semibold text-emerald-800 whitespace-nowrap min-w-[90px]">{r.label}</span>
+                              <span className="text-slate-700 whitespace-pre-wrap break-all">{r.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1184,32 +1238,7 @@ export default function MemberDetail() {
               {extSaveStatus && <span className="ml-2 text-xs text-aqu-600">{extSaveStatus}</span>}
             </div>
 
-            {/* 회원 메모 섹션 */}
-            <div className="border-t border-aqu-100 pt-4">
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-medium text-aqu-900 flex items-center gap-1">
-                  📝 회원 메모
-                </label>
-                <span className="text-xs text-gray-400">{(memberMemo || "").length}자</span>
-              </div>
-              <textarea
-                value={memberMemo}
-                onChange={(e) => setMemberMemo(e.target.value)}
-                rows={5}
-                placeholder="이 회원에 대한 자유 메모를 남기세요.
 
-예시:
-- 매주 화요일 15시 정기 방문
-- 물을 무서워하니 천천히 진행
-- 조부모님이 데려오심 (대기실 있음)
-- 특정 코치 선호"
-                className="w-full p-3 rounded-lg border border-aqu-200 text-sm bg-yellow-50/30"
-              />
-              <button onClick={saveMemberMemo}
-                className="mt-2 px-4 py-2 bg-aqu-600 text-white rounded-lg text-sm hover:bg-aqu-700 flex items-center gap-1">
-                <Save className="w-4 h-4" /> 메모 저장
-              </button>
-            </div>
 
             {/* AI 종합 정리 섹션 */}
             <div className="border-t border-aqu-100 pt-4 mt-4">

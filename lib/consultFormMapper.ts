@@ -787,3 +787,69 @@ export function hasFillableData(form: ConsultFormRaw | null | undefined): boolea
     return v !== null && v !== undefined && String(v).trim() !== "";
   });
 }
+
+// ═══════════════════════════════════════════════════════════
+// ✅ v3.58.0: 신청폼 원본 그대로 보기용 - 필드 라벨 맵 + 렌더링 유틸
+//   회원카드 기본정보 탭에서 consult_form 내용을 폼과 동일한 항목명으로 전부 표시
+// ═══════════════════════════════════════════════════════════
+
+/** 공통 + 지상/수중 신청폼 필드 라벨 (key → 화면 표시명) */
+export const FORM_FIELD_LABELS: Record<string, string> = {
+  // 공통 기본 정보
+  name: "성함", child_name: "아동 이름", phone: "연락처", birth: "생년월일",
+  gender: "성별", address: "주소", member_type: "유형",
+  guardian_name: "보호자 성함", guardian_phone: "보호자 연락처", guardian_relation: "보호자 관계",
+  school: "학교/기관", institution: "이용기관", source: "유입경로", diagnosis: "진단명",
+  // 희망 스케줄
+  wish_days: "희망 요일", wish_time_slots: "희망 시간대", wish_time_text: "희망 시간대(자유기재)",
+  wish_time_grid: "희망 시간대(그리드)", wish_branch: "희망 지점", wish_start_date: "희망 시작일",
+  contact_time: "연락 가능 시간",
+  // 지상재활 특화
+  pain_areas: "통증/불편 부위", pain_area_other: "통증 부위 기타", nrs_score: "통증 점수(NRS)",
+  pain_onset: "통증 시작 시기", pain_triggers: "통증 발생 조건", pain_trigger_detail: "발생 조건 상세",
+  pain_quality: "증상 느낌", rehab_purpose: "재활 목적", rehab_purposes: "재활 목적(복수)",
+  safety_checks: "안전 사전 체크", lifestyle: "생활 습관", lifestyle_hobby: "운동/취미",
+  // 수중 성인/아동 폼
+  main_symptom: "주 증상", pain_area: "통증 부위", pain_scale: "통증 점수", pain_start: "통증 시작",
+  worsening_factor: "악화 요인", medical_history: "병력", surgery_history: "수술 이력",
+  medication: "복용 약", allergy: "알레르기", caution: "주의사항", special_notes: "특이사항",
+  treatment_history: "치료 이력", expected_change: "기대하는 변화", requests: "기타 요청사항",
+  height_weight: "키/체중", likes: "좋아하는 것", dislikes: "싫어하는 것", water_experience: "물 경험",
+  expected_goal: "기대 목표", current_institution: "현재 이용기관", siblings: "형제자매",
+  visit_reason: "방문 이유", memo: "메모",
+  // 동의
+  agree_privacy: "개인정보 동의", agree_sensitive: "민감정보 동의", agree_medical: "의료정보 동의",
+};
+
+/** 표시에서 제외할 내부 메타 키 */
+const INTERNAL_KEYS = new Set([
+  "_source", "_restored_at", "_lead_id", "_promoted_from_lead", "_promoted_at",
+  "_created_at", "service_track", "org_id", "branch_id", "lead_id",
+]);
+
+/** 신청폼 원본을 {라벨, 값} 배열로 변환 (빈 값 제외, 배열/불리언 정리) */
+export function buildFormRawRows(form: ConsultFormRaw | null | undefined): { label: string; value: string }[] {
+  if (!form || typeof form !== "object") return [];
+  const rows: { label: string; value: string }[] = [];
+  for (const [key, raw] of Object.entries(form)) {
+    if (INTERNAL_KEYS.has(key)) continue;
+    if (raw === null || raw === undefined || raw === "") continue;
+    if (Array.isArray(raw) && raw.length === 0) continue;
+    let value: string;
+    if (Array.isArray(raw)) value = raw.join(", ");
+    else if (typeof raw === "boolean") value = raw ? "✅ 동의함" : "미동의";
+    else if (key === "nrs_score" || key === "pain_scale") value = `${raw}점`;
+    else if (key === "gender") {
+      const g = String(raw).toLowerCase();
+      value = ["female", "f", "여", "여자", "여성"].includes(g) ? "여성"
+        : ["male", "m", "남", "남자", "남성"].includes(g) ? "남성" : String(raw);
+    } else if (key === "member_type") {
+      value = raw === "child" ? "아동" : "성인";
+    } else if (key === "pain_areas") {
+      value = labelGroundParts(raw);  // 바디맵 키 → 한글 부위명
+    } else value = String(raw);
+    rows.push({ label: FORM_FIELD_LABELS[key] || key, value });
+  }
+  return rows;
+}
+

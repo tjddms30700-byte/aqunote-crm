@@ -314,9 +314,11 @@ export default function GroundConsultationPage() {
 
       // 화이트리스트 재시도 (없는 컬럼 자동 제거)
       let attempt = payload;
+      let leadSaved = false;
+      let leadId: string | null = null;
       for (let i = 0; i < 10; i++) {
-        const { error } = await supabase.from("leads_inbox").insert(attempt);
-        if (!error) { setDone(true); break; }
+        const { data: leadRow, error } = await supabase.from("leads_inbox").insert(attempt).select().maybeSingle();
+        if (!error) { leadSaved = true; leadId = (leadRow as any)?.id || null; break; }
         const m = error.message.match(/Could not find the '([^']+)' column/);
         if (m && m[1] && attempt[m[1]] !== undefined) {
           const { [m[1]]: _drop, ...rest } = attempt;
@@ -326,6 +328,76 @@ export default function GroundConsultationPage() {
         alert("접수 실패: " + error.message);
         break;
       }
+      if (!leadSaved) return;
+
+      // ✅ v3.58.0: 지상폼도 members 테이블에 즉시 직행 (수중 apply API와 동일 구조)
+      //   기존 버그: leads_inbox 에만 저장되고 members INSERT가 없어 신규 탭에서 사라지던 문제 근본 수정
+      try {
+        const normGender = (v: any): string | null => {
+          const s2 = String(v || "").trim().toLowerCase();
+          if (!s2) return null;
+          if (["female", "f", "여", "여자", "여성"].includes(s2)) return "여";
+          if (["male", "m", "남", "남자", "남성"].includes(s2)) return "남";
+          return String(v);
+        };
+        // 본점(head) 지점 자동 배정
+        let branchId: string | null = null;
+        try {
+          const { data: brs } = await supabase.from("branches").select("id, branch_type").is("deleted_at", null);
+          const head = (brs || []).find((b: any) => b.branch_type === "head") || (brs || [])[0];
+          branchId = head?.id || null;
+        } catch {}
+
+        const memberPayload: any = {
+          org_id: orgId,
+          name: form.name.trim(),
+          phone: form.phone.trim(),
+          birth: form.birth || null,
+          gender: normGender(form.gender),
+          address: form.address || null,
+          guardian_name: form.guardian_name || null,
+          guardian_phone: form.guardian_phone || null,
+          member_type: form.member_type,
+          status: "new",
+          source: "web_ground",
+          service_track: "ground",
+          service_tags: ["ground"],
+          branch_id: branchId,
+          pain_areas: form.pain_areas.length > 0 ? form.pain_areas : null,
+          nrs_score: form.nrs_score || null,
+          rehab_purpose: form.rehab_purpose || null,
+          wish_days: form.wish_days.length > 0 ? form.wish_days : null,
+          wish_time_slots: (form.wish_time_grid.length > 0 || form.wish_time_text)
+            ? [...form.wish_time_grid, ...(form.wish_time_text ? [form.wish_time_text] : [])]
+            : null,
+          extra: {
+            consult_form: { ...payload.raw_payload, _lead_id: leadId },
+            _promoted_from_lead: leadId,
+          },
+        };
+        let mAttempt: any = { ...memberPayload };
+        Object.keys(mAttempt).forEach(k => { if (mAttempt[k] === null || mAttempt[k] === undefined) delete mAttempt[k]; });
+        let memberId: string | null = null;
+        for (let i = 0; i < 15; i++) {
+          const { data: mRow, error: mErr } = await supabase.from("members").insert(mAttempt).select().maybeSingle();
+          if (!mErr) { memberId = (mRow as any)?.id || null; break; }
+          const mm = (mErr.message || "").match(/column "([^"]+)"|Could not find the '([^']+)'/i);
+          const col = mm?.[1] || mm?.[2];
+          if (col && col in mAttempt) { delete mAttempt[col]; continue; }
+          console.error("[v3.58.0] members 직행 INSERT 실패:", mErr.message);
+          break;
+        }
+        if (memberId && leadId) {
+          try {
+            await supabase.from("leads_inbox").update({ promoted_member_id: memberId }).eq("id", leadId);
+          } catch {}
+        }
+        console.log("[v3.58.0] ✅ 지상 신규 회원 직행 완료:", memberId);
+      } catch (e) {
+        console.warn("[v3.58.0] members 직행 실패 (leads_inbox 백업은 저장됨):", e);
+      }
+
+      setDone(true);
     } finally {
       setSaving(false);
     }
