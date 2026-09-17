@@ -327,6 +327,58 @@ function FinancePage() {
   }
 
   // 월별 필터 (취소 결제 제외, 부분 환불액 차감)
+  // ✅ v3.62.0: 지출예정 체크리스트 (expense_plans 테이블, 없으면 localStorage 폴백)
+  // 💡 Supabase SQL: CREATE TABLE expense_plans (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), org_id UUID, title TEXT NOT NULL, amount NUMERIC DEFAULT 0, due_date DATE, done BOOLEAN DEFAULT false, created_at TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE expense_plans ENABLE ROW LEVEL SECURITY; CREATE POLICY expense_plans_all ON expense_plans FOR ALL USING (true) WITH CHECK (true);
+  const [expensePlans, setExpensePlans] = useState<any[]>([]);
+  const [plansOffline, setPlansOffline] = useState(false);
+  const [planForm, setPlanForm] = useState({ title: "", amount: "", due_date: "" });
+  useEffect(() => { loadExpensePlans(); }, []);
+  async function loadExpensePlans() {
+    const { data, error } = await supabase.from("expense_plans").select("*").order("created_at", { ascending: false });
+    if (error) {
+      setPlansOffline(true);
+      try { setExpensePlans(JSON.parse(localStorage.getItem("aqunote_expense_plans") || "[]")); } catch { setExpensePlans([]); }
+      return;
+    }
+    setExpensePlans(data || []);
+  }
+  function savePlansLocal(list: any[]) {
+    setExpensePlans(list);
+    try { localStorage.setItem("aqunote_expense_plans", JSON.stringify(list)); } catch {}
+  }
+  async function addExpensePlan() {
+    if (!planForm.title.trim()) { alert("항목명을 입력하세요"); return; }
+    const row: any = { title: planForm.title.trim(), amount: Number(planForm.amount) || 0, due_date: planForm.due_date || null, done: false };
+    if (plansOffline) {
+      savePlansLocal([{ ...row, id: "local-" + Date.now(), created_at: new Date().toISOString() }, ...expensePlans]);
+    } else {
+      const { data, error } = await supabase.from("expense_plans").insert(row).select().single();
+      if (error) { setPlansOffline(true); savePlansLocal([{ ...row, id: "local-" + Date.now(), created_at: new Date().toISOString() }, ...expensePlans]); }
+      else setExpensePlans([data, ...expensePlans]);
+    }
+    setPlanForm({ title: "", amount: "", due_date: "" });
+  }
+  async function toggleExpensePlan(p: any) {
+    const nv = !p.done;
+    if (plansOffline || String(p.id).startsWith("local-")) {
+      savePlansLocal(expensePlans.map(x => x.id === p.id ? { ...x, done: nv } : x));
+    } else {
+      await supabase.from("expense_plans").update({ done: nv }).eq("id", p.id);
+      setExpensePlans(expensePlans.map(x => x.id === p.id ? { ...x, done: nv } : x));
+    }
+  }
+  async function deleteExpensePlan(p: any) {
+    if (!confirm(`'${p.title}' 항목을 삭제할까요?`)) return;
+    if (plansOffline || String(p.id).startsWith("local-")) {
+      savePlansLocal(expensePlans.filter(x => x.id !== p.id));
+    } else {
+      await supabase.from("expense_plans").delete().eq("id", p.id);
+      setExpensePlans(expensePlans.filter(x => x.id !== p.id));
+    }
+  }
+  const planTotal = expensePlans.reduce((s, p) => s + Number(p.amount || 0), 0);
+  const planDoneTotal = expensePlans.filter(p => p.done).reduce((s, p) => s + Number(p.amount || 0), 0);
+
   const monthPayments = payments.filter((p) => p.status !== "cancelled" && p.paid_at?.startsWith(selectedMonth));
   const monthExpenses = expenses.filter((e) => e.spent_at?.startsWith(selectedMonth));
   const monthPayroll = payroll.filter((p) => p.pay_month === selectedMonth);
@@ -557,6 +609,44 @@ function FinancePage() {
           </Link>
         </div>
       )}
+
+            {/* ✅ v3.62.0: 지출예정 체크리스트 */}
+      <div className="bg-white rounded-2xl border border-amber-100 shadow-sm p-5 mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <h3 className="font-bold text-amber-900">✅ 지출예정 체크리스트 ({expensePlans.length}건)</h3>
+          <div className="flex gap-3 text-[11px]">
+            <span className="text-slate-500">예정 <b className="text-slate-800">₩{planTotal.toLocaleString()}</b></span>
+            <span className="text-emerald-600">완료 <b>₩{planDoneTotal.toLocaleString()}</b></span>
+            <span className="text-amber-600">잔여 <b>₩{(planTotal - planDoneTotal).toLocaleString()}</b></span>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2 mb-3">
+          <input value={planForm.title} onChange={e => setPlanForm({ ...planForm, title: e.target.value })} placeholder="항목명 (예: 수영장 약품)"
+            className="flex-1 min-w-[160px] border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-amber-400" />
+          <input value={planForm.amount} onChange={e => setPlanForm({ ...planForm, amount: e.target.value.replace(/[^0-9]/g, "") })} placeholder="금액" inputMode="numeric"
+            className="w-28 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-amber-400" />
+          <input type="date" value={planForm.due_date} onChange={e => setPlanForm({ ...planForm, due_date: e.target.value })}
+            className="border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-amber-400" />
+          <button onClick={addExpensePlan} className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-bold">+ 추가</button>
+        </div>
+        {expensePlans.length === 0 ? (
+          <div className="text-center py-5 text-xs text-slate-400">예정된 지출이 없습니다. 임대료·약품·공과금 등 지출 예정 항목을 등록하고 완료 체크하세요.</div>
+        ) : (
+          <div className="divide-y divide-slate-50">
+            {expensePlans.map((p: any) => (
+              <div key={p.id} className={`flex items-center gap-3 py-2 ${p.done ? "opacity-50" : ""}`}>
+                <input type="checkbox" checked={!!p.done} onChange={() => toggleExpensePlan(p)} className="w-4 h-4 accent-amber-500 cursor-pointer" />
+                <div className="flex-1 min-w-0">
+                  <span className={`text-sm font-semibold ${p.done ? "line-through text-slate-400" : "text-slate-800"}`}>{p.title}</span>
+                  {p.due_date && <span className="ml-2 text-[10px] text-slate-400">📅 {p.due_date}</span>}
+                </div>
+                <span className={`text-sm font-bold ${p.done ? "text-slate-400" : "text-amber-600"}`}>₩{Number(p.amount || 0).toLocaleString()}</span>
+                <button onClick={() => deleteExpensePlan(p)} className="text-slate-300 hover:text-rose-500 text-xs">✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* ✅ v3.20.19: 이번달 수입 이력 (지원금·대출·기타) */}
       <div className="bg-white rounded-2xl shadow-md border border-emerald-100 overflow-hidden mb-4">

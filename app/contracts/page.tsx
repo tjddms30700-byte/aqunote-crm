@@ -57,6 +57,9 @@ function ContractsPage() {
   // ✅ v3.61.0: 전자서명 링크 대상 선택 (자동입력)
   const [signMemberId, setSignMemberId] = useState("");
   const [signStaffId, setSignStaffId] = useState("");
+  // ✅ v3.61.1: 대상 검색어
+  const [signMemberQ, setSignMemberQ] = useState("");
+  const [signStaffQ, setSignStaffQ] = useState("");
   // ✅ v3.39.3: 관리자 설정 페이지(/settings/programs)의 이용 프로그램 목록 로드
   const [servicePrograms, setServicePrograms] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1288,6 +1291,110 @@ function ContractsPage() {
           <KPI label="이번달"     val={stats.thisMonth} icon="📅" color="text-emerald-700" />
         </div>
 
+        {/* ✅ v3.62.0: 전자서명 링크 보내기 — 검색으로 대상 선택 (드롭다운 제거) */}
+        <div className="no-print bg-blue-50/70 border border-blue-100 rounded-2xl p-4 mb-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Link2 className="w-4 h-4 text-blue-600" />
+            <span className="text-sm font-bold text-slate-800">전자서명 링크 보내기</span>
+            <span className="text-[11px] text-slate-500">이름을 검색해 클릭하면 정보가 자동 입력된 링크가 만들어집니다</span>
+          </div>
+          <div className="grid md:grid-cols-2 gap-3">
+            {/* 👥 회원용 */}
+            <div className="bg-white rounded-xl border border-purple-100 p-3">
+              <div className="text-xs font-bold text-purple-700 mb-2">👥 회원용 계약서</div>
+              {signMemberId ? (() => {
+                const m = members.find((x: any) => x.id === signMemberId);
+                const cf = m?.extra?.consult_form || {};
+                const auto = m ? [m.name, m.phone || cf.phone, m.birth || cf.birth, m.address || cf.address, (m.guardian_name || cf.guardian_name) && `보호자 ${m.guardian_name || cf.guardian_name}`].filter(Boolean) : [];
+                return (
+                  <div className="mb-2 flex items-center justify-between gap-2 bg-purple-50 border border-purple-200 rounded-lg px-2.5 py-2">
+                    <div className="text-[11px] leading-relaxed text-purple-800">
+                      <b>{m?.name || "선택됨"}</b>
+                      <div className="text-[10px] text-purple-600">✨ 자동 입력: {auto.slice(1).join(" · ") || "성명만 입력됨"}</div>
+                    </div>
+                    <button onClick={() => { setSignMemberId(""); setSignMemberQ(""); }} className="shrink-0 text-purple-400 hover:text-purple-700"><X className="w-4 h-4" /></button>
+                  </div>
+                );
+              })() : (
+                <>
+                  <input value={signMemberQ} onChange={e => setSignMemberQ(e.target.value)} placeholder="🔍 회원 이름·연락처 검색 (미선택 시 직접 입력 링크)"
+                    className="w-full mb-1.5 border border-purple-200 rounded-lg px-2.5 py-2 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-purple-400" />
+                  {signMemberQ.trim() && (
+                    <div className="mb-2 max-h-44 overflow-y-auto border border-purple-100 rounded-lg divide-y divide-purple-50 bg-white">
+                      {members.filter((m: any) => {
+                        const q = signMemberQ.trim(); const qd = q.replace(/-/g, "");
+                        return (m.name || "").includes(q) || (m.phone || "").replace(/-/g, "").includes(qd);
+                      }).slice(0, 8).map((m: any) => (
+                        <button key={m.id} onClick={() => { setSignMemberId(m.id); setSignMemberQ(""); }}
+                          className="w-full text-left px-2.5 py-1.5 text-xs hover:bg-purple-50 flex items-center justify-between">
+                          <span className="font-semibold text-slate-800">{m.name}{m._badge ? <span className="ml-1 text-[10px] text-purple-500">({m._badge})</span> : null}</span>
+                          <span className="text-[10px] text-slate-400">{m.phone || ""}</span>
+                        </button>
+                      ))}
+                      {members.filter((m: any) => { const q = signMemberQ.trim(); const qd = q.replace(/-/g, ""); return (m.name || "").includes(q) || (m.phone || "").replace(/-/g, "").includes(qd); }).length === 0 && (
+                        <div className="px-2.5 py-2 text-[11px] text-slate-400">검색 결과가 없습니다</div>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+              <div className="flex flex-wrap gap-1.5">
+                {CONTRACT_TYPES.filter(t => t.cat === "member").map(t => (
+                  <button key={t.v}
+                    onClick={() => {
+                      const target = signMemberId ? { kind: "member" as const, id: signMemberId, name: members.find((m: any) => m.id === signMemberId)?.name || "" } : undefined;
+                      copySignLink(t.v, target);
+                    }}
+                    className={`text-xs px-3 py-1.5 rounded-full border bg-white hover:shadow-sm transition-all ${t.color}`}>
+                    🔗 {t.l.replace(/^[^ ]+ /, "")}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/* 👨‍💼 직원용 */}
+            <div className="bg-white rounded-xl border border-blue-100 p-3">
+              <div className="text-xs font-bold text-blue-700 mb-2">👨‍💼 직원용 계약서</div>
+              {signStaffId ? (
+                <div className="mb-2 flex items-center justify-between gap-2 bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-2">
+                  <div className="text-[11px] text-blue-800"><b>{staffList.find((s: any) => s.id === signStaffId)?.name || "선택됨"}</b><span className="text-[10px] text-blue-500 ml-1">✨ 정보 자동 입력</span></div>
+                  <button onClick={() => { setSignStaffId(""); setSignStaffQ(""); }} className="shrink-0 text-blue-400 hover:text-blue-700"><X className="w-4 h-4" /></button>
+                </div>
+              ) : (
+                <>
+                  <input value={signStaffQ} onChange={e => setSignStaffQ(e.target.value)} placeholder="🔍 직원 이름 검색 (미선택 시 직접 입력 링크)"
+                    className="w-full mb-1.5 border border-blue-200 rounded-lg px-2.5 py-2 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                  {signStaffQ.trim() && (
+                    <div className="mb-2 max-h-44 overflow-y-auto border border-blue-100 rounded-lg divide-y divide-blue-50 bg-white">
+                      {staffList.filter((s: any) => (s.name || "").includes(signStaffQ.trim())).slice(0, 8).map((s: any) => (
+                        <button key={s.id} onClick={() => { setSignStaffId(s.id); setSignStaffQ(""); }}
+                          className="w-full text-left px-2.5 py-1.5 text-xs hover:bg-blue-50 flex items-center justify-between">
+                          <span className="font-semibold text-slate-800">{s.name}</span>
+                          <span className="text-[10px] text-slate-400">{s.role || ""}</span>
+                        </button>
+                      ))}
+                      {staffList.filter((s: any) => (s.name || "").includes(signStaffQ.trim())).length === 0 && (
+                        <div className="px-2.5 py-2 text-[11px] text-slate-400">검색 결과가 없습니다</div>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+              <div className="flex flex-wrap gap-1.5">
+                {CONTRACT_TYPES.filter(t => t.cat === "staff").map(t => (
+                  <button key={t.v}
+                    onClick={() => {
+                      const target = signStaffId ? { kind: "staff" as const, id: signStaffId, name: staffList.find((s: any) => s.id === signStaffId)?.name || "" } : undefined;
+                      copySignLink(t.v, target);
+                    }}
+                    className={`text-xs px-3 py-1.5 rounded-full border bg-white hover:shadow-sm transition-all ${t.color}`}>
+                    🔗 {t.l.replace(/^[^ ]+ /, "")}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* 필터 */}
         <div className="bg-white rounded-xl border border-emerald-100 p-3 mb-4 flex flex-wrap items-center gap-2">
           {(["all","staff","member","other"] as const).map(c => (
@@ -1409,63 +1516,6 @@ function ContractsPage() {
                       console.log("[v3.39.3] 계약서 재오픈:", c.id, "form_data 정규화 완료", safe.form_data);
                       setEditing(safe);
                     }} className="text-xs text-emerald-600 hover:text-emerald-800 mr-2">보기/편집</button>
-      {/* ✅ v3.61.0: 링크 기반 전자서명 — 회원용/직원용 분리 + 대상 선택 시 정보 자동입력 */}
-      <div className="no-print bg-blue-50/70 border border-blue-100 rounded-2xl p-4 mb-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Link2 className="w-4 h-4 text-blue-600" />
-          <span className="text-sm font-bold text-slate-800">전자서명 링크 보내기</span>
-          <span className="text-[11px] text-slate-500">대상을 선택하면 정보가 자동 입력된 링크가 만들어집니다</span>
-        </div>
-        <div className="grid md:grid-cols-2 gap-3">
-          {/* 회원용 */}
-          <div className="bg-white rounded-xl border border-purple-100 p-3">
-            <div className="text-xs font-bold text-purple-700 mb-2">👥 회원용 계약서</div>
-            <select value={signMemberId} onChange={e => setSignMemberId(e.target.value)}
-              className="w-full mb-2 border border-purple-200 rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-purple-400">
-              <option value="">대상 선택 없이 보내기 (직접 입력)</option>
-              {members.map((m: any) => (
-                <option key={m.id} value={m.id}>{m.name}{m.phone ? ` · ${m.phone}` : ""}{m._badge ? ` (${m._badge})` : ""}</option>
-              ))}
-            </select>
-            <div className="flex flex-wrap gap-1.5">
-              {CONTRACT_TYPES.filter(t => t.cat === "member").map(t => (
-                <button key={t.v}
-                  onClick={() => {
-                    const target = signMemberId ? { kind: "member" as const, id: signMemberId, name: members.find((m: any) => m.id === signMemberId)?.name || "" } : undefined;
-                    copySignLink(t.v, target);
-                  }}
-                  className={`text-xs px-3 py-1.5 rounded-full border bg-white hover:shadow-sm transition-all ${t.color}`}>
-                  🔗 {t.l.replace(/^[^ ]+ /, "")}
-                </button>
-              ))}
-            </div>
-          </div>
-          {/* 직원용 */}
-          <div className="bg-white rounded-xl border border-blue-100 p-3">
-            <div className="text-xs font-bold text-blue-700 mb-2">👨‍💼 직원용 계약서</div>
-            <select value={signStaffId} onChange={e => setSignStaffId(e.target.value)}
-              className="w-full mb-2 border border-blue-200 rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-400">
-              <option value="">대상 선택 없이 보내기 (직접 입력)</option>
-              {staffList.map((s: any) => (
-                <option key={s.id} value={s.id}>{s.name}{s.role ? ` · ${s.role}` : ""}</option>
-              ))}
-            </select>
-            <div className="flex flex-wrap gap-1.5">
-              {CONTRACT_TYPES.filter(t => t.cat === "staff").map(t => (
-                <button key={t.v}
-                  onClick={() => {
-                    const target = signStaffId ? { kind: "staff" as const, id: signStaffId, name: staffList.find((s: any) => s.id === signStaffId)?.name || "" } : undefined;
-                    copySignLink(t.v, target);
-                  }}
-                  className={`text-xs px-3 py-1.5 rounded-full border bg-white hover:shadow-sm transition-all ${t.color}`}>
-                  🔗 {t.l.replace(/^[^ ]+ /, "")}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
                     <button onClick={() => copySignLink(c.contract_type)} className="text-xs text-blue-500 hover:text-blue-700 mr-2" title="전자서명 링크 복사">
                       <Link2 className="w-3.5 h-3.5 inline" /> 링크
                     </button>
