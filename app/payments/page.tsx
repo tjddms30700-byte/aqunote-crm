@@ -185,6 +185,9 @@ export default function PaymentsPage() {
       member_id: "",
       plan_id: "",
       plan_name: "",
+      qty: 1,
+      _planBaseSessions: 0,
+      _planBasePrice: 0,
       sessions: 10,
       extra_sessions: 0,
       valid_days: 90,
@@ -212,19 +215,39 @@ export default function PaymentsPage() {
   function selectPlan(planId: string) {
     const p = plans.find((x: any) => x.id === planId);
     if (!p) {
-      setF({ ...f, plan_id: "", plan_name: "" });
+      setF({ ...f, plan_id: "", plan_name: "", qty: 1, _planBaseSessions: 0, _planBasePrice: 0 });
       return;
     }
     // ✅ v3.20.1: 회원권 선택 시 기본값만 자동 채움 → 사용자가 수동 수정 가능
+    // ✅ v3.63.0: 수량(qty)만큼 기본 횟수·금액을 곱해 자동 계산. 유효기간은 그대로 두고 여유 +15일 버퍼만 추가
+    const qty = Math.max(1, Number(f.qty) || 1);
     setF({
       ...f,
       plan_id: p.id,
       plan_name: p.name,
-      sessions: p.sessions,
+      qty,
+      _planBaseSessions: p.sessions,
+      _planBasePrice: p.price,
+      sessions: (p.sessions || 0) * qty,
       extra_sessions: 0,
-      valid_days: p.valid_days,
-      amount: p.price,
+      valid_days: (p.valid_days || 0) + 15,
+      amount: (p.price || 0) * qty,
     });
+  }
+
+  // ✅ v3.63.0: 수량 변경 시 선택된 회원권 기준(1개당 횟수·금액)으로 재계산. 유효기간은 변경하지 않음
+  function setQty(n: number) {
+    const qty = Math.max(1, Math.floor(Number(n)) || 1);
+    if (f._planBaseSessions || f._planBasePrice) {
+      setF({
+        ...f,
+        qty,
+        sessions: (f._planBaseSessions || 0) * qty,
+        amount: (f._planBasePrice || 0) * qty,
+      });
+    } else {
+      setF({ ...f, qty });
+    }
   }
 
   async function savePayment() {
@@ -1104,6 +1127,32 @@ function isPaymentCancelled(p: any, memberships?: any[]): boolean {
               </div>
             </Field>
 
+            {/* ✅ v3.63.0: 회원권 수량(몇 개 충전) 선택 — 기본 횟수·금액을 자동으로 배수 계산 */}
+            {f.plan_id && (
+              <Field label="수량 (몇 개 충전)">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button type="button" onClick={() => setQty((Number(f.qty) || 1) - 1)}
+                    className="w-8 h-8 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 font-bold">−</button>
+                  <input type="number" min={1} value={f.qty || 1}
+                    onChange={e => setQty(parseInt(e.target.value) || 1)}
+                    className="w-16 text-center px-2 py-2 border border-gray-200 rounded-lg text-sm font-bold focus:ring-2 focus:ring-aqu-400 focus:outline-none" />
+                  <button type="button" onClick={() => setQty((Number(f.qty) || 1) + 1)}
+                    className="w-8 h-8 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 font-bold">+</button>
+                  <div className="flex gap-1 ml-1">
+                    {[1, 2, 3, 4, 5, 10].map(n => (
+                      <button key={n} type="button" onClick={() => setQty(n)}
+                        className={`px-2 py-1 rounded text-xs font-semibold ${(Number(f.qty) || 1) === n ? "bg-aqu-500 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                        {n}개
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="text-[11px] text-gray-500 mt-1">
+                  회원권 1개 기준 정보에 수량을 곱해 기본 횟수·금액을 자동 계산합니다 (아래에서 직접 수정 가능 · 유효기간은 여유 +15일만 추가)
+                </div>
+              </Field>
+            )}
+
             <div className="grid grid-cols-4 gap-2">
               <Field label="이름">
                 <input type="text" value={f.plan_name} onChange={e => setF({ ...f, plan_name: e.target.value })}
@@ -1132,6 +1181,7 @@ function isPaymentCancelled(p: any, memberships?: any[]): boolean {
                 <div className="text-emerald-800">
                   📊 총 <b>{(Number(f.sessions) || 0) + (Number(f.extra_sessions) || 0)}회</b> 사용 가능
                   {Number(f.extra_sessions) > 0 && <span className="text-emerald-600"> (기본 {f.sessions} + 🎁서비스 {f.extra_sessions})</span>}
+                  {Number(f.qty) > 1 && Number(f._planBaseSessions) > 0 && <span className="text-cyan-600"> · {f._planBaseSessions}회권 × {f.qty}개</span>}
                 </div>
                 {Number(f.amount) > 0 && (Number(f.sessions) + Number(f.extra_sessions || 0)) > 0 && (
                   <div className="text-cyan-700 font-semibold">
