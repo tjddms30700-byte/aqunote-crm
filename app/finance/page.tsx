@@ -877,7 +877,8 @@ function FinancePage() {
       {/* Add Expense Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowModal(false)}>
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+          {/* ✅ v3.64.1: 모달 높이 제한 + 세로 스크롤 추가 - 품목 추가 시 저장 버튼이 화면 밖으로 잘리는 문제 수정 */}
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-bold text-aqu-900">📤 지출 등록</h3>
               <button onClick={() => setShowModal(false)}><X className="w-5 h-5 text-gray-500" /></button>
