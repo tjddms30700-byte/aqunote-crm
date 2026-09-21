@@ -24,11 +24,13 @@ const INCOME_CATEGORIES = [
 // v3.21.1: 지출 카테고리 정리 – 중복/유사 통합, 논리 그룹 재구성 (43개 → 24개)
 // 그룹핑 원칙: ① 임대·공과금 ② 수영장 운영 ③ 장비·소모품 ④ 인건비·복리후생
 //              ⑤ 홍보·마케팅 ⑥ 교통·차량 ⑦ 세무·법무·수수료 ⑧ 기타
+// ✅ v3.64.0: 접대비(거래처용) 그룹 신설 + 복리후생(직원용) 항목에 "선물" 명시 추가
 const CATEGORY_GROUPS: { label: string; items: string[] }[] = [
   { label: "🏠 임대·공과금",     items: ["임대료", "관리비", "공과금(수도·전기·가스)", "인터넷·통신비"] },
   { label: "💧 수영장 운영",     items: ["수영장 약품", "수영장 청소·시설관리", "수영복·수영모·수건"] },
   { label: "🛠️ 장비·소모품",    items: ["장비 구매·수리", "교구·참고서적", "사무용품·소모품", "인쇄비"] },
-  { label: "👥 인건비·복리후생", items: ["복리후생(식대·회식·경조사)", "교육·연수", "상비약품"] },
+  { label: "👥 인건비·복리후생(직원용)", items: ["복리후생(식대·회식·선물·경조사)", "교육·연수", "상비약품"] },
+  { label: "🤝 접대·거래처(대외용)",     items: ["접대비(거래처·거래업체)", "거래처 선물·경조사"] },
   { label: "📣 홍보·마케팅",     items: ["온라인 광고(SNS·검색)", "오프라인 홍보·이벤트", "플랫폼 사용료"] },
   { label: "🚗 교통·차량",       items: ["교통비·주차비", "차량유지비·유류비"] },
   { label: "📑 세무·법무·수수료",items: ["세금(종합소득세·부가세)", "보험료", "세무·회계 수수료", "법무·자문·외부용역", "은행·카드 수수료"] },
@@ -68,8 +70,10 @@ function FinancePage() {
     category: "임대료",
     amount: 0,
     spent_at: new Date().toISOString().slice(0, 10),
-    description: "",
+    vendor: "",       // ✅ v3.64.0: 구매처 (예: 삼촌네과일, 365열린큰약국)
+    description: "",  // 품목/용도 (예: 추석감사인사물품 구매)
     payment_method: "CORPORATE_CARD", // v3.21.0: 법인 전환 대비 - 결제 수단
+    items: [] as any[], // ✅ v3.64.0: 한 영수증에 항목이 섞여있을 때 추가로 분리 등록할 품목들
   });
 
   useEffect(() => { loadAll(); }, []);
@@ -178,8 +182,43 @@ function FinancePage() {
     loadAll();
   }
 
+  // ✅ v3.64.0: 지출 1건 삽입 헬퍼 - 누락 컬럼 자동 폴백 (기존 addExpense 로직 재사용)
+  async function insertOneExpense(orgId: string, row: { category: string; amount: number; spent_at: string; description: string | null; payment_method: string; }) {
+    const payload: any = { org_id: orgId, ...row };
+    let tryPayload = { ...payload };
+    let insertErr: any = null;
+    let inserted: any = null;
+    for (let i = 0; i < 5; i++) {
+      const r = await supabase.from("expenses").insert(tryPayload).select().single();
+      insertErr = r.error;
+      inserted = r.data;
+      if (!insertErr) break;
+      const msg = String(insertErr.message || "");
+      if (/row-level security|policy|permission denied/i.test(msg)) {
+        throw new Error(`권한 오류(RLS): expenses 테이블 INSERT 정책을 추가해 주세요.\n\n상세: ${msg}`);
+      }
+      const m = /'([^']+)' column|column "([^"]+)"/.exec(msg);
+      const missing = m?.[1] || m?.[2];
+      if (missing && missing in tryPayload) {
+        const { [missing]: _drop, ...rest } = tryPayload;
+        tryPayload = { ...rest };
+        continue;
+      }
+      if (/relation.*expenses.*does not exist/i.test(msg)) {
+        const r2 = await supabase.from("center_expenses").insert(tryPayload).select().single();
+        insertErr = r2.error;
+        inserted = r2.data;
+        if (!insertErr) break;
+      }
+      throw new Error(msg);
+    }
+    if (insertErr) throw insertErr;
+    return inserted;
+  }
+
   async function addExpense() {
     // v3.20.31: 지출등록 버그 근본 해결 - 필수값 검증 + 오류 안내 + 즉시 반영
+    // ✅ v3.64.0: 구매처(vendor) 반영 + 한 영수증 안의 추가 품목(items)을 각각 다른 카테고리로 분리 저장
     try {
       const amt = Number(newExpense?.amount || 0);
       if (!amt || amt <= 0) { alert("지출 금액을 입력해 주세요 (0원 불가)"); return; }
@@ -191,54 +230,51 @@ function FinancePage() {
       const orgId = orgs?.[0]?.id;
       if (!orgId) { alert("조직(organizations) 정보가 없습니다. 설정 페이지에서 먼저 생성해 주세요."); return; }
 
-      const payload: any = {
-        org_id: orgId,
+      const vendor = (newExpense.vendor || "").trim();
+      const composeDesc = (desc: string) => {
+        const d = (desc || "").trim();
+        if (vendor && d) return `${vendor} - ${d}`;
+        return vendor || d || null;
+      };
+
+      const rows: any[] = [{
         category: newExpense.category,
         amount: amt,
         spent_at: newExpense.spent_at,
-        description: newExpense.description || null,
-        payment_method: newExpense.payment_method || "CORPORATE_CARD", // v3.21.0: 결제 수단
-      };
+        description: composeDesc(newExpense.description),
+        payment_method: newExpense.payment_method || "CORPORATE_CARD",
+      }];
 
-      // v3.20.31: 지출 삽입 - 누락 컬럼 자동 폴백 (최대 5회)
-      let tryPayload = { ...payload };
-      let insertErr: any = null;
-      let inserted: any = null;
-      for (let i = 0; i < 5; i++) {
-        const r = await supabase.from("expenses").insert(tryPayload).select().single();
-        insertErr = r.error;
-        inserted = r.data;
-        if (!insertErr) break;
-        const msg = String(insertErr.message || "");
-        // RLS 이슈 명확화
-        if (/row-level security|policy|permission denied/i.test(msg)) {
-          throw new Error(`권한 오류(RLS): expenses 테이블 INSERT 정책을 추가해 주세요.\n\n상세: ${msg}`);
-        }
-        const m = /'([^']+)' column|column "([^"]+)"/.exec(msg);
-        const missing = m?.[1] || m?.[2];
-        if (missing && missing in tryPayload) {
-          const { [missing]: _drop, ...rest } = tryPayload;
-          tryPayload = { ...rest };
-          continue;
-        }
-        // amount/spent_at이 아닌 관련 컬럼이 누락된 경우 대로(center_expenses 호환)
-        if (/relation.*expenses.*does not exist/i.test(msg)) {
-          const r2 = await supabase.from("center_expenses").insert(tryPayload).select().single();
-          insertErr = r2.error;
-          inserted = r2.data;
-          if (!insertErr) break;
-        }
-        throw new Error(msg);
+      const extraItems: any[] = Array.isArray(newExpense.items) ? newExpense.items : [];
+      let extraTotal = 0;
+      for (const it of extraItems) {
+        const itAmt = Number(it.amount || 0);
+        if (!itAmt || itAmt <= 0 || !it.category) continue; // 금액/카테고리 없는 빈 항목은 건너뜀
+        extraTotal += itAmt;
+        rows.push({
+          category: it.category,
+          amount: itAmt,
+          spent_at: newExpense.spent_at,
+          description: composeDesc(it.description),
+          payment_method: newExpense.payment_method || "CORPORATE_CARD",
+        });
       }
-      if (insertErr) throw insertErr;
+
+      const insertedRows: any[] = [];
+      for (const row of rows) {
+        const ins = await insertOneExpense(orgId, row);
+        if (ins) insertedRows.push(ins);
+      }
 
       // v3.20.31: 즉시 UI 반영 - 상단 카드와 이력 목록 둥 자동 갱신
-      if (inserted) {
-        setExpenses((prev) => [inserted, ...prev]);
+      if (insertedRows.length) {
+        setExpenses((prev) => [...insertedRows, ...prev]);
       }
       setShowModal(false);
-      setNewExpense({ category: "임대료", amount: 0, spent_at: new Date().toISOString().slice(0, 10), description: "", payment_method: "CORPORATE_CARD" });
-      alert(`✅ 지출이 등록되었습니다 (${amt.toLocaleString()}원)`);
+      setNewExpense({ category: "임대료", amount: 0, spent_at: new Date().toISOString().slice(0, 10), vendor: "", description: "", payment_method: "CORPORATE_CARD", items: [] });
+      const grandTotal = amt + extraTotal;
+      const note = rows.length > 1 ? `\n\n· 총 ${rows.length}건으로 분리 등록됨 (합계 ${grandTotal.toLocaleString()}원)` : "";
+      alert(`✅ 지출이 등록되었습니다 (${amt.toLocaleString()}원)${note}`);
       await loadAll();
     } catch (err: any) {
       alert("지출 등록 실패: " + (err?.message || err));
@@ -866,6 +902,14 @@ function FinancePage() {
                   ))}
                 </div>
               </div>
+              {/* ✅ v3.64.0: 구매처 입력 (예: 삼촌네과일, 365열린큰약국, 이마트 트레이더스 위례) */}
+              <div>
+                <label className="text-xs text-gray-600 font-semibold">🏪 구매처</label>
+                <input value={newExpense.vendor}
+                  onChange={(e) => setNewExpense({ ...newExpense, vendor: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-aqu-200 text-sm"
+                  placeholder="예: 삼촌네과일, 365열린큰약국(위례), 이마트 트레이더스 위례" />
+              </div>
               <div>
                 <label className="text-xs text-gray-600">금액 *</label>
                 <input type="number" value={newExpense.amount}
@@ -896,12 +940,65 @@ function FinancePage() {
                 </div>
               </div>
               <div>
-                <label className="text-xs text-gray-600">메모</label>
+                <label className="text-xs text-gray-600">품목 / 용도 메모</label>
                 <input value={newExpense.description}
                   onChange={(e) => setNewExpense({ ...newExpense, description: e.target.value })}
                   className="w-full mt-1 px-3 py-2 rounded-lg border border-aqu-200 text-sm"
-                  placeholder="예: 7월 임대료" />
+                  placeholder="예: 추석감사인사물품 구매, 키즈밴드 구매" />
               </div>
+
+              {/* ✅ v3.64.0: 한 영수증에 여러 품목이 섞여있을 때 항목별로 분리 등록 (예: 이마트 - 선물세트 + 비품) */}
+              {(newExpense.items || []).map((it: any, idx: number) => (
+                <div key={idx} className="border border-dashed border-aqu-200 rounded-lg p-2 bg-aqu-50/30 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-aqu-700">🧾 같은 영수증 · 추가 품목 {idx + 1}</span>
+                    <button type="button"
+                      onClick={() => setNewExpense({ ...newExpense, items: newExpense.items.filter((_: any, i: number) => i !== idx) })}
+                      className="text-red-400 hover:text-red-600 text-[11px]">삭제</button>
+                  </div>
+                  <select value={it.category}
+                    onChange={(e) => {
+                      const items = [...newExpense.items]; items[idx] = { ...items[idx], category: e.target.value };
+                      setNewExpense({ ...newExpense, items });
+                    }}
+                    className="w-full px-2 py-1.5 rounded border border-gray-200 text-xs">
+                    <option value="">-- 카테고리 선택 --</option>
+                    {CATEGORY_GROUPS.map((g) => (
+                      <optgroup key={g.label} label={g.label}>
+                        {g.items.map((c) => <option key={c} value={c}>{c}</option>)}
+                      </optgroup>
+                    ))}
+                  </select>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <input type="number" value={it.amount || ""}
+                      onChange={(e) => {
+                        const items = [...newExpense.items]; items[idx] = { ...items[idx], amount: e.target.value };
+                        setNewExpense({ ...newExpense, items });
+                      }}
+                      placeholder="금액" className="w-full px-2 py-1.5 rounded border border-gray-200 text-xs text-right" />
+                    <input value={it.description || ""}
+                      onChange={(e) => {
+                        const items = [...newExpense.items]; items[idx] = { ...items[idx], description: e.target.value };
+                        setNewExpense({ ...newExpense, items });
+                      }}
+                      placeholder="품목명 (예: 비품 구매)" className="w-full px-2 py-1.5 rounded border border-gray-200 text-xs" />
+                  </div>
+                </div>
+              ))}
+              <button type="button"
+                onClick={() => setNewExpense({ ...newExpense, items: [...(newExpense.items || []), { category: "", amount: "", description: "" }] })}
+                className="w-full py-1.5 border border-dashed border-aqu-300 rounded-lg text-xs text-aqu-600 hover:bg-aqu-50 font-medium">
+                ➕ 영수증에 품목 추가 (같은 영수증, 다른 카테고리)
+              </button>
+
+              {/* ✅ v3.64.0: 총 합계 표시 */}
+              {(newExpense.items || []).some((it: any) => Number(it.amount) > 0) && (
+                <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800 font-semibold text-right">
+                  합계: ₩{(Number(newExpense.amount || 0) + (newExpense.items || []).reduce((s: number, it: any) => s + (Number(it.amount) || 0), 0)).toLocaleString()}
+                  {" "}({1 + (newExpense.items || []).filter((it: any) => Number(it.amount) > 0 && it.category).length}건)
+                </div>
+              )}
+
               <button onClick={addExpense} disabled={!newExpense.amount}
                 className="w-full py-2.5 bg-aqu-600 text-white rounded-lg text-sm font-medium hover:bg-aqu-700 disabled:bg-gray-300 flex items-center justify-center gap-1">
                 <Save className="w-4 h-4" /> 저장
