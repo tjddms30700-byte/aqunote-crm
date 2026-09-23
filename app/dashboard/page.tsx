@@ -146,6 +146,45 @@ export default function DashboardPage() {
       .sort((a: any, b: any) => a.remaining - b.remaining)
       .slice(0, 12);
 
+    // ✅ v3.67.0: 잔여 2회 회원의 "마지막 수업 종료 후" 결제 안내 알림 대상
+    // - 잔여 정확히 2회인 정규 진행 회원만 (체험/대기/종결 제외 — 위 paymentDueMembers 필터와 동일 기준)
+    // - 그 회원의 가장 최근 수업 슬롯이 (오늘 이전이거나 / 오늘인데 status가 done/attended) 이면 → 수업 끝난 것으로 판단
+    const paymentAlertMembers = activeMemberships
+      .map((ms: any) => {
+        const memb = data.members.find((m: any) => m.id === ms.member_id);
+        if (!memb || !isOngoingMember(memb)) return null;
+        const total = ms.total_sessions ?? ms.sessions_total ?? 0;
+        const used  = ms.used_sessions  ?? ms.sessions_used  ?? 0;
+        const remaining = Math.max(0, total - used);
+        if (remaining !== 2) return null;
+        if ((maxRemainingByMember[ms.member_id] ?? remaining) > remaining) return null; // 최신 회원권만
+        // 회원의 슬롯 중 가장 최근 것
+        const memberSlots = (data.slots || [])
+          .filter((s: any) => s.member_id === ms.member_id && !s.deleted_at && s.status !== "cancelled")
+          .sort((a: any, b: any) => String(b.event_date || "").localeCompare(String(a.event_date || "")));
+        const last = memberSlots[0];
+        if (!last || !last.event_date) return null;
+        const lastDate = String(last.event_date).substring(0, 10);
+        const lastDone = lastDate < today || (lastDate === today && ["done", "attended", "present", "completed"].includes(String(last.status || "").toLowerCase()));
+        // ✅ v3.67.2: 회원의 반복 요일(예: 월/수) 추출 — 안내 문구에 "매주 월요일·수요일" 포함
+        const dayNames = ["일", "월", "화", "수", "목", "금", "토"];
+        const memberDays = Array.from(new Set(
+          memberSlots
+            .map((s: any) => {
+              const d = s.event_date ? new Date(String(s.event_date).substring(0, 10)) : null;
+              return d && !isNaN(d.getTime()) ? d.getDay() : null;
+            })
+            .filter((d: any) => d !== null)
+        )).sort((a: any, b: any) => a - b) as number[];
+        if (!lastDone) return null;
+        // 너무 오래된(2주 전 이전) 마지막 수업이면 이미 종결 처리된 것으로 간주 → 제외
+        const diffDays = Math.floor((now.getTime() - new Date(lastDate).getTime()) / 86400000);
+        if (diffDays > 14) return null;
+        return { member: memb, membership: ms, remaining, lastDate, memberDays }; // ✅ v3.67.2: memberDays 포함 (원본 패치 누락 보완)
+      })
+      .filter(Boolean)
+      .sort((a: any, b: any) => String(a.lastDate).localeCompare(String(b.lastDate)));
+
     // 오늘 수업
     const todaySlots = data.slots.filter((s: any) => s.event_date === today);
     const todayAttendance = data.attendance.filter((a: any) => a.date === today);
@@ -166,7 +205,7 @@ export default function DashboardPage() {
       totalMembers: data.members.length,
       regularMembers, waitingMembers, trialMembers, childMembers, adultMembers,
       monthlyRevenue, lastMonthRevenue, revenueGrowth,
-      newLeadsThisWeek, paymentDueMembers,
+      newLeadsThisWeek, paymentDueMembers, paymentAlertMembers,
       todaySlots: todaySlots.length, todayPresent, todayAbsent,
       totalStaff: activeStaff.length, // ✨ v3.34.2: 퇴사자 제외된 재직 만 카운트
     };
@@ -318,6 +357,47 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* ✅ v3.67.0: 잔여 2회 · 마지막 수업 완료 — 결제 안내 복사 섹션 */}
+      {stats.paymentAlertMembers.length > 0 && (
+        <div className="max-w-7xl mx-auto bg-white rounded-xl border border-rose-200 p-5 mb-6">
+          <div className="flex justify-between items-center mb-3">
+            <h2 className="font-bold text-rose-900 flex items-center gap-2">
+              🔔 재결제 안내 보낼 회원 (잔여 2회 · 지난 수업 완료)
+              <span className="text-xs bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full">{stats.paymentAlertMembers.length}명</span>
+            </h2>
+          </div>
+          <p className="text-[11px] text-gray-500 mb-3">마지막 수업이 끝난 회원입니다. "📋 안내 문구 복사"를 눌러 카카오톡 등에 붙여넣기 하세요.</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {stats.paymentAlertMembers.map((p: any) => {
+              // ✅ v3.67.1: 알림톡 문구 템플릿 개선 + 지상재활(ground) 트랙 센터명 자동 분기
+              const isGroundTrack = String(p.membership.track || p.membership.category || "aqua").toLowerCase() === "ground";
+              const centerName = isGroundTrack ? "위례아쿠 리커버리케어존(지상재활)" : "위례아쿠수중운동센터";
+              const guardianName = p.member.guardian_name || p.member.name;
+              // ✅ v3.67.2: 수업 요일 포맷 (예: [1,3] → "매주 월요일·수요일")
+              const dayNames2 = ["일", "월", "화", "수", "목", "금", "토"];
+              const daysTxt = (p.memberDays && p.memberDays.length > 0)
+                ? "매주 " + p.memberDays.map((d: number) => dayNames2[d] + "요일").join("·")
+                : "기존 예약 요일";
+              const msg = `안녕하세요, ${guardianName} 보호자님 🙂\n${centerName}입니다.\n\n우리 ${p.member.name} 회원님의 소중한 운동 시간이 차곡차곡 쌓여, 현재 등록된 회원권이 잔여 2회 남았습니다.\n(${p.lastDate} 수업 완료 기준)\n\n회원님의 운동 루틴과 ${daysTxt} 수업 시간대가 끊김 없이 유지될 수 있도록 재등록 일정을 미리 안내해 드립니다.\n\n다음 회차 수업 일정 유지 및 재등록 관련하여 편하신 때에 데스크 또는 카카오톡으로 말씀해 주시면 안내 도와드리겠습니다.\n\n늘 함께해 주셔서 감사드립니다. 🩵\n— ${centerName} 드림`;
+              return (
+                <div key={p.membership.id} className="border border-rose-100 rounded-lg p-3 bg-rose-50/40">
+                  <div className="flex justify-between items-center mb-1">
+                    <Link href={`/members/${p.member.id}`} className="font-medium text-aqu-900 text-sm hover:underline">{p.member.name}</Link>
+                    <span className="text-[10px] text-gray-500">{p.member.member_type === "child" ? "🧒" : "👤"} 잔여 2회</span>
+                  </div>
+                  <div className="text-[11px] text-gray-500 mb-2">마지막 수업: {p.lastDate} ✅</div>
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(msg).then(() => alert(`📋 ${p.member.name} 회원 결제 안내 문구가 복사되었습니다.\n카카오톡에 붙여넣기 하세요.`)).catch(() => window.prompt("직접 복사해 주세요:", msg)); }}
+                    className="w-full py-1.5 bg-rose-500 text-white rounded-lg text-xs font-semibold hover:bg-rose-600">
+                    📋 안내 문구 복사
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* 곧 결제 예정자 */}
       <div className="max-w-7xl mx-auto bg-white rounded-xl border border-orange-200 p-5 mb-6">
