@@ -139,6 +139,8 @@ export default function SchedulePage() {
   const [view, setView] = useState<"month" | "week" | "day">("month");
   // ✅ v3.38.0: 수중/지상 시간표 토글 (aqua = 수중재활, ground = 지상재활)
   const [trackTab, setTrackTab] = useState<"aqua" | "ground">("aqua");
+  // ✅ v3.65.0: 회원 이름 검색 필터 - 전체 시간표에서 해당 회원 수업만 표시
+  const [memberSearchQ, setMemberSearchQ] = useState("");
   // ✅ v3.57.0: 보강 대기 드로어
   const [makeupDrawer, setMakeupDrawer] = useState(false);
   // ✅ v3.38.0: 지상재활 수업 완료 후 다음 예약 팝업
@@ -929,9 +931,17 @@ export default function SchedulePage() {
       const slotTrack = s.track || "aqua"; // 기본값 수중재활
       return slotTrack === trackTab;
     });
-    console.log(`[v3.38.0] slotsByDate 매핑 시작: 전체=${slots.length}, ${trackTab}트랙=${trackFilteredSlots.length}`);
+    // ✅ v3.65.0: 회원 이름 검색 필터 - 이름 입력 시 해당 회원의 수업만 시간표에 표시
+    const _mq = memberSearchQ.trim().toLowerCase();
+    const filteredSlots = _mq
+      ? trackFilteredSlots.filter((s: any) => {
+          const nm = members.find((m: any) => m.id === s.member_id)?.name || s.member_name || "";
+          return String(nm).toLowerCase().includes(_mq);
+        })
+      : trackFilteredSlots;
+    console.log(`[v3.65.0] slotsByDate 매핑: 전체=${slots.length}, ${trackTab}트랙=${trackFilteredSlots.length}, 이름필터=${filteredSlots.length}${_mq ? ` (검색어: ${_mq})` : ""}`);
     let skipped = 0;
-    trackFilteredSlots.forEach((s: any) => {
+    filteredSlots.forEach((s: any) => {
       if (!s || !s.event_date) { skipped++; return; }
       // ✅ v3.28.2: KST/UTC 타임존 안전 매핑 - Date 객체 경유 안함
       let key: string;
@@ -2008,6 +2018,25 @@ export default function SchedulePage() {
               🏋️‍♂️ 지상 시간표
             </button>
           </div>
+          {/* ✅ v3.65.0: 회원 이름 찾기 - 입력 시 시간표에 해당 회원 수업만 표시 */}
+          <div className="relative flex items-center">
+            <input
+              value={memberSearchQ}
+              onChange={(e) => setMemberSearchQ(e.target.value)}
+              placeholder="🔍 회원 이름 찾기 (예: 손민오)"
+              className="w-48 md:w-56 px-3 py-1.5 rounded-lg border border-aqu-200 text-xs focus:ring-2 focus:ring-aqu-400 focus:outline-none bg-white"
+            />
+            {memberSearchQ && (
+              <button onClick={() => setMemberSearchQ("")}
+                className="absolute right-2 text-gray-400 hover:text-gray-600 text-xs font-bold"
+                title="검색 초기화">✕</button>
+            )}
+          </div>
+          {memberSearchQ.trim() && (
+            <div className="w-full text-[11px] font-semibold text-aqu-700 bg-aqu-50 border border-aqu-200 rounded-lg px-2 py-1">
+              🔍 '{memberSearchQ.trim()}' 검색 중 — 시간표에 해당 회원의 수업만 표시됩니다
+            </div>
+          )}
           <div className="flex bg-white border border-aqu-100 rounded-lg p-1 text-xs">
             <button onClick={() => setView("month")}
               className={`px-3 py-1.5 rounded flex items-center gap-1 ${view === "month" ? "bg-aqu-600 text-white" : "text-gray-600"}`}>
