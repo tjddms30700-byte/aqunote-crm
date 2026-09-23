@@ -71,6 +71,12 @@ export default function SettingsPage() {
       setLogoUrl(o.logo_url || "");
     }
 
+    // ✅ v3.66.1: 교육비납입증명서 문구 설정 로드 (org_settings)
+    try {
+      const { data: os } = await supabase.from("org_settings").select("cert_department, cert_writer").limit(1).maybeSingle();
+      if (os) setOrgForm((prev: any) => ({ ...prev, cert_department: os.cert_department || "수중재활팀", cert_writer: os.cert_writer || o?.ceo_name || "" }));
+    } catch (e) { console.warn("cert settings load skip:", e); }
+
     const { data: s } = await supabase.from("staff").select("id,name,role,email").is("deleted_at", null).order("name");
     setStaffList(s || []);
     const { data: a } = await supabase.from("staff_accounts").select("*, staff(name, role)").is("deleted_at", null).order("created_at", { ascending: false });
@@ -169,6 +175,21 @@ export default function SettingsPage() {
     for (const [k, v] of Object.entries(candidateFields)) {
       if (v !== undefined) payload[k] = v;
     }
+
+    // ✅ v3.66.1: 교육비납입증명서 문구(담당부서·작성자)는 org_settings에 저장
+    try {
+      let certPayload: any = { cert_department: orgForm.cert_department || null, cert_writer: orgForm.cert_writer || null };
+      const { data: osRow } = await supabase.from("org_settings").select("id").limit(1).maybeSingle();
+      for (let i = 0; i < 4; i++) {
+        const r = osRow?.id
+          ? await supabase.from("org_settings").update(certPayload).eq("id", osRow.id)
+          : await supabase.from("org_settings").insert(certPayload);
+        if (!r.error) break;
+        const m = (r.error?.message || "").match(/column "([^"]+)"/i);
+        if (m?.[1] && m[1] in certPayload) { delete certPayload[m[1]]; continue; }
+        break;
+      }
+    } catch (e) { console.warn("cert settings save skip:", e); }
 
     // ✅ v3.11: 현재 지점 branches에 저장 (지점별 독립)
     const branchId = orgForm._branch_id;
@@ -432,6 +453,13 @@ export default function SettingsPage() {
             <Field label="👤 대표자명"        value={orgForm.ceo_name || ""}      onChange={(v) => setOrgForm({ ...orgForm, ceo_name: v })} />
             <Field label="🎂 대표자 생년월일" value={orgForm.ceo_birth || ""}     onChange={(v) => setOrgForm({ ...orgForm, ceo_birth: v })} type="date" />
             <Field label="📱 대표자 휴대폰"   value={orgForm.ceo_phone || ""}     onChange={(v) => setOrgForm({ ...orgForm, ceo_phone: v })} placeholder="010-0000-0000" full />
+
+            <div className="md:col-span-2 mt-2 pt-4 border-t border-gray-100">
+              <div className="text-sm font-bold text-slate-700 mb-3">🧾 교육비납입증명서 문구</div>
+            </div>
+            {/* ✅ v3.66.1: 증명서 담당부서·작성자 (사업자등록번호는 위 '사업자등록번호' 항목 사용) */}
+            <Field label="🏢 담당부서" value={orgForm.cert_department || ""} onChange={(v) => setOrgForm({ ...orgForm, cert_department: v })} placeholder="수중재활팀" />
+            <Field label="✍️ 작성자"   value={orgForm.cert_writer || ""}     onChange={(v) => setOrgForm({ ...orgForm, cert_writer: v })} placeholder="하유정" />
           </div>
           <div className="mt-6 flex justify-end">
             <button onClick={saveOrg} disabled={saving}

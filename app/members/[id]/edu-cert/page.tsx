@@ -58,6 +58,8 @@ export default function EduCertPage() {
   const [subject, setSubject] = useState("수중운동교육프로그램");
   const [rows, setRows] = useState<MonthRow[]>([]);
   const [writer, setWriter] = useState("하유정");
+  // ✅ v3.66.1: 담당부서 (관리자 설정에서 수정 가능)
+  const [department, setDepartment] = useState("수중재활팀");
 
   useEffect(() => {
     (async () => {
@@ -71,6 +73,9 @@ export default function EduCertPage() {
       setMember(m);
       setPayments((pRes.data || []).filter((p: any) => String(p.status || "") !== "cancelled"));
       if (oRes.data) setOrg((prev: any) => ({ ...prev, ...oRes.data, business_number: oRes.data.business_number || oRes.data.business_no || prev.business_number }));
+      // ✅ v3.66.1: 설정 페이지에서 저장한 증명서 문구 자동 반영
+      if (oRes.data?.cert_department) setDepartment(oRes.data.cert_department);
+      if (oRes.data?.cert_writer) setWriter(oRes.data.cert_writer);
       // 보호자 정보: consult_form/extra 등에 있으면 자동 채움
       if (m) {
         const extra = typeof m.extra === "string" ? safeParse(m.extra) : (m.extra || {});
@@ -173,6 +178,10 @@ export default function EduCertPage() {
           <span className="text-gray-500">작성자</span>
           <input value={writer} onChange={e => setWriter(e.target.value)} className="w-full mt-1 px-2 py-1 border rounded" />
         </label>
+        <label className="bg-white rounded-lg border p-2">
+          <span className="text-gray-500">담당부서</span>
+          <input value={department} onChange={e => setDepartment(e.target.value)} className="w-full mt-1 px-2 py-1 border rounded" />
+        </label>
         <div className="col-span-2 md:col-span-4 text-[11px] text-gray-500">
           💡 결제 내역에서 월별 횟수·단가가 자동으로 채워집니다. 표 안의 숫자는 아래 미리보기에서 직접 수정할 수 없으니, 다르면 재무·결제 페이지의 결제 내역을 수정하거나 아래 표를 클릭해 조정하세요.
         </div>
@@ -187,7 +196,7 @@ export default function EduCertPage() {
             <h1 className="text-xl font-bold tracking-wide">
               {mode === "year" ? `${certYear}년 교육비납입증명서` : `${certYear}년 ${String(certMonth).padStart(2, "0")}월 교육비납입증명서`}
             </h1>
-            <div className="mt-1 text-[11px] text-gray-600">작 성 자 : {writer}　　일 자 : {fmtDate(issueDate)}</div>
+            <div className="mt-1 text-[11px] text-gray-600">담당부서 : {department}　　작 성 자 : {writer}　　일 자 : {fmtDate(issueDate)}</div>
           </div>
           <div className="text-[11px] text-gray-600">발급번호<br /><span className="font-mono font-semibold">{certNo}</span></div>
         </div>

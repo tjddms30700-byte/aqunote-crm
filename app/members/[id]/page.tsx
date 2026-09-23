@@ -3602,6 +3602,11 @@ function ConsultationChartPanel({ memberId, member, painMap, setPainMap, sensati
           className="px-5 py-3 bg-white border-2 border-blue-500 text-blue-700 rounded-xl font-bold shadow-lg hover:bg-blue-50">
           📄 A4 프린트 ({member?.member_type === "child" ? "아동" : "성인"})
         </a>
+        {/* ✅ v3.66.1: 교육비납입증명서 (하단 고정바에도 노출) */}
+        <a href={`/members/${memberId}/edu-cert`} target="_blank" rel="noopener noreferrer"
+          className="px-5 py-3 bg-white border-2 border-emerald-500 text-emerald-700 rounded-xl font-bold shadow-lg hover:bg-emerald-50">
+          🧾 교육비납입증명서
+        </a>
         <button onClick={printChart}
           className="px-5 py-3 bg-white border-2 border-purple-500 text-purple-700 rounded-xl font-bold shadow-lg hover:bg-purple-50">
           🖨️ 프린트

@@ -109,16 +109,32 @@ export default function DashboardPage() {
       return d >= weekAgo;
     }).length;
 
-    // 곧 결제 예정자 (잔여 2회 이하 or 만료 7일 이내)
-    // ✅ v3.12: 잔여 3회 이하로 확대 + 필드명 호환 (total_sessions/sessions_total 둘 다 지원)
-    const paymentDueMembers = data.memberships
-      .filter((ms: any) => ms.status !== "cancelled")
+    // 곧 결제 예정자 (잔여 3회 이하 or 만료 7일 이내)
+    // ✅ v3.66.1: ① 체험/대기/종결/비활성 회원 제외 — 정규 등록 진행중만 표시
+    //             ② 회원별 잔여 최대 회원권 기준 — 오늘 재결제로 새 회원권이 생긴 회원의 옛날 소진 회원권은 숨김
+    const activeMemberships = (data.memberships || []).filter((ms: any) => ms.status !== "cancelled" && !ms.deleted_at);
+    const isOngoingMember = (m: any) => {
+      const s = `${m?.status || ""} ${m?.member_status || ""} ${m?.type || ""}`.toLowerCase();
+      if (/trial|체험|wait|대기|종결|종료|ended|inactive|resigned|withdraw|탈퇴/.test(s)) return false;
+      if (m?.deleted_at) return false;
+      return true;
+    };
+    const maxRemainingByMember: Record<string, number> = {};
+    activeMemberships.forEach((ms: any) => {
+      const total = ms.total_sessions ?? ms.sessions_total ?? 0;
+      const used  = ms.used_sessions  ?? ms.sessions_used  ?? 0;
+      const rem = Math.max(0, total - used);
+      if (!(ms.member_id in maxRemainingByMember) || rem > maxRemainingByMember[ms.member_id]) maxRemainingByMember[ms.member_id] = rem;
+    });
+    const paymentDueMembers = activeMemberships
       .map((ms: any) => {
         const memb = data.members.find((m: any) => m.id === ms.member_id);
-        if (!memb) return null;
+        if (!memb || !isOngoingMember(memb)) return null;
         const total = ms.total_sessions ?? ms.sessions_total ?? 0;
         const used  = ms.used_sessions  ?? ms.sessions_used  ?? 0;
         const remaining = Math.max(0, total - used);
+        // ✅ v3.66.1: 같은 회원에게 잔여가 더 많은 (새로 결제된) 회원권이 있으면 이 낡은 회원권은 제외
+        if ((maxRemainingByMember[ms.member_id] ?? remaining) > remaining) return null;
         const daysToExpire = ms.end_date
           ? Math.floor((new Date(ms.end_date).getTime() - now.getTime()) / 86400000)
           : null;
