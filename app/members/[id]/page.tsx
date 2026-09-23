@@ -1590,6 +1590,17 @@ export default function MemberDetail() {
               <FileText className="w-5 h-5" /> {member?.name} 님의 문서
             </h3>
 
+            {/* ✅ v3.68.1: 교육비납입증명서 발급 카드 (문서·계약서 탭) */}
+            <a href={`/members/${id}/edu-cert`} target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-3 border-2 border-emerald-200 bg-emerald-50 rounded-xl p-4 hover:border-emerald-400 hover:shadow-md transition">
+              <div className="text-2xl">🧾</div>
+              <div>
+                <div className="font-bold text-emerald-800 text-sm">교육비납입증명서 발급</div>
+                <div className="text-xs text-gray-500 mt-0.5">연간용(1년치) / 월별용(한 장) — 결제 내역 자동 채움, A4 인쇄·PDF 저장</div>
+              </div>
+              <div className="ml-auto text-emerald-500 font-bold">→</div>
+            </a>
+
             {/* Upload */}
             <div className="bg-aqu-50/50 border border-aqu-100 rounded-xl p-4">
               <div className="flex flex-wrap gap-2 mb-3">
