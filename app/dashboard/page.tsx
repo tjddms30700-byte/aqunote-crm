@@ -115,7 +115,7 @@ export default function DashboardPage() {
     const activeMemberships = (data.memberships || []).filter((ms: any) => ms.status !== "cancelled" && !ms.deleted_at);
     const isOngoingMember = (m: any) => {
       const s = `${m?.status || ""} ${m?.member_status || ""} ${m?.type || ""}`.toLowerCase();
-      if (/trial|체험|wait|대기|종결|종료|ended|inactive|resigned|withdraw|탈퇴/.test(s)) return false;
+      if (/trial|체험|wait|대기|종결|종료|ended|closed|close|inactive|resigned|withdraw|탈퇴/.test(s)) return false; // ✅ v3.68.0: closed 추가 (실제 DB 종결 상태값)
       if (m?.deleted_at) return false;
       return true;
     };
@@ -156,13 +156,15 @@ export default function DashboardPage() {
         const total = ms.total_sessions ?? ms.sessions_total ?? 0;
         const used  = ms.used_sessions  ?? ms.sessions_used  ?? 0;
         const remaining = Math.max(0, total - used);
-        if (remaining !== 2) return null;
+        if (remaining < 1 || remaining > 2) return null; // ✅ v3.68.0: 잔여 1~2회로 확대
         if ((maxRemainingByMember[ms.member_id] ?? remaining) > remaining) return null; // 최신 회원권만
         // 회원의 슬롯 중 가장 최근 것
         const memberSlots = (data.slots || [])
           .filter((s: any) => s.member_id === ms.member_id && !s.deleted_at && s.status !== "cancelled")
           .sort((a: any, b: any) => String(b.event_date || "").localeCompare(String(a.event_date || "")));
-        const last = memberSlots[0];
+        // ✅ v3.68.0: 미래 예약 슬롯이 있어도 '가장 최근의 지난/오늘 수업' 기준으로 판단 (다음 수업이 예약되어 있어도 알림 뜨게)
+        const pastSlots = memberSlots.filter((s: any) => String(s.event_date || "").substring(0, 10) <= today);
+        const last = pastSlots[0];
         if (!last || !last.event_date) return null;
         const lastDate = String(last.event_date).substring(0, 10);
         const lastDone = lastDate < today || (lastDate === today && ["done", "attended", "present", "completed"].includes(String(last.status || "").toLowerCase()));
@@ -540,6 +542,8 @@ function PieRing({ label, val, total, color }: any) {
         <text x="30" y="34" textAnchor="middle" fontSize="11" fill="#111" fontWeight="600">{val}</text>
       </svg>
       <div className="text-xs text-gray-600 mt-1">{label} ({pct.toFixed(0)}%)</div>
+      {/* ✅ v3.68.0: 배포 확인용 버전 배지 (화면 최하단) */}
+      <div className="text-center text-[10px] text-gray-300 pb-6 select-none">아쿠노트 v3.68.0</div>
     </div>
   );
 }

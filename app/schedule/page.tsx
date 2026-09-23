@@ -965,7 +965,8 @@ export default function SchedulePage() {
     const keys = Object.keys(map).sort();
     console.log(`[v3.38.0] slotsByDate 매핑 완료: 총 ${keys.length}개 날짜, 스킵 ${skipped}건 (트랙: ${trackTab})`);
     return map;
-  }, [slots, trackTab]);
+  // ✅ v3.65.1: memberSearchQ/members 의존성 추가 - 이름 검색 시 필터 재계산 안 되는 버그 수정
+  }, [slots, trackTab, memberSearchQ, members]);
 
   const monthCells = useMemo(() => monthGrid(year, month0), [year, month0]);
 
