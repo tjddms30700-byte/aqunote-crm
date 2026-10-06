@@ -141,6 +141,10 @@ export default function SchedulePage() {
   const [trackTab, setTrackTab] = useState<"aqua" | "ground">("aqua");
   // ✅ v3.65.0: 회원 이름 검색 필터 - 전체 시간표에서 해당 회원 수업만 표시
   const [memberSearchQ, setMemberSearchQ] = useState("");
+  // ✅ v3.69.0: 공휴일(빨간날) 수동 등록 - 등록된 날짜는 달력에 빨간 표시 + 회원 수업 예약 차단
+  const [holidays, setHolidays] = useState<{ date: string; name: string }[]>([]);
+  const [holidayModal, setHolidayModal] = useState(false);
+  const [holidayForm, setHolidayForm] = useState({ date: "", name: "" });
   // ✅ v3.57.0: 보강 대기 드로어
   const [makeupDrawer, setMakeupDrawer] = useState(false);
   // ✅ v3.38.0: 지상재활 수업 완료 후 다음 예약 팝업
@@ -1107,8 +1111,65 @@ export default function SchedulePage() {
     setModal({ date: slot.event_date, time: slot.time_slot, editing: slot });
   }
 
+  // ✅ v3.69.0: 공휴일 관리 - DB(holidays 테이블) 우선, 없으면 localStorage 폴백
+  const HOLIDAY_LS_KEY = "aqu_holidays";
+  async function loadHolidays() {
+    try {
+      const r = await supabase.from("holidays").select("*").order("holiday_date");
+      if (!r.error && r.data) {
+        setHolidays(r.data.map((h: any) => ({ date: String(h.holiday_date).substring(0, 10), name: h.name || "공휴일" })));
+        return;
+      }
+    } catch (e) { /* 테이블 없음 → 폴백 */ }
+    try {
+      const local = window.localStorage.getItem(HOLIDAY_LS_KEY);
+      setHolidays(local ? JSON.parse(local) : []);
+    } catch { setHolidays([]); }
+  }
+  useEffect(() => { loadHolidays(); }, []);
+  function isHoliday(dateStr: string) {
+    return holidays.find(h => h.date === dateStr);
+  }
+  async function addHoliday() {
+    if (!holidayForm.date) { alert("날짜를 선택해 주세요"); return; }
+    const name = holidayForm.name.trim() || "공휴일";
+    if (isHoliday(holidayForm.date)) { alert("이미 등록된 날짜입니다"); return; }
+    try {
+      const r = await supabase.from("holidays").insert({ holiday_date: holidayForm.date, name });
+      if (r.error) throw r.error;
+    } catch (e) {
+      // 폴백: localStorage
+      const next = [...holidays, { date: holidayForm.date, name }].sort((a, b) => a.date.localeCompare(b.date));
+      window.localStorage.setItem(HOLIDAY_LS_KEY, JSON.stringify(next));
+      setHolidays(next);
+      setHolidayForm({ date: "", name: "" });
+      return;
+    }
+    await loadHolidays();
+    setHolidayForm({ date: "", name: "" });
+  }
+  async function removeHoliday(dateStr: string) {
+    if (!confirm(`${dateStr} 공휴일을 삭제할까요?`)) return;
+    try {
+      const r = await supabase.from("holidays").delete().eq("holiday_date", dateStr);
+      if (r.error) throw r.error;
+    } catch (e) {
+      const next = holidays.filter(h => h.date !== dateStr);
+      window.localStorage.setItem(HOLIDAY_LS_KEY, JSON.stringify(next));
+      setHolidays(next);
+      return;
+    }
+    await loadHolidays();
+  }
+
   async function saveSlot() {
     if (!f.event_date) { alert("날짜가 필요합니다"); return; }
+    // ✅ v3.69.0: 공휴일에는 회원 수업(lesson) 예약 차단 (직원 근무/휴무 기록은 허용)
+    const _hd = isHoliday(f.event_date);
+    if (_hd && f.event_type !== "staff_work" && f.event_type !== "staff_off") {
+      alert(`🚫 ${f.event_date}은(는) 공휴일(${_hd.name})로 등록되어 있어 회원 수업을 예약할 수 없습니다.\n\n공휴일 관리에서 해제하거나, 날짜를 변경해 주세요.`);
+      return;
+    }
     setSaving(true);
 
     const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
@@ -2033,6 +2094,11 @@ export default function SchedulePage() {
                 title="검색 초기화">✕</button>
             )}
           </div>
+          {/* ✅ v3.69.0: 공휴일(빨간날) 관리 버튼 */}
+          <button onClick={() => setHolidayModal(true)}
+            className="px-3 py-1.5 rounded-lg border border-red-200 bg-red-50 text-red-700 text-xs font-semibold hover:bg-red-100">
+            🏖 공휴일 관리{holidays.length > 0 ? ` (${holidays.length})` : ""}
+          </button>
           {memberSearchQ.trim() && (
             <div className="w-full text-[11px] font-semibold text-aqu-700 bg-aqu-50 border border-aqu-200 rounded-lg px-2 py-1">
               🔍 '{memberSearchQ.trim()}' 검색 중 — 시간표에 해당 회원의 수업만 표시됩니다
@@ -2146,6 +2212,7 @@ export default function SchedulePage() {
                 const isDragOver = dragOverDate === cellStr;
                 const daySlots = slotsByDate[cellStr] || [];
                 const dow = cell.getDay();
+                const holidayInfo = isHoliday(cellStr); // ✅ v3.69.0: 공휴일 여부
                 // v3.23.3: 일 매출 = payments 테이블 기준 (할인·환불 완전 차감)
                 // ✅ v3.38.2: trackTab 적용 - 수중/지상 매출 분리
                 const dayPaymentsSum = payments
@@ -2182,7 +2249,7 @@ export default function SchedulePage() {
                     onDragLeave={() => dragOverDate === cellStr && setDragOverDate(null)}
                     onDrop={(e) => handleDrop(cellStr, e)}
                     className={`min-h-[80px] md:min-h-[115px] border-r border-b border-slate-100 p-1.5 md:p-2 cursor-pointer transition-all rounded-lg
-                      ${isOtherMonth ? "bg-slate-50/40 text-gray-400" : "bg-white hover:bg-gradient-to-br hover:from-sky-50/40 hover:to-cyan-50/40"}
+                      ${holidayInfo ? "bg-red-50/60 hover:bg-red-50" : isOtherMonth ? "bg-slate-50/40 text-gray-400" : "bg-white hover:bg-gradient-to-br hover:from-sky-50/40 hover:to-cyan-50/40"}
                       ${isSelected ? "ring-2 ring-aqu-400 ring-inset shadow-inner bg-aqu-50/20" : ""}
                       ${isToday && !isSelected ? "bg-gradient-to-br from-amber-50/60 to-yellow-50/40" : ""}
                       ${isDragOver ? "bg-violet-100 ring-2 ring-violet-500 ring-inset" : ""}
@@ -2190,10 +2257,13 @@ export default function SchedulePage() {
                     <div className="flex items-center justify-between mb-0.5">
                       <span className={`text-xs md:text-sm font-semibold ${
                         isToday ? "bg-aqu-600 text-white rounded-full w-5 h-5 md:w-6 md:h-6 flex items-center justify-center" :
-                        dow === 0 ? "text-red-500" : dow === 6 ? "text-blue-500" : ""
+                        holidayInfo ? "text-red-600 font-bold" : dow === 0 ? "text-red-500" : dow === 6 ? "text-blue-500" : ""
                       }`}>
                         {cell.getDate()}
                       </span>
+                      {holidayInfo && (
+                        <span className="text-[8px] md:text-[9px] bg-red-100 text-red-700 font-bold px-1 rounded leading-tight" title={holidayInfo.name}>🏖 {holidayInfo.name}</span>
+                      )}
                       {/* ✅ v3.20.11: 결제금액 클릭 → 매출 상세 팝오버 (셔 설정 데이터) */}
                       {dayPaymentsSum > 0 ? (
                         <button
@@ -2591,6 +2661,42 @@ export default function SchedulePage() {
           onClose={() => setNextBookingPopup(null)}
           onSaved={async () => { setNextBookingPopup(null); await loadAll(); }}
         />
+      )}
+          {/* ✅ v3.69.0: 공휴일 관리 모달 */}
+      {holidayModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setHolidayModal(false)}>
+          <div className="bg-white rounded-2xl p-5 w-full max-w-sm max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-bold text-red-700">🏖 공휴일(빨간날) 관리</h3>
+              <button onClick={() => setHolidayModal(false)} className="text-gray-400 hover:text-gray-600 text-lg font-bold">✕</button>
+            </div>
+            <p className="text-[11px] text-gray-500 mb-3">등록된 날짜는 달력에 빨간색으로 표시되고, 회원 수업 예약이 차단됩니다. (직원 근무/휴무 기록은 가능)</p>
+            <div className="flex gap-1.5 mb-1.5">
+              <input type="date" value={holidayForm.date}
+                onChange={(e) => setHolidayForm({ ...holidayForm, date: e.target.value })}
+                className="flex-1 px-2 py-2 border border-gray-200 rounded-lg text-sm" />
+              <input type="text" value={holidayForm.name} placeholder="이름 (예: 추석 연휴)"
+                onChange={(e) => setHolidayForm({ ...holidayForm, name: e.target.value })}
+                className="flex-1 px-2 py-2 border border-gray-200 rounded-lg text-sm" />
+            </div>
+            <button onClick={addHoliday}
+              className="w-full py-2 bg-red-500 text-white rounded-lg text-sm font-semibold hover:bg-red-600 mb-3">
+              ➕ 공휴일 등록
+            </button>
+            {holidays.length === 0 ? (
+              <p className="text-center text-xs text-gray-400 py-3">등록된 공휴일이 없습니다</p>
+            ) : (
+              <div className="space-y-1">
+                {holidays.map((h) => (
+                  <div key={h.date} className="flex items-center justify-between bg-red-50 border border-red-100 rounded-lg px-3 py-2 text-sm">
+                    <span className="font-medium text-red-800">{h.date} · {h.name}</span>
+                    <button onClick={() => removeHoliday(h.date)} className="text-red-400 hover:text-red-600 text-xs">삭제</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </main>
   );
