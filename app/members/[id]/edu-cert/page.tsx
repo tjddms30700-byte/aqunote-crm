@@ -19,7 +19,7 @@ import { Printer, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
 type CertMode = "year" | "month";
-interface MonthRow { month: number; subject: string; count: number; unitPrice: number; }
+interface MonthRow { month: number; subject: string; count: number; unitPrice: number; amount: number; } // v3.72.2: amount = 실 결제 총액 (단가 반올림 오차 방지)
 
 // ✅ v3.68.2: 사업자 정보 고정 (법인 전환 후 확정값)
 const BIZ = {
@@ -96,7 +96,7 @@ export default function EduCertPage() {
       const monthPays = payments.filter((p: any) => String(p.paid_at || "").startsWith(prefix));
       const total = monthPays.reduce((s: number, p: any) => s + Number(p.amount || 0) - Number(p.refunded_amount || 0), 0);
       if (monthPays.length === 0 || total <= 0) {
-        target.push({ month: mm, subject, count: mode === "year" ? 0 : 4, unitPrice: mode === "year" ? 0 : 100000 });
+        target.push({ month: mm, subject, count: mode === "year" ? 0 : 4, unitPrice: mode === "year" ? 0 : 100000, amount: mode === "year" ? 0 : 400000 });
         continue;
       }
       // ✅ v3.72.1: 횟수 = 결제에 연결된 회원권의 total_sessions 합산 (예: 5회권 1건 결제 → 5회)
@@ -117,19 +117,26 @@ export default function EduCertPage() {
         const avgUnit = count > 0 && linkedTotal > 0 ? linkedTotal / count : 100000;
         count += Math.max(1, Math.round(fallbackAmount / avgUnit));
       }
-      target.push({ month: mm, subject, count, unitPrice: count > 0 ? Math.round(total / count) : 0 });
+      target.push({ month: mm, subject, count, unitPrice: count > 0 ? Math.round(total / count) : 0, amount: total }); // v3.72.2: 금액은 실 결제 총액 그대로
     }
     setRows(target);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [payments, certYear, certMonth, mode]);
 
-  const grandTotal = useMemo(() => rows.reduce((s, r) => s + r.count * r.unitPrice, 0), [rows]);
+  const grandTotal = useMemo(() => rows.reduce((s, r) => s + (r.amount ?? r.count * r.unitPrice), 0), [rows]); // v3.72.2
   const grandCount = useMemo(() => rows.reduce((s, r) => s + r.count, 0), [rows]);
   const issueDate = new Date();
   const certNo = `AQU-EDU-${certYear}-${String(issueDate.getMonth() + 1).padStart(2, "0")}${String(issueDate.getDate()).padStart(2, "0")}${String(memberId || "").replace(/-/g, "").slice(0, 3).toUpperCase()}`;
 
   const setRow = (idx: number, patch: Partial<MonthRow>) => {
-    setRows(prev => prev.map((r, i) => i === idx ? { ...r, ...patch } : r));
+    // v3.72.2: 횟수/단가 수동 수정 시 금액 재계산, 과목명 수정은 금액 유지
+    const recalc = ("count" in patch) || ("unitPrice" in patch);
+    setRows(prev => prev.map((r, i) => {
+      if (i !== idx) return r;
+      const merged = { ...r, ...patch };
+      if (recalc && !("amount" in patch)) merged.amount = (merged.count || 0) * (merged.unitPrice || 0);
+      return merged;
+    }));
   };
 
   // ✅ v3.72.0: 인쇄 시 브라우저 머리글(페이지 제목)이 '회원 DB'로 찍히는 문제 수정 — 문서명으로 교체
@@ -311,7 +318,7 @@ export default function EduCertPage() {
                     className="w-full border-0 bg-transparent text-[10px] text-right focus:outline-none focus:bg-yellow-50" />
                 </td>
                 <td className="border border-gray-400 px-1.5 py-0.5 text-right font-semibold">
-                  {r.count * r.unitPrice > 0 ? (r.count * r.unitPrice).toLocaleString() : "-"}
+                  {(r.amount ?? r.count * r.unitPrice) > 0 ? (r.amount ?? r.count * r.unitPrice).toLocaleString() : "-"}
                 </td>
               </tr>
             ))}
