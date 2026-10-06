@@ -115,6 +115,14 @@ export default function EduCertPage() {
     setRows(prev => prev.map((r, i) => i === idx ? { ...r, ...patch } : r));
   };
 
+  // ✅ v3.72.0: 인쇄 시 브라우저 머리글(페이지 제목)이 '회원 DB'로 찍히는 문제 수정 — 문서명으로 교체
+  // ※ 참고: 인쇄 대화상자 '설정 더보기'에서 '머리글 및 바닥글' 체크 해제하면 상단 텍스트가 완전히 사라집니다
+  useEffect(() => {
+    const prev = document.title;
+    document.title = `교육비납입증명서${member ? "_" + member.name : ""}`;
+    return () => { document.title = prev; };
+  }, [member]);
+
   if (loading) return <div className="p-10 text-center text-gray-500">불러오는 중…</div>;
   if (!member) return <div className="p-10 text-center text-red-500">회원 정보를 찾을 수 없습니다.</div>;
 
@@ -141,6 +149,9 @@ export default function EduCertPage() {
           body { background: white !important; }
           .no-print { display: none !important; }
           .cert-page { box-shadow: none !important; margin: 0 !important; }
+          /* ✅ v3.71.1: 인쇄 시 글로벌 헤더(회원 DB 상단바) 숨김 — 증명서만 출력 */
+          /* ✅ v3.72.0: nav/aside 등 모든 앱 크롬 숨김 강화 */
+          header, nav, aside { display: none !important; }
         }
       `}</style>
 
@@ -302,7 +313,8 @@ export default function EduCertPage() {
           <div className="mt-2 text-[12px] font-semibold">{fmtKoreanDate(issueDate)}</div>
           <div className="mt-4 text-[12px] font-semibold flex items-center justify-center gap-3">
             {BIZ.name} 대표 {org.ceo_name}
-            <span className="w-10 h-10 border-2 border-red-400 rounded-full text-red-400 text-[9px] inline-flex items-center justify-center">(직인)</span>
+            {/* ✅ v3.71.1: 실제 직인 이미지 (public/seal.png) — 배경 흰색 도장 파일 */}
+            <img src="/seal.png" alt="직인" className="w-11 h-11 object-contain inline-block -my-1" style={{ mixBlendMode: "multiply" }} />
           </div>
         </div>
       </div>
