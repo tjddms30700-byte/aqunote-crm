@@ -118,9 +118,20 @@ export default function EduCertPage() {
   if (loading) return <div className="p-10 text-center text-gray-500">불러오는 중…</div>;
   if (!member) return <div className="p-10 text-center text-red-500">회원 정보를 찾을 수 없습니다.</div>;
 
+  // ✅ v3.68.3: 주민번호 앞자리 마스킹 — 성별·출생연도 기준으로 7번째 자리 자동 계산 (기존 "3" 하드코딩 버그 수정)
+  // 규칙: 1900년대 남=1 여=2 / 2000년대 남=3 여=4. 성별 미등록 시 추측하지 않고 생년월일을 그대로 표기
   const birth = member.birth || member.birth_date || "";
-  const birthMasked = birth && String(birth).replace(/-/g, "").length >= 6
-    ? `${String(birth).replace(/-/g, "").slice(0, 6)}-3******` : birth;
+  const birthDigits = String(birth).replace(/[^0-9]/g, "");
+  const genderRaw = String(member.gender || member.sex || "").toLowerCase();
+  const isFemale = /여|female|^f$/.test(genderRaw);
+  const isMale = /남|male|^m$/.test(genderRaw);
+  const birthMasked = (() => {
+    if (birthDigits.length < 6) return birth;
+    if (!isFemale && !isMale) return birth; // 성별 미등록 → 주민번호 형식 생성하지 않음
+    const is2000s = Number(birthDigits.slice(0, 4)) >= 2000;
+    const seventh = isFemale ? (is2000s ? "4" : "2") : (is2000s ? "3" : "1");
+    return `${birthDigits.slice(0, 6)}-${seventh}******`;
+  })();
 
   return (
     <div className="min-h-screen bg-gray-100">
