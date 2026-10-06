@@ -311,9 +311,10 @@ export default function SchedulePage() {
     // ✨ v3.32.2: 2025-00-01 400 오류 근본 차단 - month0는 0기반(0~11), SQL/ISO는 1기반(01~12)
     const startY = year || new Date().getFullYear();
     const startM0 = (typeof month0 === "number" && month0 >= 0 && month0 <= 11) ? month0 : new Date().getMonth();
-    // 매월 1일 ~ 다음달 마지막일 (2개월 범위 - 이월/보강 파이프라인 고려)
-    const rangeStart = `${startY}-${String(startM0 + 1).padStart(2, "0")}-01`; // 핵심: +1 반드시 적용
-    const endD = new Date(startY, startM0 + 2, 0); // 다음달 마지막일
+    // ✅ v3.70.0: 보강 연동 개선 - 6개월 전 ~ 3개월 후까지 로딩 (월 변경 시 과거 결석/보강 대상이 사라지는 버그 수정)
+    const _rs = new Date(startY, startM0 - 5, 1); // 6개월 전 1일
+    const rangeStart = `${_rs.getFullYear()}-${String(_rs.getMonth() + 1).padStart(2, "0")}-01`;
+    const endD = new Date(startY, startM0 + 3, 0); // 3개월 후 마지막일
     const rangeEnd = `${endD.getFullYear()}-${String(endD.getMonth()+1).padStart(2,"0")}-${String(endD.getDate()).padStart(2,"0")}`;
     // 안전 가드: rangeStart/End 유효성 검증
     if (!/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(rangeStart) || !/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(rangeEnd)) {
@@ -1736,9 +1737,27 @@ export default function SchedulePage() {
 
     // 5) 날짜 내림차순 정렬
     arr.sort((a: any, b: any) => (b.date || "").localeCompare(a.date || ""));
-    console.log(`[v3.38.2] 보강 필요 회원 (수중 만): ${arr.length}건`);
+    console.log(`[v3.70.0] 보강 필요 회원 (수중 만): ${arr.length}건`);
     return arr;
   }, [slots, attendance, members, trackTab]);
+
+  // ✅ v3.70.0: 회원별 그룹핑 — "김땡땡 결석일 9/10, 김땡땡 결석일 9/21" 나열 대신 회원 카드 1개 + 결석 건수/날짜 목록
+  const makeupGrouped = useMemo(() => {
+    const groups = new Map<string, any>();
+    makeupNeededList.forEach((r: any) => {
+      const key = r.member_id;
+      if (!groups.has(key)) {
+        groups.set(key, { member_id: key, member_name: r.member_name, phone: r.phone, member_type: (members.find((mm: any) => mm.id === key)?.member_type) || "adult", items: [], oldest: r.date });
+      }
+      const g = groups.get(key);
+      g.items.push(r);
+      if (r.date < g.oldest) g.oldest = r.date;
+    });
+    const list = Array.from(groups.values());
+    list.forEach(g => g.items.sort((a: any, b: any) => String(a.date).localeCompare(String(b.date))));
+    list.sort((a: any, b: any) => b.items.length - a.items.length || String(a.oldest).localeCompare(String(b.oldest)));
+    return list;
+  }, [makeupNeededList, members]);
 
   // v3.21.7: 보강 예약 모드 state - 카드에서 클릭 시 예약 모달에 자동 회원/날짜 프리필
   const [makeupMode, setMakeupMode] = useState<any | null>(null);
@@ -1940,12 +1959,67 @@ export default function SchedulePage() {
             </div>
             <span className="text-[10px] text-orange-600 font-medium bg-white/60 px-2 py-1 rounded-full">완료·이월 처리 시 자동 제거</span>
           </div>
-          <div className="space-y-2 max-h-64 overflow-y-auto">
+          {/* ✅ v3.70.0: 회원별 그룹 카드 — 회원당 1줄, 결석 횟수 + 날짜 칩 나열, 카드당 보강예약/완료/이월 액션 */}
+          <div className="space-y-2 max-h-80 overflow-y-auto">
+            {makeupGrouped.slice(0, 30).map((g: any, gi: number) => {
+              const first = g.items[0]; // 대표 결석건 (액션 기준: 가장 오래된 것부터 처리)
+              return (
+                <div key={`grp_${g.member_id}_${gi}`}
+                  className="bg-white border border-orange-100 rounded-xl px-3 py-2.5 hover:border-orange-300 hover:shadow-md transition-all">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button onClick={() => { window.location.href = `/members/${g.member_id}`; }}
+                      className="text-sm font-bold text-slate-800 hover:text-aqu-700 hover:underline">
+                      {g.member_name}
+                    </button>
+                    <span className="text-[10px] text-gray-400">{g.member_type === "child" ? "🧒" : "👤"}</span>
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">총 {g.items.length}회 보강 필요</span>
+                    <span className="flex-1" />
+                    {/* 대표 결석건 기준 3개 액션 (처리 시 가장 오래된 결석부터 순차 처리) */}
+                  </div>
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {g.items.map((it: any) => (
+                      <span key={it.id + it.date} className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${it.status === "sick" ? "bg-rose-50 text-rose-700 border border-rose-200" : "bg-violet-50 text-violet-700 border border-violet-200"}`}>
+                        {it.status === "sick" ? "🤒" : "📝"} {String(it.date).slice(5)}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="flex gap-1.5 mt-2">
+                    <button onClick={async () => {
+                        // ✅ v3.71.0: 보강은 일반 예약으로 잡고, 여기서는 "예약 잡음"만 관리자 체크 (모달 안 엶)
+                        if (!confirm(`📌 보강 예약 잡음 처리\n\n${g.member_name} 회원의 보강 ${g.items.length}건을 일반 예약으로 이미 잡으셨나요?\n\n확인 시 이 회원의 결석 ${g.items.length}건이 보강 필요 목록에서 제거됩니다.\n(실제 수업 완료/이월 처리는 아래 건별 목록의 버튼을 사용하세요)`)) return;
+                        try {
+                          for (const it of g.items) {
+                            if (it.source === "slot" && it.slot_id) {
+                              await supabase.from("schedule_slots").update({ makeup_waived: true }).eq("id", it.slot_id);
+                            }
+                            if (it.source === "attendance" && it.id) {
+                              await supabase.from("attendance").update({ is_makeup_waived: true }).eq("id", it.id);
+                            }
+                          }
+                          await loadAll();
+                          alert(`✅ ${g.member_name} 보강 예약 잡음 처리 완료\n\n결석 ${g.items.length}건이 보강 필요 목록에서 제거되었습니다.`);
+                        } catch (e: any) { alert("처리 실패: " + e.message); }
+                      }}
+                      className="flex-1 text-[11px] px-2 py-1.5 rounded-full font-bold border-2 bg-gradient-to-r from-sky-50 to-cyan-50 text-sky-700 border-sky-300 hover:shadow"
+                      title="일반 예약으로 보강을 잡은 뒤 누르세요 — 관리자 확인용 체크">
+                      ✅ 보강예약 잡음
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            {makeupGrouped.length > 30 && (
+              <div className="text-[11px] text-orange-600 text-center py-1.5 bg-white/50 rounded-lg">+{makeupGrouped.length - 30}명 더 있음</div>
+            )}
+          </div>
+          {/* ✅ v3.70.0: 기존 건별 리스트도 아래에 유지 (완료/이월 액션 포함) */}
+          <div className="mt-3 pt-3 border-t border-orange-100 space-y-2 max-h-64 overflow-y-auto">
+            <div className="text-[10px] text-orange-600 font-bold mb-1">건별 처리 (관리자용: 보강완료 시 삭제 / 이월 시 삭제)</div>
             {makeupNeededList.slice(0, 30).map((r: any, i: number) => {
               const isSick = r.status === "sick";
               return (
                 <div key={`${r.member_id}_${r.date}_${i}`}
-                  className="flex items-center gap-2 bg-white border border-orange-100 rounded-xl px-3 py-2.5 hover:border-orange-300 hover:shadow-md transition-all">
+                  className="flex items-center gap-2 bg-white border border-orange-100 rounded-xl px-3 py-2 hover:border-orange-300 hover:shadow-md transition-all">
                   <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${isSick ? "bg-rose-100 text-rose-700" : "bg-violet-100 text-violet-700"}`}>
                     {isSick ? "🤒 병결" : "📝 개인사정"}
                   </span>
@@ -3519,70 +3593,8 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
         </div>
 
         <div className="p-5 space-y-4">
-          {/* ✅ v3.57.0: [일반 예약] / [🔁 보강 배정] 탭 - 신규 예약에서만 노출 */}
-          {!isEditing && (
-            <div className="bg-white border border-slate-200 rounded-xl p-1 flex gap-1">
-              <button type="button"
-                onClick={() => { setReservTab("normal"); setF({ ...f, event_type: "lesson", is_makeup_reservation: false, original_absence_slot_id: null, makeup_for_id: null }); }}
-                className={`flex-1 py-2 rounded-lg text-sm font-bold transition ${reservTab === "normal" ? "bg-aqu-500 text-white shadow" : "text-slate-600 hover:bg-slate-50"}`}>
-                📅 일반 예약
-              </button>
-              <button type="button"
-                onClick={() => setReservTab("makeup")}
-                className={`flex-1 py-2 rounded-lg text-sm font-bold transition relative ${reservTab === "makeup" ? "bg-orange-500 text-white shadow" : "text-slate-600 hover:bg-orange-50"}`}>
-                🔁 보강 배정
-                {makeupCandidates.length > 0 && (
-                  <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full font-bold ${reservTab === "makeup" ? "bg-white text-orange-600" : "bg-orange-500 text-white"}`}>
-                    {makeupCandidates.length}
-                  </span>
-                )}
-              </button>
-            </div>
-          )}
+          {/* ✅ v3.71.0: 보강 배정 탭 제거 — 보강은 일반 예약으로 잡고, 위 보강필요 카드에서만 관리자가 체크합니다 */}
 
-          {/* ✅ v3.57.0: 보강 배정 탭 활성 시 보강 대기 회원 자동 필터 리스트 */}
-          {!isEditing && reservTab === "makeup" && (
-            <div className="bg-gradient-to-br from-orange-50 via-amber-50 to-rose-50 border-2 border-orange-200 rounded-xl p-3">
-              <div className="text-xs font-bold text-orange-800 mb-2 flex items-center gap-1.5">
-                🔔 보강 대기 회원 ({makeupCandidates.length}명)
-                <span className="text-[10px] font-normal text-orange-600">회원 선택 시 원본 결석과 자동 연결됩니다</span>
-              </div>
-              {makeupCandidates.length === 0 ? (
-                <div className="text-xs text-slate-500 italic py-3 text-center">보강 대기 중인 회원이 없습니다.</div>
-              ) : (
-                <div className="space-y-1.5 max-h-56 overflow-y-auto">
-                  {makeupCandidates.map((r: any, i: number) => {
-                    const m = (members || []).find((mm: any) => mm.id === r.member_id);
-                    const isPicked = f.member_id === r.member_id && (f.original_absence_slot_id === (r.slot_id || r.id));
-                    return (
-                      <button key={`${r.member_id}_${r.date || r.id}_${i}`} type="button"
-                        onClick={() => pickMakeupMember(r)}
-                        className={`w-full text-left px-3 py-2 rounded-lg border-2 transition ${isPicked ? "bg-orange-500 border-orange-600 text-white shadow" : "bg-white border-orange-100 hover:border-orange-400 hover:shadow"}`}>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className={`text-[10px] font-bold ${isPicked ? "text-white" : "text-orange-600"}`}>
-                              {r.status === "sick" ? "🤒 병결" : r.status === "personal" ? "📝 개인사정" : "❌ 결석"}
-                            </span>
-                            <b className={`text-sm ${isPicked ? "text-white" : "text-slate-800"}`}>{m?.name || "(회원)"}</b>
-                            <span className={`text-[10px] ${isPicked ? "text-orange-100" : "text-slate-500"}`}>{m?.member_type === "child" ? "👶" : "👤"}</span>
-                          </div>
-                          <div className={`text-[10px] ${isPicked ? "text-orange-50" : "text-slate-500"}`}>
-                            {(r.date || "").slice(5)} {r.time_slot ? `· ${r.time_slot}` : ""}
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-              {f.member_id && f.original_absence_slot_id && (
-                <div className="mt-2 px-3 py-2 bg-white rounded-lg border border-orange-300">
-                  <div className="text-[10px] font-bold text-orange-700">✅ 원본 결석 자동 연결됨</div>
-                  <div className="text-[10px] text-slate-600 mt-0.5">저장 시 원본 보강 이력이 완료 처리됩니다.</div>
-                </div>
-              )}
-            </div>
-          )}
 
           {/* ═══ 섹션 1: 기본 정보 (v3.20.6 재디자인) ═══ */}
           <div className="bg-gradient-to-br from-aqu-50/40 to-blue-50/40 border border-aqu-100 rounded-xl p-4">
