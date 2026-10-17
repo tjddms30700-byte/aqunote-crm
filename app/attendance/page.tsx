@@ -1192,10 +1192,8 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
     activeMs: any | null;
     remain: number;
     total: number;
-    recentAbsences: any[];
-    needsMakeup: number;
     loading: boolean;
-  }>({ activeMs: null, remain: 0, total: 0, recentAbsences: [], needsMakeup: 0, loading: true });
+  }>({ activeMs: null, remain: 0, total: 0, loading: true });
 
   // ✨ v3.32.2: 사인 팝업 열 때 회원권/출결 이력 자동 조회
   useEffect(() => {
@@ -1211,45 +1209,11 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
         const used = activeMs?.used_sessions || 0;
         const remain = Math.max(0, total - used);
 
-        // ✅ v3.56.0: 보강필요 = makeup_history 기준 (pending/reserved만 집계)
-        //   - schedule_slots.status 는 원본 결석 유형만 저장
-        //   - makeup_history.status 가 'completed'/'waived' 면 보강필요에서 제외
-        //   - absent/sick/personal 모두 포함 (carryover=이월 · cancel=취소 는 제외)
-        const past60 = (() => {
-          const d = new Date(date + "T00:00:00Z");
-          d.setUTCDate(d.getUTCDate() - 60);
-          return d.toISOString().slice(0, 10);
-        })();
-        const { data: mhList } = await supabase.from("makeup_history")
-          .select("id,absence_date,absence_type,status,original_slot_id,makeup_deadline")
-          .eq("member_id", member.id)
-          .in("status", ["pending", "reserved"])
-          .gte("absence_date", past60)
-          .lte("absence_date", date)
-          .is("deleted_at", null)
-          .order("absence_date", { ascending: false })
-          .limit(20);
-        // 원본 slot 정보(시간대) 병합
-        const slotIds = (mhList || []).map((m: any) => m.original_slot_id).filter(Boolean);
-        let slotMap: Record<string, any> = {};
-        if (slotIds.length > 0) {
-          const { data: sl } = await supabase.from("schedule_slots")
-            .select("id,time_slot,event_date,status")
-            .in("id", slotIds);
-          (sl || []).forEach((r: any) => { slotMap[r.id] = r; });
-        }
-        const recentAbsences = (mhList || []).map((m: any) => ({
-          id: m.original_slot_id,
-          makeup_history_id: m.id,
-          event_date: m.absence_date,
-          time_slot: slotMap[m.original_slot_id]?.time_slot || "",
-          status: m.absence_type,   // sick/personal/absent
-          makeup_deadline: m.makeup_deadline,
-        }));
-        setMemberInfo({ activeMs, remain, total, recentAbsences, needsMakeup: recentAbsences.length, loading: false });
+        // v3.73.0: 출석 사인창에서는 과거 보강 이력을 별도로 조회하지 않음
+        setMemberInfo({ activeMs, remain, total, loading: false });
       } catch (e) {
         console.warn("[v3.32.2] 사인 팝업 자동조회 예외:", e);
-        setMemberInfo({ activeMs: null, remain: 0, total: 0, recentAbsences: [], needsMakeup: 0, loading: false });
+        setMemberInfo({ activeMs: null, remain: 0, total: 0, loading: false });
       }
     })();
   }, [member?.id, date]);
@@ -1620,7 +1584,7 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
         <div className="p-5 space-y-4">
           {/* ✨ v3.32.2: 회원권 잔여 + 보강필요 안내 카드 */}
           {!memberInfo.loading && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3">
               {/* 회원권 잔여 */}
               <div className={`aqu-card border-2 p-3 rounded-2xl ${
                 memberInfo.remain === 0 ? "bg-gradient-to-br from-rose-50 to-red-50 border-rose-300" :
@@ -1668,53 +1632,7 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
                 )}
               </div>
 
-              {/* 보강필요 안내 */}
-              <div className={`aqu-card border-2 p-3 rounded-2xl ${
-                memberInfo.needsMakeup === 0 ? "bg-gradient-to-br from-slate-50 to-gray-50 border-slate-200" :
-                "bg-gradient-to-br from-orange-50 via-amber-50 to-rose-50 border-orange-300"
-              }`}>
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="text-lg">{memberInfo.needsMakeup === 0 ? "✅" : "🔔"}</span>
-                  <span className="text-xs font-bold text-slate-700">보강필요 (최근 60일)</span>
-                </div>
-                {memberInfo.needsMakeup === 0 ? (
-                  <div className="text-xs text-slate-500">보강 대상 없음</div>
-                ) : (
-                  <>
-                    <div className="flex items-baseline gap-1 mb-1">
-                      <span className="text-2xl font-extrabold text-orange-600">{memberInfo.needsMakeup}</span>
-                      <span className="text-sm text-slate-500 font-medium">건</span>
-                    </div>
-                    <div className="space-y-0.5 max-h-16 overflow-y-auto">
-                      {memberInfo.recentAbsences.slice(0, 3).map((a: any, i: number) => (
-                        <div key={i} className="text-[10px] text-slate-700 bg-white/70 rounded px-2 py-0.5 flex items-center gap-1">
-                          <span className={a.status === "sick" ? "text-rose-500" : "text-violet-500"}>
-                            {a.status === "sick" ? "🤒" : "📝"}
-                          </span>
-                          <b>{a.event_date}</b>
-                          {a.time_slot && <span className="text-slate-500">({a.time_slot})</span>}
-                        </div>
-                      ))}
-                      {memberInfo.recentAbsences.length > 3 && (
-                        <div className="text-[10px] text-orange-600 font-semibold">+{memberInfo.recentAbsences.length - 3}건 더</div>
-                      )}
-                    </div>
-                    {/* ✅ v3.56.0: 원본 결석에서 바로 보강 예약 잡기 */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const first = memberInfo.recentAbsences[0];
-                        if (!first?.id) { alert('원본 결석 정보를 찾을 수 없습니다.'); return; }
-                        const url = `/schedule?makeup_for=${first.id}&member_id=${member.id}`;
-                        window.open(url, '_blank');
-                      }}
-                      className="mt-2 w-full px-3 py-1.5 rounded-lg text-[11px] font-bold bg-orange-500 hover:bg-orange-600 text-white shadow-sm"
-                    >
-                      🔁 보강 예약 잡기 (원본 결석 자동 연결)
-                    </button>
-                  </>
-                )}
-              </div>
+              {/* v3.73.0: 보강 관리는 시간표 관리자 패널에서만 수행 */}
             </div>
           )}
 

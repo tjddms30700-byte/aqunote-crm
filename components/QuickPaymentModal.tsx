@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { resolveBillingCategory } from "@/lib/billingCategory";
 import { X, CreditCard, Loader2 } from "lucide-react";
 
 /* ============================================================
@@ -84,7 +85,9 @@ export default function QuickPaymentModal({ open, onClose, onSaved, initialDate,
       const endStr = endDate.toISOString().slice(0, 10);
 
       // v3.21.2: memberships insert – amount/price 컬럼 자동 매핑 폴백 (최대 20회)
+      const billingCategory = resolveBillingCategory({ plan_id: f.plan_id, plan_name: f.plan_name }, plans);
       let msPayload: any = {
+        category: billingCategory,
         org_id: orgId,
         member_id: f.member_id,
         plan_name: f.plan_name,
@@ -132,6 +135,7 @@ export default function QuickPaymentModal({ open, onClose, onSaved, initialDate,
       })();
 
       let payPayload: any = {
+        category: billingCategory,
         org_id: orgId,
         member_id: f.member_id,
         membership_id: ms?.id,

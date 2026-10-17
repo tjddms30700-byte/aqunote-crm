@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
+import { resolveBillingCategory } from "@/lib/billingCategory";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import MemberSearch from "@/components/MemberSearch";
@@ -130,7 +131,7 @@ export default function PaymentsPage() {
     setLoading(true);
     const branchId = getActiveBranchId();
     // ✅ 지점 필터 적용 헬퍼 (branch_id 컴럼 미존재 시 폴백)
-    const bf = (q: any) => (branchId ? q.eq("branch_id", branchId) : q);
+    const bf = (q: any) => (branchId && branchId !== "ALL" ? q.eq("branch_id", branchId) : q);
     const [p, m, mem, pl] = await Promise.all([
       // 이중 조인 실패에 대비해 fallback 해봄
       (async () => {
@@ -156,7 +157,7 @@ export default function PaymentsPage() {
           return await supabase.from("memberships").select("*, members(name, member_type)");
         }
         // 프론트 필터링
-        if (branchId && r1.data) {
+        if (branchId && branchId !== "ALL" && r1.data) {
           r1.data = r1.data.filter((x: any) => !x.members?.branch_id || x.members.branch_id === branchId);
         }
         return r1;
@@ -168,12 +169,21 @@ export default function PaymentsPage() {
         }
         return r;
       })(),
-      supabase.from("membership_plans").select("*").eq("is_active", true).order("sort_order"),
+      supabase.from("membership_plans").select("*").order("sort_order"),
     ]);
-    setPayments(p.data || []);
-    setMemberships(m.data || []);
+    // v3.73.0: Normalize legacy rows on read without modifying amounts or DB records.
+    const catalog = pl.data || [];
+    const normalizedMemberships = (m.data || []).map((row: any) => {
+      const relatedPayment = (p.data || []).find((pay: any) => pay.membership_id === row.id);
+      return { ...row, category: resolveBillingCategory(row, catalog, relatedPayment) };
+    });
+    const byMembershipId = new Map(normalizedMemberships.map((row: any) => [row.id, row]));
+    setPayments((p.data || []).map((row: any) => ({ ...row,
+      category: resolveBillingCategory(row, catalog, byMembershipId.get(row.membership_id)),
+    })));
+    setMemberships(normalizedMemberships);
     setMembers(mem.data || []);
-    setPlans(pl.data || []);
+    setPlans((pl.data || []).filter((plan: any) => plan.is_active !== false));
     setLoading(false);
   }
 
@@ -267,7 +277,9 @@ export default function PaymentsPage() {
       const baseSessions = Math.max(1, Number(f.sessions) || 1);
       const extraSessions = Math.max(0, Number(f.extra_sessions) || 0);
       const safeSessions = baseSessions + extraSessions;
+      const billingCategory = resolveBillingCategory({ plan_id: f.plan_id, plan_name: f.plan_name, category: trackTab }, plans);
       const msPayload: any = {
+        category: billingCategory,
         org_id: orgId,
         member_id: f.member_id,
         plan_name: extraSessions > 0 ? `${f.plan_name} (+서비스 ${extraSessions}회)` : f.plan_name,
@@ -303,6 +315,7 @@ export default function PaymentsPage() {
       // 2) payments에 결제 이력 추가 (여러 수단 분할 포함)
       const _activeBranch = getActiveBranchId();
       const payload: any = {
+        category: billingCategory,
         org_id: orgId,
         member_id: f.member_id,
         membership_id: newMembership?.id,
@@ -389,6 +402,7 @@ export default function PaymentsPage() {
       endDate.setDate(endDate.getDate() + validDays);
 
       const msPayload: any = {
+        category: resolveBillingCategory({ ...payment, plan_name: planName }, plans),
         org_id: orgId,
         member_id: payment.member_id,
         plan_name: planName,

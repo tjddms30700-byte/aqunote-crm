@@ -24,6 +24,7 @@ import HomeButton from "@/components/HomeButton";
 import MemberSearch from "@/components/MemberSearch";
 import SignatureAttendanceModal from "@/components/SignatureAttendanceModal";
 import { supabase } from "@/lib/supabase";
+import { resolveBillingCategory } from "@/lib/billingCategory";
 import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import {
   Calendar, Plus, X, Home, ChevronLeft, ChevronRight, ChevronDown,
@@ -741,6 +742,7 @@ export default function SchedulePage() {
     let planName = payment.lesson_name || payment.plan_name || "수업";
     let totalSessions = Number(payment.sessions) || 0;
     let validDays = Number(payment.valid_days) || 90;
+    let billingCategory = resolveBillingCategory({ ...payment, track: slot.track || trackTab }, plans);
 
     // 명시적 plan_id가 있으면 membership_plans에서 정보 보강
     if (payment.plan_id) {
@@ -748,6 +750,7 @@ export default function SchedulePage() {
         const { data: planData } = await supabase.from("membership_plans").select("*").eq("id", payment.plan_id).maybeSingle();
         if (planData) {
           planName = planData.name;
+          billingCategory = resolveBillingCategory({ plan_id: planData.id, plan_name: planName }, [planData]);
           totalSessions = planData.sessions || totalSessions;
           validDays = planData.valid_days || validDays;
         }
@@ -763,6 +766,7 @@ export default function SchedulePage() {
       const msPayload: any = {
         org_id: orgId,
         member_id: slot.member_id,
+        category: billingCategory,
         plan_name: planName,
         total_sessions: safeSessions,
         used_sessions: 0,
@@ -814,6 +818,7 @@ export default function SchedulePage() {
       org_id: orgId,
       member_id: slot.member_id,
       membership_id: membershipId,
+      category: billingCategory,
       amount: payment.amount,
       method: payment.method,
       lesson_name: planName,
