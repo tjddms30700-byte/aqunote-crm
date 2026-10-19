@@ -24,6 +24,7 @@ import HomeButton from "@/components/HomeButton";
 import MemberSearch from "@/components/MemberSearch";
 import SignatureAttendanceModal from "@/components/SignatureAttendanceModal";
 import { supabase } from "@/lib/supabase";
+import { isPaymentCancelled } from "@/lib/paymentCancellation";
 import { saveActualAttendance } from "@/lib/actualMembershipUsage";
 import { resolveBillingCategory } from "@/lib/billingCategory";
 import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
@@ -46,22 +47,7 @@ const TIMES = [
 //   파일 최상단(모든 컴포넌트/함수보다 먼저)에 배치해 참조 순서 문제 원천 차단
 //   status / cancelled_at / is_cancelled / refund_status / refunded_amount /
 //   연결된 memberships.status 를 모두 확인해 어느 한 조건이라도 true 면 취소로 간주
-function isPaymentCancelled(p: any, memberships?: any[]): boolean {
-  if (!p) return false;
-  const st = String(p.status || "").toLowerCase().trim();
-  if (["cancelled", "canceled", "refunded", "void", "cancel"].includes(st)) return true;
-  if (p.cancelled_at) return true;
-  if (p.is_cancelled === true) return true;
-  if (String(p.refund_status || "").toLowerCase() === "full") return true;
-  const amt = Number(p.amount || 0);
-  const ref = Number(p.refunded_amount || 0);
-  if (amt > 0 && ref >= amt) return true;
-  if (p.membership_id && Array.isArray(memberships)) {
-    const ms = memberships.find((m: any) => m?.id === p.membership_id);
-    if (ms && String(ms.status || "").toLowerCase() === "cancelled") return true;
-  }
-  return false;
-}
+
 
 // ✅ v3.20.0: 7가지 상태 · 수업하지 않은 상태(병결/취소/노쇼/이월/개인사정)은 모두 회색 계열
 const STATUS_OPTIONS = [
@@ -2425,22 +2411,7 @@ function RevenueDetailPopover({ date, payments, members, staff, memberships, onC
   //   - is_cancelled = true
   //   - 연결 회원권 memberships.status = 'cancelled' (전액 취소로 간주)
   //   - refunded_amount >= amount (전액 환불로 간주)
-  const isFullyCancelled = (p: any): boolean => {
-    const st = String(p?.status || "").toLowerCase().trim();
-    if (["cancelled", "canceled", "refunded", "void", "cancel"].includes(st)) return true;
-    if (p?.cancelled_at) return true;
-    if (p?.is_cancelled === true) return true;
-    if (String(p?.refund_status || "").toLowerCase() === "full") return true;
-    const amt = Number(p?.amount || 0);
-    const ref = Number(p?.refunded_amount || 0);
-    if (amt > 0 && ref >= amt) return true;
-    // 연결 회원권이 취소된 경우도 취소로 간주 (v3.40.3 슬롯 정리와 정합)
-    if (p?.membership_id) {
-      const ms = (memberships || []).find((m: any) => m.id === p.membership_id);
-      if (ms && String(ms.status || "").toLowerCase() === "cancelled") return true;
-    }
-    return false;
-  };
+  const isFullyCancelled = (p: any): boolean => isPaymentCancelled(p, memberships);
 
   const dayPayments = (payments || []).filter((p: any) => {
     if (normDate(p.paid_at) !== normDate(date)) return false;
@@ -2448,7 +2419,7 @@ function RevenueDetailPopover({ date, payments, members, staff, memberships, onC
     return payCat === track;
   });
   const active   = dayPayments.filter((p: any) => !isFullyCancelled(p));
-  const refunded = dayPayments.filter((p: any) => isFullyCancelled(p) || Number(p.refunded_amount || 0) > 0);
+  const refunded = dayPayments.filter((p: any) => !p.deleted_at && Number(p.refunded_amount || 0) > 0);
 
   // v3.40.4: 디버깅용 콘솔 로그
   if (dayPayments.length !== active.length) {
@@ -2458,7 +2429,7 @@ function RevenueDetailPopover({ date, payments, members, staff, memberships, onC
   // v3.23.3: 실제 매출 = amount - discount_amount - refunded_amount (할인 차감)
   const netAmt = (p: any) => Math.max(0, (p.amount || 0) - (p.discount_amount || 0) - (p.refunded_amount || 0));
   const totalIncome = active.reduce((s: number, p: any) => s + netAmt(p), 0);
-  const totalRefund = refunded.reduce((s: number, p: any) => s + Number(p.refunded_amount || p.amount || 0), 0);
+  const totalRefund = refunded.reduce((s: number, p: any) => s + Number(p.refunded_amount || 0), 0);
   const totalDiscount = active.reduce((s: number, p: any) => s + Number(p.discount_amount || 0), 0);
 
   // v3.23.3: 결제방식별도 할인 비율 반영 (amount 대비 net 비율만큼 차감)
@@ -2502,18 +2473,18 @@ function RevenueDetailPopover({ date, payments, members, staff, memberships, onC
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 bg-gradient-to-br from-slate-50/40 via-white to-amber-50/30">
-          {dayPayments.length === 0 ? (
+          {active.length === 0 && refunded.length === 0 ? (
             <div className="py-8 text-center text-gray-400 text-sm">해당 일 결제 내역이 없습니다</div>
           ) : (
             <div className="space-y-2">
               {refunded.map((p: any) => {
                 const mem = members.find((m: any) => m.id === p.member_id);
                 const staffP = p.staff_id ? staff.find((s: any) => s.id === p.staff_id) : null;
-                const refundAmt = Number(p.refunded_amount || p.amount || 0);
+                const refundAmt = Number(p.refunded_amount || 0);
                 return (
                   <div key={p.id + "-refund"} className="p-2 border-b border-gray-100 flex items-start justify-between">
                     <div>
-                      <div className="text-xs text-red-600 font-semibold">예약금환불</div>
+                      <div className="text-xs text-red-600 font-semibold">환불 내역</div>
                       <div className="text-[11px] text-gray-500">{timeFmt(p.paid_time)}</div>
                       {mem && <div className="text-[11px] text-gray-700">{mem.name}</div>}
                     </div>

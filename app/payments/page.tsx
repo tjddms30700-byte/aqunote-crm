@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
+import { isPaymentCancelled, cancelMembershipRegistration } from "@/lib/paymentCancellation";
 import { resolveBillingCategory } from "@/lib/billingCategory";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
@@ -452,20 +453,15 @@ export default function PaymentsPage() {
   }
 
   async function deleteMembership(id: string) {
-    if (!confirm("회원권을 삭제할까요?")) return;
-    // ✅ v3.48.3: FK 참조 먼저 해제 - payments/schedule_slots/attendance가 이 회원권을 참조 중이면 삭제가 400으로 거부됨
-    try { await supabase.from("payments").update({ membership_id: null }).eq("membership_id", id); } catch {}
-    try { await supabase.from("schedule_slots").update({ membership_id: null }).eq("membership_id", id); } catch {}
-    try { await supabase.from("attendance").update({ membership_id: null }).eq("membership_id", id); } catch {}
-    const _msDel = await supabase.from("memberships").delete().eq("id", id);
-    if (_msDel.error) {
-      console.warn("[v3.48.3] memberships 하드 삭제 실패, cancelled 폴백:", _msDel.error.message);
-      const soft = await supabase.from("memberships").update({ status: "cancelled" }).eq("id", id);
-      if (soft.error) { alert("회원권 삭제 실패: " + soft.error.message); return; }
+    if (!confirm("잘못 등록한 회원권을 삭제할까요?\n\n연결된 결제도 등록 취소하여 매출에서 제외합니다.\n정상 재등록 결제와 기존 출석·사용횟수는 변경하지 않습니다.\n실제 카드 승인 취소·환불은 별도입니다.")) return;
+    try {
+      await cancelMembershipRegistration(id);
+      await loadAll();
+      alert("회원권 및 연결 결제를 등록 취소했습니다. 매출에서 제외되며 이력은 보존됩니다.");
+    } catch (error: any) {
+      alert("회원권 삭제 실패: " + (error?.message || String(error)));
+      await loadAll();
     }
-    // UI 즉시 반영
-    setMemberships(prev => prev.filter((m: any) => m.id !== id));
-    loadAll();
   }
 
   // 회원권 회차 조정 (+/-) – ✅ v3.20.9: 잔여/총 회수 명시 + 이중 차감 검증
@@ -652,22 +648,7 @@ export default function PaymentsPage() {
   }
 
   // ✅ v3.40.4: 결제 취소 다중 시그널 통합 판별 헬퍼 (schedule/page.tsx 와 동일 로직)
-function isPaymentCancelled(p: any, memberships?: any[]): boolean {
-  if (!p) return false;
-  const st = String(p.status || "").toLowerCase().trim();
-  if (["cancelled", "canceled", "refunded", "void", "cancel"].includes(st)) return true;
-  if (p.cancelled_at) return true;
-  if (p.is_cancelled === true) return true;
-  if (String(p.refund_status || "").toLowerCase() === "full") return true;
-  const amt = Number(p.amount || 0);
-  const ref = Number(p.refunded_amount || 0);
-  if (amt > 0 && ref >= amt) return true;
-  if (p.membership_id && Array.isArray(memberships)) {
-    const ms = memberships.find((m: any) => m?.id === p.membership_id);
-    if (ms && String(ms.status || "").toLowerCase() === "cancelled") return true;
-  }
-  return false;
-}
+
 
 // v3.23.2: 실제 매출 = amount - discount_amount - refunded_amount (할인·환불 차감)
   const netAmount = (p: any) => Math.max(0, (p.amount || 0) - (p.discount_amount || 0) - (p.refunded_amount || 0));
