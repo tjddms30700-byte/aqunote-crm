@@ -24,6 +24,7 @@ import HomeButton from "@/components/HomeButton";
 import MemberSearch from "@/components/MemberSearch";
 import SignatureAttendanceModal from "@/components/SignatureAttendanceModal";
 import { supabase } from "@/lib/supabase";
+import { saveActualAttendance } from "@/lib/actualMembershipUsage";
 import { resolveBillingCategory } from "@/lib/billingCategory";
 import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import {
@@ -438,201 +439,18 @@ export default function SchedulePage() {
     }
     const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
 
-    // ✅ v3.20.1: scheduled로 되돌릴 때는 기존 attendance 레코드 삭제
-    if (status === "scheduled") {
-      const existing = attendance.find((a: any) => a.member_id === slot.member_id && (a.date === slot.event_date || a.attendance_date === slot.event_date || a.session_date === slot.event_date));
-      if (existing) {
-        // ✅ v3.25.0: Hard Delete
-        const _attDel = await supabase.from("attendance").delete().eq("id", existing.id);
-        if (_attDel.error && _attDel.error.code === "42703") { await supabase.from("attendance").delete().eq("id", existing.id); }
-      }
-    }
-    // ✅ v3.48.1: 이월/취소 전환 시 남아있는 병결·개인사정 attendance 레코드 삭제
-    //   (예전에 병결/개인사정으로 처리된 기록이 남아 '보강 필요' 목록에 이월 건이 계속 뜨던 버그 수정)
-    if (status === "carryover" || status === "cancel") {
-      const stale = attendance.find((a: any) =>
-        a.member_id === slot.member_id &&
-        (a.date === slot.event_date || a.attend_date === slot.event_date || a.attendance_date === slot.event_date || a.session_date === slot.event_date)
-      );
-      if (stale && (stale.status === "sick" || stale.status === "personal")) {
-        await supabase.from("attendance").delete().eq("id", stale.id);
-        console.log("[v3.48.1] 이월/취소 전환 - 낡은 결석 attendance 레코드 정리:", stale.id);
-      }
-    }
-    // attendance 기록은 done/cancel이 명확한 경우에만 저장 (선택적 보조 로그)
-    if (status === "done" || status === "noshow" || status === "sick" || status === "personal") {
-      // 컬럼명 자동 감지 (date / attendance_date / session_date)
-      const dateCol = attendance[0]?.date !== undefined ? "date"
-        : attendance[0]?.attendance_date !== undefined ? "attendance_date"
-        : attendance[0]?.session_date !== undefined ? "session_date"
-        : "date";
-      const attStatus = status === "done" ? "present" : status === "noshow" ? "absent" : status === "sick" ? "sick" : "personal";
-      // ✅ v3.24.4: 중복 삽입 원천 차단 - slot_id 우선, 없으면 member_id + 날짜 + time_slot 조합으로 매칭
-      const slotDateStr = typeof slot.event_date === "string" ? slot.event_date.substring(0, 10) : new Date(slot.event_date).toISOString().substring(0, 10);
-      const existing = attendance.find((a: any) => {
-        if (a.deleted_at) return false;
-        if (a.slot_id && a.slot_id === slot.id) return true;
-        if (a.member_id !== slot.member_id) return false;
-        const aDate = a.attend_date || a.date || a.attendance_date || a.session_date;
-        if (!aDate) return false;
-        const aDateStr = typeof aDate === "string" ? aDate.substring(0, 10) : new Date(aDate).toISOString().substring(0, 10);
-        if (aDateStr !== slotDateStr) return false;
-        // time_slot이 있으면 일치해야 중복으로 간주 (연타임 구분)
-        if (slot.time_slot && a.time_slot && a.time_slot !== slot.time_slot) return false;
-        return true;
-      });
-      if (existing) {
-        await supabase.from("attendance").update({ status: attStatus, slot_id: slot.id }).eq("id", existing.id);
-      } else {
-        // ✅ v3.24.4: DB에서 다시 한 번 실시간 중복 체크 (attendance state가 오래된 경우 대비)
-        for (const dateCheck of ["attend_date", "date", "attendance_date", "session_date"]) {
-          try {
-            const dupCheck = await supabase.from("attendance")
-              .select("id").eq("member_id", slot.member_id).eq(dateCheck, slotDateStr)
-              .is("deleted_at", null).limit(1);
-            if (!dupCheck.error && dupCheck.data && dupCheck.data.length > 0) {
-              // 이미 DB에 있으면 삽입 안하고 업데이트
-              await supabase.from("attendance").update({ status: attStatus, slot_id: slot.id }).eq("id", dupCheck.data[0].id);
-              return;
-            }
-          } catch {}
-        }
-        const payload: any = { org_id: orgId, member_id: slot.member_id, status: attStatus, slot_id: slot.id };
-        if (slot.time_slot) payload.time_slot = slot.time_slot;
-        payload[dateCol] = slot.event_date;
-        let { error } = await supabase.from("attendance").insert(payload);
-        if (error && /Could not find the '(date|attendance_date|session_date)' column/.test(error.message)) {
-          for (const alt of ["date", "attendance_date", "session_date"]) {
-            const p: any = { org_id: orgId, member_id: slot.member_id, status: attStatus, slot_id: slot.id };
-            if (slot.time_slot) p.time_slot = slot.time_slot;
-            p[alt] = slot.event_date;
-            const res = await supabase.from("attendance").insert(p);
-            if (!res.error) break;
-          }
-        }
-      }
-    }
-
-    // schedule_slots의 status 동기화 (대이렉트 값 저장)
-    const prevStatus = normStatus(slot.status);
-    await supabase.from("schedule_slots").update({ status }).eq("id", slot.id);
-
-    // 회원권 자동 차감/복원 로직
-    //  - 이전이 차감대상(done/noshow) 아니고 이번이 차감대상 → used_sessions++
-    //  - 이전이 차감대상였는데 이번이 차감대상 아닐 → used_sessions-- (복원)
+    // v3.73.1: 회원권 선택/연결 검증을 쓰기 전에 수행. 다른 권으로 자동 대체하지 않음.
     let sessionMsg = "";
     try {
-      if (slot.member_id) {
-        let target: any = null;
-        if (slot.membership_id) {
-          const { data } = await supabase.from("memberships").select("*").eq("id", slot.membership_id).maybeSingle();
-          target = data;
-        }
-        if (!target) {
-          // ✅ v3.48.0: FIFO - 잔여>0인 가장 오래된 회원권부터 차감 (음수 차감 원천 차단)
-          const today = new Date().toISOString().slice(0, 10);
-          const { data } = await supabase.from("memberships")
-            .select("*")
-            .eq("member_id", slot.member_id)
-            .neq("status", "cancelled")
-            .order("start_date", { ascending: true })
-            .order("created_at", { ascending: true });
-          target = (data || []).find((m: any) =>
-            (!m.start_date || m.start_date <= today) && (!m.end_date || m.end_date >= today) &&
-            ((m.total_sessions || 0) + (m.adjustment || 0) - (m.used_sessions || 0)) > 0
-          ) || null;
-        }
-
-        if (target) {
-          const wasUsed = COUNTS_AS_USED.has(prevStatus);
-          const isUsed = COUNTS_AS_USED.has(status);
-          // ✅ v3.12: 노쇼 정책 분기 (차감/이월/환불)
-          const noshowPolicy = target.noshow_policy || "deduct";
-
-          if (status === "noshow") {
-            // 노쇼 적용 정책
-            if (noshowPolicy === "carryover") {
-              // 이월: used_sessions는 차감하지 않고 carryover_count +1
-              if (!wasUsed) {
-                await supabase.from("memberships").update({
-                  carryover_count: (target.carryover_count || 0) + 1,
-                  updated_at: new Date().toISOString(),
-                }).eq("id", target.id);
-                try {
-                  await supabase.from("schedule_slots").update({
-                    membership_id: target.id,
-                    noshow_action: "carried_over",
-                    noshow_processed_at: new Date().toISOString(),
-                  }).eq("id", slot.id);
-                } catch {}
-                sessionMsg = " (회원권 1회 이월)";
-              }
-            } else if (noshowPolicy === "refund") {
-              // 환불: 차감하지 않음 (수동 환불 필요 — 안내만)
-              if (!wasUsed) {
-                try {
-                  await supabase.from("schedule_slots").update({
-                    membership_id: target.id,
-                    noshow_action: "refunded",
-                    noshow_processed_at: new Date().toISOString(),
-                  }).eq("id", slot.id);
-                } catch {}
-                sessionMsg = " (환불 대상 — 결제 페이지에서 수동 환불 필요)";
-              }
-            } else {
-              // 기본: 차감
-              if (!wasUsed) {
-                await supabase.from("memberships").update({
-                  used_sessions: (target.used_sessions || 0) + 1,
-                  updated_at: new Date().toISOString(),
-                }).eq("id", target.id);
-                try {
-                  await supabase.from("schedule_slots").update({
-                    membership_id: target.id,
-                    noshow_action: "deducted",
-                    noshow_processed_at: new Date().toISOString(),
-                  }).eq("id", slot.id);
-                } catch {
-                  await supabase.from("schedule_slots").update({ membership_id: target.id }).eq("id", slot.id);
-                }
-                sessionMsg = " (회원권 1회 차감)";
-              }
-            }
-          } else if (!wasUsed && isUsed) {
-            // 일반 완료: 차감
-            await supabase.from("memberships").update({
-              used_sessions: (target.used_sessions || 0) + 1,
-              updated_at: new Date().toISOString(),
-            }).eq("id", target.id);
-            await supabase.from("schedule_slots").update({ membership_id: target.id }).eq("id", slot.id);
-            sessionMsg = " (회원권 1회 차감)";
-          } else if (wasUsed && !isUsed) {
-            // 복원
-            const prevAction = slot.noshow_action;
-            if (prevAction === "carried_over") {
-              // 이월 취소: carryover_count -1
-              await supabase.from("memberships").update({
-                carryover_count: Math.max(0, (target.carryover_count || 0) - 1),
-                updated_at: new Date().toISOString(),
-              }).eq("id", target.id);
-              sessionMsg = " (이월 취소)";
-            } else {
-              // 일반 복원
-              const used = Math.max(0, (target.used_sessions || 0) - 1);
-              await supabase.from("memberships").update({
-                used_sessions: used,
-                updated_at: new Date().toISOString(),
-              }).eq("id", target.id);
-              sessionMsg = " (회원권 1회 복원)";
-            }
-            // noshow_action 정리
-            try {
-              await supabase.from("schedule_slots").update({ noshow_action: null }).eq("id", slot.id);
-            } catch {}
-          }
-        }
-      }
-    } catch (e) { console.warn("회원권 자동 차감 실패:", e); }
+      const attStatus = status === "done" ? "present" : status === "noshow" || status === "cancel" ? "absent" : status === "sick" ? "sick" : status === "personal" ? "personal" : null;
+      const result = await saveActualAttendance({ memberId: slot.member_id, date: String(slot.event_date).slice(0, 10),
+        status: attStatus, slot, slotStatus: status, orgId });
+      sessionMsg = result.deducted ? " (선택 회원권 1회 차감)" : result.restored ? " (연결 회원권 1회 복원)" : " (추가 차감 없음)";
+      if (result.warning) alert(result.warning);
+    } catch (error: any) {
+      alert("출결 저장 실패: " + (error?.message || error));
+      return;
+    }
 
     // ✅ v3.37.0: 시간표에서 병결/개인사정 처리 시 makeup_history 자동 생성
     let makeupMsg = "";
@@ -640,7 +458,7 @@ export default function SchedulePage() {
       const isMakeupSlot = slot.event_type === "makeup" || slot.is_makeup_reservation === true;
 
       // ✅ v3.56.0: absent(결석)도 보강 대상에 포함 (이월/취소 제외)
-      if ((status === "sick" || status === "personal" || status === "absent") && !isMakeupSlot) {
+      if ((status === "sick" || status === "personal" || status === "noshow") && !isMakeupSlot) {
         // 이미 있는지 체크 (중복 방지)
         const { data: existing } = await supabase.from("makeup_history")
           .select("id, status")
@@ -1289,28 +1107,16 @@ export default function SchedulePage() {
     const _activeBranch = getActiveBranchId();
     if (_activeBranch) basePayload.branch_id = _activeBranch;
 
-    // ✅ v3.16.0: 상태가 'done'(수업완료)이면 회원권에서 1회 자동 차감
-    async function autoDeductMembership() {
-      if (!f.membership_id || effectiveStatus !== "done") return;
-      try {
-        const { data: ms } = await supabase
-          .from("memberships")
-          .select("id, used_sessions, total_sessions")
-          .eq("id", f.membership_id)
-          .maybeSingle();
-        if (ms) {
-          const remain = (ms.total_sessions || 0) - (ms.used_sessions || 0);
-          if (remain <= 0) {
-            alert("⚠️ 회원권 잔여 횟수가 없습니다 (차감 스킵)");
-            return;
-          }
-          await supabase.from("memberships")
-            .update({ used_sessions: (ms.used_sessions || 0) + 1 })
-            .eq("id", f.membership_id);
-        }
-      } catch (e) {
-        console.warn("회원권 자동차감 실패", e);
-      }
+    // v3.73.1: 예약 편집창에서는 사용량을 바꾸지 않는다. 출결 처리는 시간표의 완료/사인 버튼으로 통일.
+    const previousSlot = f.id ? slots.find((row: any) => row.id === f.id) : null;
+    const counted = (value: any) => ["done", "completed", "noshow", "cancel"].includes(value);
+    if ((counted(effectiveStatus) && !previousSlot) ||
+        (previousSlot && (counted(effectiveStatus) !== counted(previousSlot.status) ||
+          (counted(previousSlot.status) && (previousSlot.member_id !== f.member_id ||
+            (previousSlot.membership_id || null) !== (f.membership_id || null)))))) {
+      setSaving(false);
+      alert("회원권 오차감 방지를 위해 이 창에서는 완료·노쇼 처리 또는 사용 회원권 변경을 할 수 없습니다. 예약으로 저장한 뒤 시간표의 완료/사인 버튼에서 실제 사용 회원권을 선택해주세요.");
+      return;
     }
 
     // ✅ v3.28.1: safeInsert 강화 - RLS/타입 오류 명확히 표시, 삽입 결과 검증까지
@@ -1379,7 +1185,7 @@ export default function SchedulePage() {
           .select("status, membership_id").eq("id", f.id).maybeSingle();
         const err = await safeUpdate(payload, f.id);
         if (err) throw err;
-        if (prev && prev.status !== "done" && effectiveStatus === "done") await autoDeductMembership();
+
       } else if (f.recurring_enabled && f.recurring_weeks > 1) {
         // v3.23.3: 반복예약도 개별 INSERT + 폴백 (하나라도 실패해도 나머지 저장)
         const recurringId = uuid();
@@ -1416,7 +1222,7 @@ export default function SchedulePage() {
         const err = await safeInsert(payload);
         if (err) throw err;
         // ✅ v3.16.0: 처음부터 done으로 등록되는 경우에도 차감
-        if (effectiveStatus === "done") await autoDeductMembership();
+
       }
       setModal(null);
       await loadAll();
@@ -1589,18 +1395,19 @@ export default function SchedulePage() {
     console.log("[v3.29.2] quickStatus 호출:", { slotId: slot?.id, member_id: slot?.member_id, newStatus });
     if (!slot?.id) { alert("❌ 유효하지 않은 슬롯입니다."); return; }
 
-    // 1) schedule_slots 상태 UPDATE (즉시 반영을 위해 select() 붙임)
-    const upR = await supabase.from("schedule_slots")
-      .update({ status: newStatus })
-      .eq("id", slot.id).select();
-    if (upR.error) {
-      console.error("[v3.29.2] status UPDATE 실패:", upR.error);
-      alert("❌ 상태 변경 실패: " + upR.error.message);
-      return;
+    // v3.73.1: 드롭다운도 동일한 실제 회원권 연결/차감 경로 사용.
+    if (slot.member_id) {
+      const map: Record<string, string | null> = { done: "present", noshow: "absent", cancel: "absent", sick: "sick", personal: "personal", carryover: null, scheduled: null };
+      if (!(newStatus in map)) return alert("지원하지 않는 출결 상태입니다.");
+      try {
+        const result = await saveActualAttendance({ memberId: slot.member_id, date: String(slot.event_date).slice(0, 10),
+          status: map[newStatus], slot, slotStatus: newStatus });
+        if (result.warning) alert(result.warning);
+      } catch (error: any) { alert("상태 변경 실패: " + (error?.message || error)); return; }
+    } else {
+      const result = await supabase.from("schedule_slots").update({ status: newStatus }).eq("id", slot.id);
+      if (result.error) return alert("상태 변경 실패: " + result.error.message);
     }
-    console.log("[v3.29.2] ✅ status UPDATE 성공:", upR.data);
-
-    // 2) UI State 즉시 동기화
     setSlots(prev => (prev || []).map((s: any) => s && s.id === slot.id ? { ...s, status: newStatus } : s));
 
     // 3) 상태별 부가 로직 (회원권/보강권 자동 처리)
@@ -1622,8 +1429,7 @@ export default function SchedulePage() {
       }
       // 이월(carryover) → 회원권 만료일 +30일 연장
       if (newStatus === "carryover" && slot.member_id) {
-        const mem = memberships.filter((m: any) => m.member_id === slot.member_id)
-          .sort((a: any, b: any) => new Date(b.end_date || 0).getTime() - new Date(a.end_date || 0).getTime())[0];
+        const mem = memberships.find((m: any) => m.member_id === slot.member_id && m.id === slot.membership_id);
         if (mem?.id && mem?.end_date) {
           const newEnd = new Date(mem.end_date);
           newEnd.setDate(newEnd.getDate() + 30);
@@ -1659,6 +1465,10 @@ export default function SchedulePage() {
   async function handleDrop(newDate: string, e: React.DragEvent) {
     e.preventDefault();
     if (!dragging) { setDragOverDate(null); return; }
+    if (["done", "completed", "noshow", "cancel"].includes(dragging.status)) {
+      alert("출결 처리된 수업은 바로 이동할 수 없습니다. 출결을 예약 상태로 되돌린 뒤 이동해주세요.");
+      setDragging(null); setDragOverDate(null); return;
+    }
     if (dragging.event_date === newDate) { setDragging(null); setDragOverDate(null); return; }
 
     const d = new Date(newDate);
@@ -2419,8 +2229,7 @@ export default function SchedulePage() {
           onClose={() => setDayListModal(null)}
           onQuickStatus={async (slot: any, status: string) => {
             const statusMap: Record<string, string> = { present: "done", absent: "noshow", sick: "sick", personal: "personal", cancel: "cancel" };
-            await supabase.from("schedule_slots").update({ status: statusMap[status] || status }).eq("id", slot.id);
-            await loadAll();
+            await quickStatus(slot, statusMap[status] || status);
             // 모달도 갱신
             const refreshedSlots = slots.filter((s: any) => {
               const ed = typeof s.event_date === "string" ? s.event_date.substring(0,10) : new Date(s.event_date).toISOString().substring(0,10);

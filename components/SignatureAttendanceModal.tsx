@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { saveActualAttendance } from "@/lib/actualMembershipUsage";
 import { X, RotateCcw, Save, Trash2 } from "lucide-react";
 
 /**
@@ -40,27 +41,26 @@ export default function SignatureAttendanceModal({
         .eq("member_id", member.id)
         .neq("status", "cancelled")
         .order("created_at", { ascending: false });
-      const today = new Date().toISOString().slice(0, 10);
-      const active = (data || []).find((m: any) =>
-        (!m.start_date || m.start_date <= today) &&
-        (!m.end_date || m.end_date >= today)
-      ) || (data || [])[0];
+      const linkedId = existingRow?.membership_id || slot?.membership_id;
+      const active = linkedId ? (data || []).find((m: any) => m.id === linkedId) : null;
       setMembership(active || null);
     })();
-  }, [member?.id]);
+  }, [member?.id, slot?.membership_id, existingRow?.membership_id]);
 
   // 기존 서명 조회
   useEffect(() => {
     if (!member?.id || !date) return;
     (async () => {
-      const { data } = await supabase.from("attendance")
-        .select("*").eq("member_id", member.id)
-        .or(`date.eq.${date},attendance_date.eq.${date},session_date.eq.${date}`)
-        .not("signature", "is", null)
-        .maybeSingle();
-      if (data) setExistingRow(data);
+      let query = supabase.from("attendance").select("*").eq("member_id", member.id)
+        .or(`attend_date.eq.${date},date.eq.${date},attendance_date.eq.${date},session_date.eq.${date}`);
+      if (slot?.id) query = query.eq("slot_id", slot.id);
+      else if (slot?.time_slot) query = query.eq("time_slot", slot.time_slot);
+      const { data, error } = await query;
+      const match = !error && data?.length === 1 ? data[0] : null;
+      setExistingRow(match);
+      if (match?.status) setStatus(match.status);
     })();
-  }, [member?.id, date]);
+  }, [member?.id, date, slot?.id]);
 
   useEffect(() => {
     const c = canvasRef.current; if (!c) return;
@@ -122,100 +122,18 @@ export default function SignatureAttendanceModal({
   }
 
   async function save() {
+    if (saving) return;
     if (!hasStroke) return alert("서명을 그려주세요");
     setSaving(true);
-    const signature = canvasRef.current!.toDataURL("image/png");
-    const orgId = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
-
-    // 1) attendance UPSERT
-    const dateCol = "date"; // 기본 date 컬럼 사용, 실패 시 폴백
-    let att: any = null;
-    const { data: existing } = await supabase.from("attendance")
-      .select("*").eq("member_id", member.id)
-      .or(`date.eq.${date},attendance_date.eq.${date},session_date.eq.${date}`)
-      .maybeSingle();
-    if (existing) {
-      const r = await supabase.from("attendance").update({
-        status, signature, signer_role: signer, signed_at: new Date().toISOString(),
-        slot_id: slot?.id || null,
-      }).eq("id", existing.id);
-      att = r.error;
-    } else {
-      const payload: any = {
-        org_id: orgId, member_id: member.id, status,
-        signature, signer_role: signer, signed_at: new Date().toISOString(),
-        slot_id: slot?.id || null,
-      };
-      payload[dateCol] = date;
-      const r = await supabase.from("attendance").insert(payload);
-      // 컬럼명 다른 경우 폴백
-      if (r.error && /Could not find the '(date|attendance_date|session_date)' column/.test(r.error.message)) {
-        for (const alt of ["date", "attendance_date", "session_date"]) {
-          const p: any = { ...payload }; delete p.date; delete p.attendance_date; delete p.session_date;
-          p[alt] = date;
-          const r2 = await supabase.from("attendance").insert(p);
-          if (!r2.error) { att = null; break; }
-        }
-      } else att = r.error;
-    }
-
-    // 2) schedule_slots 상태 동기화
-    if (slot?.id) {
-      const slotStatus = status === "present" ? "done"
-        : status === "absent" ? "noshow"
-        : status === "sick" ? "sick"
-        : "personal";
-      await supabase.from("schedule_slots").update({ status: slotStatus }).eq("id", slot.id);
-    }
-
-    // ✅ v3.21.5: 회원권 잔여횟수 자동 차감/복원 (근본 해결)
-    // - present/absent(완료·노쇼) → -1회 차감
-    // - sick/personal(병결·개인) → 차감 없음
-    // - 이전 상태와 비교하여 중복 차감/누락 복원 방지
     try {
-      const shouldDeductNow = status === "present" || status === "absent";
-      const prevStatus = existing?.status;
-      const wasDeducted = prevStatus === "present" || prevStatus === "absent";
-
-      // 회원의 활성 회원권 조회 (가장 최근 시작한 것)
-      const { data: activeMs } = await supabase.from("memberships")
-        .select("id, used_sessions, total_sessions, adjustment, start_date, end_date, status")
-        .eq("member_id", member.id)
-        .neq("status", "cancelled")
-        .order("start_date", { ascending: false })
-        .limit(5);
-
-      if (activeMs && activeMs.length > 0) {
-        // 유효기간·잔여회수 우선순위: 활성 + 기간 내 + 잔여 있는 회원권
-        const today = new Date().toISOString().slice(0, 10);
-        const priority = activeMs.find((m: any) => {
-          const remaining = (m.total_sessions || 0) + (m.adjustment || 0) - (m.used_sessions || 0);
-          const inRange = (!m.end_date || m.end_date >= today) && (!m.start_date || m.start_date <= today);
-          return remaining > 0 && inRange && m.status === "active";
-        }) || activeMs[0];
-
-        if (shouldDeductNow && !wasDeducted) {
-          // 신규 차감
-          const newUsed = (priority.used_sessions || 0) + 1;
-          await supabase.from("memberships").update({ used_sessions: newUsed }).eq("id", priority.id);
-        } else if (!shouldDeductNow && wasDeducted) {
-          // 복원 (병결/개인사정으로 변경)
-          const newUsed = Math.max(0, (priority.used_sessions || 0) - 1);
-          await supabase.from("memberships").update({ used_sessions: newUsed }).eq("id", priority.id);
-        }
-        // 상태 변경 없음 (present ↔ absent) 또는 같은 상태 재저장 → 중복 차감 방지
-      }
-    } catch (deductErr: any) {
-      console.warn("회원권 차감 실패(무시하고 진행):", deductErr?.message);
-    }
-
-    setSaving(false);
-    if (att) {
-      alert("저장 일부 실패: " + (att.message || att));
-    } else {
-      alert("✅ 사인 출결이 저장되었습니다" + (status === "present" || status === "absent" ? "\n💳 회원권 -1회 자동 차감" : "\n💚 회원권 차감 없음"));
-    }
-    onSaved();
+      const organization = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
+      const result = await saveActualAttendance({ memberId: member.id, date, status, slot, existing: existingRow,
+        orgId: organization, extra: { signature: canvasRef.current!.toDataURL("image/png"),
+          signer_role: signer, signed_at: new Date().toISOString() } });
+      alert(["✅ 사인 출결 저장 완료", result.deducted ? "선택한 회원권 1회 차감" : result.restored ? "연결 회원권 1회 복원" : "추가 차감 없음", result.warning].filter(Boolean).join("\n"));
+      onSaved();
+    } catch (error: any) { alert("저장 실패: " + (error?.message || error)); }
+    finally { setSaving(false); }
   }
 
   return (
@@ -264,7 +182,7 @@ export default function SignatureAttendanceModal({
             );
           })() : (
             <div className="mb-3 p-2 bg-yellow-50 border border-yellow-300 rounded text-[11px] text-yellow-800">
-              ⚠️ 활성 회원권이 없습니다. 결제 등록을 먼저 진행해 주세요.
+              사용 회원권 미지정 · 새 출석 저장 시 실제 사용한 회원권을 선택합니다.
             </div>
           )}
 
@@ -341,29 +259,11 @@ export default function SignatureAttendanceModal({
               <button onClick={async () => {
                 if (!confirm("이 서명을 취소하고 예약 상태로 되돌릴까요?\n\n• 서명 이미지 삭제\n• attendance 기록 삭제\n• 시간표 슬롯 상태 → scheduled(예약)")) return;
                 setSaving(true);
-                // v3.21.5: 서명 취소 시 회원권 복원 (차감된 경우만)
                 try {
-                  const wasDeducted = existingRow.status === "present" || existingRow.status === "absent";
-                  if (wasDeducted) {
-                    const { data: msList } = await supabase.from("memberships")
-                      .select("id, used_sessions").eq("member_id", member.id).neq("status", "cancelled")
-                      .order("start_date", { ascending: false }).limit(5);
-                    if (msList && msList.length > 0) {
-                      const target = msList[0];
-                      await supabase.from("memberships").update({
-                        used_sessions: Math.max(0, (target.used_sessions || 0) - 1)
-                      }).eq("id", target.id);
-                    }
-                  }
-                } catch (e: any) { console.warn("회원권 복원 실패:", e?.message); }
-
-                // 1) attendance 삭제
-                const { error: delErr } = await supabase.from("attendance").delete().eq("id", existingRow.id);
-                if (delErr) { setSaving(false); return alert("취소 실패: " + delErr.message); }
-                // 2) schedule_slots 상태 되돌리기
-                if (slot?.id) {
-                  await supabase.from("schedule_slots").update({ status: "scheduled" }).eq("id", slot.id);
-                }
+                  const result = await saveActualAttendance({ memberId: member.id, date, status: null,
+                    slot, existing: existingRow, slotStatus: "scheduled" });
+                  if (result.warning) alert(result.warning);
+                } catch (error: any) { setSaving(false); return alert("취소 실패: " + (error?.message || error)); }
                 setSaving(false);
                 alert("✅ 서명 취소 완료");
                 setExistingRow(null);

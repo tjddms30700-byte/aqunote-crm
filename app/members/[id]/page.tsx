@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
-import { pickFifoMembership, fifoSort, remainingOf, recalcMemberFifo } from "@/lib/membershipFifo";  // ✅ v3.48.0: FIFO 차감/재계산
+import { remainingOf } from "@/lib/membershipFifo";
 import { buildFormSections } from "@/lib/consultFormMapper";  // ✅ v3.58.1: 신청폼 원본 섹션 카드 렌더링
 import { recommendIepGoals, detectBehaviors } from "@/lib/sessionAnalyzer";
 import IepGoalLibraryBrowser from "@/components/IepGoalLibraryBrowser";
@@ -406,7 +406,7 @@ export default function MemberDetail() {
           source: lead.source || rp.source || "신규유입",
           memo: lead.memo || rp.memo || null,
           wish_days: lead.wish_days || rp.wish_days || null,
-          wish_time_slots: lead.wish_time_slots || rp.wish_time_slots || null,
+          // wish_time_slots는 아래 자유텍스트 폴백을 포함한 한 곳에서만 지정한다.
           service_track: lead.service_track || rp.service_track || "aqua",
           pain_areas: lead.pain_areas || rp.pain_areas || [],
           nrs_score: lead.nrs_score || rp.nrs_score,
@@ -2262,39 +2262,8 @@ function MemberHistoryPanel({ memberId }: { memberId: string }) {
       supabase.from("refunds").select("*").eq("member_id", memberId).order("refunded_at", { ascending: false }),
     ]);
     setPayments(p.data || []);
-    // v3.21.5: 사인 출결 소급 반영 - present/absent 서명 건수 vs used_sessions 비교, 부족 시 자동 차감
-    let mergedMemberships = ms.data || [];
-    try {
-      const signedAtt = (at.data || []).filter((r: any) =>
-        (r.signature || r.signed_at) && (r.status === "present" || r.status === "absent")
-      );
-      const activeMs = mergedMemberships.filter((m: any) => m.status !== "cancelled");
-      const totalUsed = activeMs.reduce((s: number, m: any) => s + (m.used_sessions || 0), 0);
-      const shouldBeUsed = signedAtt.length;
-
-      if (shouldBeUsed > totalUsed && activeMs.length > 0) {
-        // ✅ v3.48.0: FIFO 소급 차감 - 부족분을 가장 오래된 회원권부터 순차 분배 (한 회원권에 몰아넣던 버그 수정)
-        let deficit = shouldBeUsed - totalUsed;
-        const fifoOrdered = fifoSort(activeMs);
-        for (const m of fifoOrdered) {
-          if (deficit <= 0) break;
-          const cap = (m.total_sessions || 0) + (m.adjustment || 0);
-          const room = Math.max(0, cap - (m.used_sessions || 0));
-          if (room <= 0) continue;
-          const add = Math.min(room, deficit);
-          const newUsed = (m.used_sessions || 0) + add;
-          await supabase.from("memberships").update({ used_sessions: newUsed }).eq("id", m.id);
-          mergedMemberships = mergedMemberships.map((x: any) =>
-            x.id === m.id ? { ...x, used_sessions: newUsed } : x
-          );
-          deficit -= add;
-        }
-        console.log(`✅ 사인 출결 FIFO 소급 차감 완료 (남은 미배정: ${Math.max(0, deficit)}회)`);
-      }
-    } catch (e: any) {
-      console.warn("사인 출결 소급 반영 실패:", e?.message);
-    }
-    setMemberships(mergedMemberships);
+    // v3.73.1: 조회는 읽기 전용. 과거 출석을 어떤 회원권에도 소급 배분하지 않는다.
+    setMemberships(ms.data || []);
     // v3.21.4: _date 필드 통일 (attend_date/date/attendance_date/session_date/check_date 순)
     setAttendance((at.data || []).map((r: any) => ({
       ...r,
@@ -2352,21 +2321,7 @@ function MemberHistoryPanel({ memberId }: { memberId: string }) {
       <div>
         <div className="flex items-center justify-between mb-2">
           <h4 className="font-bold text-slate-900 flex items-center gap-1">🎫 회원권 이력 ({memberships.length}건)</h4>
-          {/* ✅ v3.48.0: 이 회원 회원권 FIFO 일괄 재계산 (출석 기준 재배정) */}
-          <button
-            onClick={async () => {
-              if (!confirm("완료된 수업 기준(미래 예약·병결·이월 제외)으로 회원권 차감을 FIFO(결제 순서)로 처음부터 재계산합니다.\n진행할까요?")) return;
-              try {
-                const r = await recalcMemberFifo(memberId);
-                alert(`✅ 재계산 완료 (총 유효 출석 ${r.used}회)\n\n${r.after}`);
-                await loadAll();
-              } catch (e: any) {
-                alert("재계산 실패: " + (e?.message || e));
-              }
-            }}
-            className="text-[11px] px-2.5 py-1.5 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold hover:bg-indigo-100 transition">
-            🔄 FIFO 재계산
-          </button>
+          <span className="text-[11px] text-slate-500">사용 회원권이 연결된 출석만 차감 · 소급 재배분 없음</span>
           {/* ✅ v3.48.2: 종결 오분류 복구 - 유효기간 내 + 잔여>0 인데 cancelled된 회원권을 활성으로 복구 */}
           {memberships.some((m: any) => m.status === "cancelled" && remainingOf(m) > 0 && (!m.end_date || m.end_date >= new Date().toISOString().slice(0, 10))) && (
             <button
