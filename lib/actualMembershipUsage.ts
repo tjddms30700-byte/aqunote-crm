@@ -1,3 +1,4 @@
+// v3.73.2: 무료체험 미차감·유료체험은 결제된 체험권만.
 // v3.73.1: 회원권을 추측하지 않는다. 출석/수업에 연결된 권 또는 사용자가 명시한 권만 처리한다.
 import { supabase } from "@/lib/supabase";
 import { remainingOf } from "@/lib/membershipFifo";
@@ -21,8 +22,16 @@ export function usageDecision(previous: any, slot: any, nextStatus: string | nul
 }
 
 /** 후보가 1건이어도 자동 선택하지 않고 상품명·기간·잔여를 보여주고 번호를 직접 입력받는다. */
-export function chooseActualMembership(list: any[], memberId: string, date: string): any {
-  const eligible = list.filter(m => m.member_id === memberId && m.status !== "cancelled" &&
+export const isTrialMembership = (m: any): boolean => /체험|trial/i.test(String(m?.plan_name || "")) && !/무료/.test(String(m?.plan_name || ""));
+export function lessonBillingKind(slot: any): "free" | "trial" | "regular" {
+  const label = String(slot?.lesson_name || "").replace(/\s/g, "");
+  if (label === "무료체험" || slot?.metadata?.billing_kind === "free_trial") return "free";
+  return slot?.event_type === "trial" || /체험|trial/i.test(label) ? "trial" : "regular";
+}
+
+export function chooseActualMembership(list: any[], memberId: string, date: string, trialOnly = false): any {
+  const eligible = list.filter(m => m.member_id === memberId && m.status !== "cancelled" && !m.deleted_at &&
+    !/무료체험/.test(String(m.plan_name || "").replace(/\s/g, "")) && (trialOnly ? isTrialMembership(m) : !isTrialMembership(m)) &&
     remainingOf(m) > 0 && (!m.start_date || day(m.start_date) <= date) &&
     (!m.end_date || day(m.end_date) >= date));
   if (!eligible.length) throw new Error("수업일에 사용 가능한 회원권이 없습니다. 회원권 기간과 잔여 횟수를 확인해주세요.");
@@ -101,8 +110,14 @@ export async function saveActualAttendance(options: SaveOptions): Promise<{
   let membershipId: string | null = decision.previousId || slot?.membership_id || null;
   let target: any = membershipId ? memberships.find((m: any) => m.id === membershipId) : null;
   if (membershipId && !target) throw new Error("연결된 회원권이 이 회원의 회원권이 아니거나 삭제되었습니다.");
-  if (decision.needsSelection) {
-    target = chooseActualMembership(memberships, memberId, date);
+  const billingKind = lessonBillingKind(slot);
+  if (billingKind === "free") {
+    // 과거 차감 복원은 증빙 대조 후 별도로 수행한다. 재서명만으로 추정 복원하지 않는다.
+    if (decision.previousCounted && decision.previousId) throw new Error("무료체험에 과거 회원권 차감이 연결돼 있습니다. 관리자 대조·정리 후 저장해주세요. 추가 차감하지 않았습니다.");
+    membershipId = null; target = null;
+  }
+  if (decision.needsSelection && billingKind !== "free") {
+    target = chooseActualMembership(memberships, memberId, date, billingKind === "trial");
     membershipId = target.id;
   }
   // 이미 출석 처리된 미연결 과거 기록은 재서명/상태변경 시에도 소급 차감하지 않는다.
@@ -112,11 +127,25 @@ export async function saveActualAttendance(options: SaveOptions): Promise<{
   const nextSlotStatus = options.slotStatus || ({ present: "done", absent: "noshow", sick: "sick", personal: "personal" } as Record<string, string>)[status || ""] || "scheduled";
   const policy = target?.noshow_policy || "deduct";
   const nextAction = nextSlotStatus === "noshow" ? (policy === "carryover" ? "carried_over" : policy === "refund" ? "refunded" : "deducted") : null;
-  const nextUsed = decision.nextCounted && !!membershipId && !["carried_over", "refunded"].includes(nextAction || "");
+  const nextUsed = billingKind !== "free" && decision.nextCounted && !!membershipId && !["carried_over", "refunded"].includes(nextAction || "");
   const delta = Number(nextUsed) - Number(previousUsed);
   if (delta > 0 && (!target || target.status === "cancelled" || remainingOf(target) < 1 ||
     (target.start_date && day(target.start_date) > date) || (target.end_date && day(target.end_date) < date))) {
     throw new Error("선택된 회원권의 기간 또는 잔여 횟수가 수업일에 맞지 않습니다. 다른 회원권으로 자동 차감하지 않았습니다.");
+  }
+  if (nextUsed && target) {
+    const trial = isTrialMembership(target);
+    if ((billingKind === "trial" && !trial) || (billingKind === "regular" && trial)) {
+      throw new Error("체험 수업은 체험권에서만, 정규 수업은 정규 회원권에서만 차감할 수 있습니다. 저장하지 않았습니다.");
+    }
+    if (trial) {
+      const pr = await supabase.from("payments").select("*").eq("member_id", memberId);
+      if (pr.error) throw pr.error;
+      const paid = (pr.data || []).some((p: any) => !p.deleted_at && !p.is_cancelled && !p.cancelled_at && p.status !== "cancelled" &&
+        (p.membership_id === target.id || (target.payment_id && p.id === target.payment_id)) &&
+        Number(p.amount || 0) - Number(p.discount_amount || 0) - Number(p.refunded_amount || 0) - Number(p.unpaid_amount || 0) > 0);
+      if (!paid) throw new Error("결제 내역이 확인되는 체험권만 차감할 수 있습니다. 무료체험은 무료체험으로 등록해주세요. 정규 회원권은 차감하지 않았습니다.");
+    }
   }
   const carryDelta = Number(nextAction === "carried_over" && !!target) - Number(slot?.noshow_action === "carried_over" && !!target);
   const now = new Date().toISOString();
