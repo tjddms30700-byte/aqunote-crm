@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { isPaymentCancelled, cancelMembershipRegistration } from "@/lib/paymentCancellation";
 import { resolveBillingCategory } from "@/lib/billingCategory";
+import { registrationMode, readBillingMetadata, issueWithoutPayment, settleDeferredMembership } from "@/lib/deferredBilling";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import MemberSearch from "@/components/MemberSearch";
@@ -68,6 +69,7 @@ export default function PaymentsPage() {
   const [refundModal, setRefundModal] = useState<any>(null);  // 환불 모달 대상 회원권
 
   const [f, setF] = useState<any>({
+    billing_mode: "prepaid", payer_name: "", _settlementMembershipId: "",
     member_id: "",
     plan_id: "",
     plan_name: "",
@@ -193,6 +195,7 @@ export default function PaymentsPage() {
 
   function openModal() {
     setF({
+      billing_mode: "prepaid", payer_name: "", _settlementMembershipId: "",
       member_id: "",
       plan_id: "",
       plan_name: "",
@@ -236,6 +239,8 @@ export default function PaymentsPage() {
       ...f,
       plan_id: p.id,
       plan_name: p.name,
+      billing_mode: /밀알/.test(p.name) ? "deferred" : (f.billing_mode || "prepaid"),
+      payer_name: /밀알/.test(p.name) ? "밀알복지재단" : (f.payer_name || ""),
       qty,
       _planBaseSessions: p.sessions,
       _planBasePrice: p.price,
@@ -261,10 +266,48 @@ export default function PaymentsPage() {
     }
   }
 
+  function openDeferredSettlement(m: any) {
+    const meta = readBillingMetadata(m);
+    if (meta?.mode !== "deferred" || meta.state !== "unpaid") return;
+    setF({ member_id: m.member_id, plan_id: m.plan_id || "", plan_name: m.plan_name,
+      sessions: m.total_sessions, extra_sessions: 0, valid_days: 1, qty: 1,
+      amount: Number(meta.expectedAmount || 0), method: "card", paid_at: todayStr(), paid_time: nowTime(),
+      approval_no: "", card_number: "", card_issuer: "", installment: 0, receipt_no: "", memo: "",
+      pay_card: 0, pay_cash: 0, pay_transfer: 0, pay_other: 0, pay_other_label: "", unpaid: 0, discount: 0,
+      billing_mode: "prepaid", payer_name: meta.payer || "", _settlementMembershipId: m.id });
+    setShowModal(true);
+  }
+
   async function savePayment() {
     if (!f.member_id) { alert("회원을 선택하세요"); return; }
     if (!f.plan_name) { alert("회원권을 선택하거나 이름을 입력하세요"); return; }
-    if (!f.amount)    { alert("금액을 입력하세요"); return; }
+    if (f._settlementMembershipId) {
+      if (saving) return;
+      setSaving(true);
+      try {
+        await settleDeferredMembership(f._settlementMembershipId, f);
+        setShowModal(false); await loadAll();
+        alert("후불 수납 완료. 기존 회원권에 결제만 연결했습니다. 횟수와 수업 기간은 변경하지 않았습니다.");
+      } catch (error: any) { alert("수납 실패: " + (error?.message || String(error))); }
+      finally { setSaving(false); }
+      return;
+    }
+    const mode = registrationMode(f);
+    if (mode !== "prepaid") {
+      if (saving) return;
+      setSaving(true);
+      try {
+        const org = await supabase.from("organizations").select("id").limit(1).single();
+        if (org.error) throw org.error;
+        const category = resolveBillingCategory({ plan_id: f.plan_id, plan_name: f.plan_name, category: trackTab }, plans);
+        await issueWithoutPayment(f, category, org.data?.id, getActiveBranchId());
+        setShowModal(false); await loadAll();
+        alert(mode === "free" ? "무료체험 0원 등록 완료. 결제·매출은 생성하지 않으며 무료체험 수업은 회원권을 차감하지 않습니다." : "후불 회원권 발급 완료. 지금부터 수업에 사용할 수 있습니다. 재단 결제 시 이 회원권의 '후불 수납' 버튼을 이용하세요. 아직 매출은 등록하지 않았습니다.");
+      } catch (error: any) { alert("발급 실패: " + (error?.message || String(error))); }
+      finally { setSaving(false); }
+      return;
+    }
+    if (!Number.isFinite(Number(f.amount)) || Number(f.amount) <= 0) { alert("결제금액을 입력하세요. 무료체험은 무료체험 상품을, 선이용·후불은 후불 발급을 선택하세요."); return; }
 
     setSaving(true);
     try {
@@ -803,6 +846,7 @@ export default function PaymentsPage() {
                   const remaining = (m.total_sessions || 0) - (m.used_sessions || 0);
                   const expired = m.end_date && new Date(m.end_date) < new Date();
                   const isCancelled = m.status === "cancelled";
+                  const billing = readBillingMetadata(m);
                   return (
                     <tr key={m.id} className={`border-b border-gray-100 ${isCancelled ? "bg-gray-50 opacity-60" : expired ? "opacity-50" : ""} hover:bg-aqu-50/30`}>
                       <td className="p-2 md:p-3">
@@ -815,6 +859,8 @@ export default function PaymentsPage() {
                       </td>
                       <td className="p-2 md:p-3">
                         <div className={isCancelled ? "text-gray-500 line-through" : ""}>{m.plan_name}</div>
+                        {billing?.mode === "free" && <div className="text-[10px] text-emerald-700">무료체험 · 차감 없음</div>}
+                        {billing?.mode === "deferred" && <div className="text-[10px] text-blue-700 mt-1">{billing.payer} · {billing.state === "settled" ? "후불 수납완료" : billing.state === "settling" ? "수납 확인중 — 중복 결제 금지" : "후불 미수납"}</div>}
                         {isCancelled && m.cancelled_reason && (
                           <div className="text-[10px] text-red-600 mt-0.5">{m.cancelled_reason}</div>
                         )}
@@ -823,7 +869,7 @@ export default function PaymentsPage() {
                         <div className="flex items-center justify-center gap-1">
                           <button onClick={() => adjustSessions(m, -1)}
                             className="w-6 h-6 rounded bg-red-50 text-red-600 hover:bg-red-100 flex items-center justify-center font-bold"
-                            title="회차 차감">−</button>
+                            disabled={billing?.mode === "free"} title="회차 차감">−</button>
                           <span className={`font-bold min-w-[70px] ${(remaining + (m.adjustment || 0)) <= 2 ? "text-red-500" : "text-aqu-700"}`}>
                             {remaining + (m.adjustment || 0)}/{(m.total_sessions || 0) + (m.adjustment || 0)}
                             {(m.adjustment || 0) !== 0 && (
@@ -834,12 +880,14 @@ export default function PaymentsPage() {
                           </span>
                           <button onClick={() => adjustSessions(m, +1)}
                             className="w-6 h-6 rounded bg-green-50 text-green-600 hover:bg-green-100 flex items-center justify-center font-bold"
-                            title="회차 추가">+</button>
+                            disabled={billing?.mode === "free"} title="회차 추가">+</button>
                         </div>
                       </td>
                       <td className="p-2 md:p-3 hidden md:table-cell text-gray-600 text-[11px] font-medium">
                         {(() => {
                           const pay = payments.find((p: any) => p.membership_id === m.id);
+                          if (billing?.mode === "free") return "무료 등록";
+                          if (billing?.mode === "deferred" && billing.state !== "settled") return "후불 · 미수납";
                           return pay?.paid_at ? String(pay.paid_at).slice(0, 10) : (m.created_at ? String(m.created_at).slice(0, 10) : "-");
                         })()}
                       </td>
@@ -856,7 +904,10 @@ export default function PaymentsPage() {
                       </td>
                       <td className="p-2 md:p-3">
                         <div className="flex items-center gap-1 justify-end">
-                          {!isCancelled && m.refund_status !== "full" && (
+                          {!isCancelled && billing?.mode === "deferred" && billing.state === "unpaid" && (
+                            <button disabled={saving} onClick={() => openDeferredSettlement(m)} className="px-2 py-1 text-[10px] bg-blue-100 text-blue-800 rounded font-bold">후불 수납</button>
+                          )}
+                          {!isCancelled && billing?.mode !== "free" && !(billing?.mode === "deferred" && billing.state !== "settled") && m.refund_status !== "full" && (
                             <button onClick={() => openRefundModal(m)}
                               className="px-2 py-1 text-[10px] bg-orange-50 text-orange-700 hover:bg-orange-100 rounded font-semibold"
                               title="부분/전액 환불">
@@ -1070,13 +1121,15 @@ export default function PaymentsPage() {
             onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold text-aqu-900 flex items-center gap-2">
-                <CreditCard className="w-5 h-5" /> 결제 등록
+                <CreditCard className="w-5 h-5" /> {f._settlementMembershipId ? "기존 회원권 후불 수납" : "결제 · 회원권 등록"}
               </h2>
               <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
+            {f._settlementMembershipId && <div className="p-3 rounded-xl bg-blue-50 text-blue-800 text-sm mb-3">{f.payer_name} 후불 수납 · 기존 회원권에 결제만 연결하며 횟수를 추가하지 않습니다. 전액 수납만 지원합니다.</div>}
+            <fieldset disabled={!!f._settlementMembershipId} className={f._settlementMembershipId ? "opacity-70" : ""}>
             {/* Member */}
             <Field label="회원 *">
               <MemberSearch members={members} value={f.member_id}
@@ -1121,6 +1174,25 @@ export default function PaymentsPage() {
                 <Link href="/settings/catalog?tab=plans" className="text-aqu-600 hover:underline">회원권 관리</Link>에서 새 상품 추가 가능
               </div>
             </Field>
+
+            {!f._settlementMembershipId && (
+              <div className="mt-3 p-3 rounded-xl border border-cyan-200 bg-cyan-50/60">
+                {registrationMode(f) === "free" ? (
+                  <div className="text-sm text-emerald-800 font-semibold">무료체험 · 0원 등록 · 매출 및 횟수 차감 없음</div>
+                ) : <>
+                  <label className="block text-xs font-bold mb-1">등록 방식</label>
+                  <select value={f.billing_mode || "prepaid"} onChange={e => setF({ ...f, billing_mode: e.target.value, pay_card: 0, pay_cash: 0, pay_transfer: 0, pay_other: 0, unpaid: 0, discount: 0 })} className="w-full p-2 border rounded-lg text-sm">
+                    <option value="prepaid">일반 결제 — 결제와 회원권 함께 등록</option>
+                    <option value="deferred">후불 발급 — 수업 먼저 진행 · 결제는 나중에</option>
+                  </select>
+                  {registrationMode(f) === "deferred" && <>
+                    <label className="block text-xs font-semibold mt-2 mb-1">결제처 / 후불 기관 *</label>
+                    <input value={f.payer_name || ""} onChange={e => setF({ ...f, payer_name: e.target.value })} placeholder="예: 밀알복지재단" className="w-full p-2 border rounded-lg text-sm" />
+                    <p className="text-xs text-blue-800 mt-2">횟수권만 먼저 발급합니다. 출석 시 해당 회원권에서 차감하고, 나중에 목록의 ‘후불 수납’으로 결제하세요. 금액 미정이면 0원으로 발급할 수 있습니다.</p>
+                  </>}
+                </>}
+              </div>
+            )}
 
             {/* ✅ v3.63.0: 회원권 수량(몇 개 충전) 선택 — 기본 횟수·금액을 자동으로 배수 계산 */}
             {f.plan_id && (
@@ -1186,13 +1258,14 @@ export default function PaymentsPage() {
               </div>
             )}
 
-            <Field label="금액 (원) *">
-              <input type="number" value={f.amount} onChange={e => setF({ ...f, amount: parseInt(e.target.value) || 0 })}
+            </fieldset>
+            <Field label={f._settlementMembershipId ? "실제 수납금액 (원) *" : registrationMode(f) === "deferred" ? "예정 총금액 (원 · 미정이면 0)" : registrationMode(f) === "free" ? "무료체험 금액 (0원)" : "금액 (원) *"}>
+              <input type="number" min={0} disabled={!f._settlementMembershipId && registrationMode(f) === "free"} value={f.amount} onChange={e => setF({ ...f, amount: parseInt(e.target.value) || 0 })}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-bold focus:ring-2 focus:ring-aqu-400 focus:outline-none" />
             </Field>
 
             <div className="grid grid-cols-2 gap-2">
-              <Field label="결제일 *">
+              <Field label={!f._settlementMembershipId && registrationMode(f) !== "prepaid" ? "수업 시작일 *" : "실제 결제일 *"}>
                 <input type="date" value={f.paid_at} onChange={e => setF({ ...f, paid_at: e.target.value })}
                   className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none" />
               </Field>
@@ -1202,6 +1275,7 @@ export default function PaymentsPage() {
               </Field>
             </div>
 
+            {(f._settlementMembershipId || registrationMode(f) === "prepaid") && <>
             {/* v3.8: 여러 수단 분할 결제 */}
             <div className="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-xl">
               <div className="flex items-center justify-between mb-2">
@@ -1307,6 +1381,7 @@ export default function PaymentsPage() {
               </div>
             )}
 
+            </>}
             {/* Memo */}
             <Field label="메모 (선택)">
               <input type="text" value={f.memo} onChange={e => setF({ ...f, memo: e.target.value })}
@@ -1321,7 +1396,7 @@ export default function PaymentsPage() {
               </button>
               <button onClick={savePayment} disabled={saving}
                 className="flex-1 px-4 py-2 bg-aqu-600 text-white rounded-lg text-sm hover:bg-aqu-700 disabled:opacity-50 flex items-center justify-center gap-1">
-                <Save className="w-4 h-4" /> {saving ? "저장 중..." : "저장"}
+                <Save className="w-4 h-4" /> {saving ? "저장 중..." : f._settlementMembershipId ? "후불 수납 완료" : registrationMode(f) === "free" ? "무료체험 0원 등록" : registrationMode(f) === "deferred" ? "후불 회원권 발급" : "저장"}
               </button>
             </div>
           </div>
