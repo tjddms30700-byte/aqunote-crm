@@ -60,6 +60,7 @@ export default function PaymentsPage() {
   const [trackTab, setTrackTab] = useState<"aqua" | "ground">("aqua");
   // ✅ v3.20.7: 회원 이름 검색 (회원권 · 결제 이력 공용)
   const [nameSearch, setNameSearch] = useState("");
+  const [focusedMembershipId, setFocusedMembershipId] = useState("");
   // ✨ v3.32.2: 취소된 결제 숨김 토글 (기본: 숨김)
   const [hideCancelled, setHideCancelled] = useState(true);
   // ✅ v3.16.0: 월별 필터 (기본값: 이번 달)
@@ -98,6 +99,26 @@ export default function PaymentsPage() {
   });
 
   useEffect(() => { loadAll(); }, []);
+
+  // v3.74.1: 회원 상세 카드에서 선택한 바로 그 회원권을 표시. 수납 자동 실행 없음.
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("membership_id");
+    if (id) setFocusedMembershipId(id);
+  }, []);
+  useEffect(() => {
+    if (!focusedMembershipId || loading) return;
+    const target = memberships.find((m: any) => m.id === focusedMembershipId);
+    if (!target) return;
+    setTab("memberships");
+    setTrackTab(target.category === "ground" || target.category === "device" ? "ground" : "aqua");
+    setNameSearch(target.members?.name || members.find((m: any) => m.id === target.member_id)?.name || "");
+  }, [focusedMembershipId, loading, memberships, members]);
+  function clearMembershipFocus() {
+    setFocusedMembershipId("");
+    const url = new URL(window.location.href);
+    url.searchParams.delete("membership_id");
+    window.history.replaceState({}, "", url.pathname + url.search);
+  }
 
   // URL 쿼리 파라미터 또는 sessionStorage 플래그로 등록 모달 자동 오픈
   useEffect(() => {
@@ -178,7 +199,7 @@ export default function PaymentsPage() {
     const catalog = pl.data || [];
     const normalizedMemberships = (m.data || []).map((row: any) => {
       const relatedPayment = (p.data || []).find((pay: any) => pay.membership_id === row.id);
-      return { ...row, category: resolveBillingCategory(row, catalog, relatedPayment) };
+      return { ...row, members: row.members || (mem.data || []).find((member: any) => member.id === row.member_id) || null, category: resolveBillingCategory(row, catalog, relatedPayment) };
     });
     const byMembershipId = new Map(normalizedMemberships.map((row: any) => [row.id, row]));
     setPayments((p.data || []).map((row: any) => ({ ...row,
@@ -239,7 +260,7 @@ export default function PaymentsPage() {
       ...f,
       plan_id: p.id,
       plan_name: p.name,
-      billing_mode: /밀알/.test(p.name) ? "deferred" : (f.billing_mode || "prepaid"),
+      billing_mode: f.billing_mode || "prepaid",
       payer_name: /밀알/.test(p.name) ? "밀알복지재단" : (f.payer_name || ""),
       qty,
       _planBaseSessions: p.sessions,
@@ -799,15 +820,22 @@ export default function PaymentsPage() {
           💵 결제 이력 ({payments.filter(p => trackMatch(p.category || p.memberships?.category)).length})
         </button>
         <div className="flex-1 min-w-[180px] relative">
-          <input type="text" value={nameSearch} onChange={e => setNameSearch(e.target.value)}
+          <input type="text" value={nameSearch} onChange={e => { clearMembershipFocus(); setNameSearch(e.target.value); }}
             placeholder="회원명 검색"
             className="w-full pl-3 pr-8 py-2 border border-aqu-200 rounded-lg text-xs md:text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none" />
           {nameSearch && (
-            <button onClick={() => setNameSearch("")}
+            <button onClick={() => { clearMembershipFocus(); setNameSearch(""); }}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-500 text-xs">✕</button>
           )}
         </div>
       </div>
+
+      {focusedMembershipId && (
+        <div className="mb-3 p-3 border border-aqu-200 rounded-xl bg-aqu-50 text-sm flex items-center justify-between gap-2">
+          <span>{!loading && !memberships.some((m: any) => m.id === focusedMembershipId) ? "이 지점에서 선택한 회원권을 찾을 수 없습니다. 지점과 권한을 확인해주세요." : "회원 상세에서 선택한 회원권만 표시 중입니다. 아래 행에서 후불 수납을 진행하세요."}</span>
+          <button onClick={() => { clearMembershipFocus(); setNameSearch(""); }} className="shrink-0 text-xs underline">전체 목록</button>
+        </div>
+      )}
 
       {/* Table */}
       <div className="bg-white rounded-2xl shadow-md border border-aqu-100 overflow-hidden">
@@ -830,6 +858,7 @@ export default function PaymentsPage() {
               <tbody>
                 {/* v3.21.2: 회원권 결제일(paid_at) 순서 정렬 – 최신 결제건이 최상단 */}
                 {memberships
+                  .filter(m => !focusedMembershipId || m.id === focusedMembershipId)
                   .filter(m => trackMatch(m.category))
                   .filter(m => !nameSearch.trim() || (m.members?.name || "").toLowerCase().includes(nameSearch.trim().toLowerCase()))
                   .slice()
@@ -848,7 +877,7 @@ export default function PaymentsPage() {
                   const isCancelled = m.status === "cancelled";
                   const billing = readBillingMetadata(m);
                   return (
-                    <tr key={m.id} className={`border-b border-gray-100 ${isCancelled ? "bg-gray-50 opacity-60" : expired ? "opacity-50" : ""} hover:bg-aqu-50/30`}>
+                    <tr id={`membership-${m.id}`} key={m.id} className={`border-b border-gray-100 ${focusedMembershipId === m.id ? "bg-yellow-50 ring-2 ring-inset ring-yellow-300" : ""} ${isCancelled ? "bg-gray-50 opacity-60" : expired ? "opacity-50" : ""} hover:bg-aqu-50/30`}>
                       <td className="p-2 md:p-3">
                         <Link href={`/members/${m.member_id}`} className="text-aqu-700 hover:underline font-medium">
                           {m.members?.name || "-"}
@@ -1175,23 +1204,24 @@ export default function PaymentsPage() {
               </div>
             </Field>
 
-            {!f._settlementMembershipId && (
-              <div className="mt-3 p-3 rounded-xl border border-cyan-200 bg-cyan-50/60">
-                {registrationMode(f) === "free" ? (
-                  <div className="text-sm text-emerald-800 font-semibold">무료체험 · 0원 등록 · 매출 및 횟수 차감 없음</div>
-                ) : <>
-                  <label className="block text-xs font-bold mb-1">등록 방식</label>
-                  <select value={f.billing_mode || "prepaid"} onChange={e => setF({ ...f, billing_mode: e.target.value, pay_card: 0, pay_cash: 0, pay_transfer: 0, pay_other: 0, unpaid: 0, discount: 0 })} className="w-full p-2 border rounded-lg text-sm">
-                    <option value="prepaid">일반 결제 — 결제와 회원권 함께 등록</option>
-                    <option value="deferred">후불 발급 — 수업 먼저 진행 · 결제는 나중에</option>
-                  </select>
+            {!f._settlementMembershipId && registrationMode(f) === "free" && (
+              <div className="mt-2 text-xs text-emerald-700">무료체험 · 0원 등록 · 차감 없음</div>
+            )}
+            {!f._settlementMembershipId && registrationMode(f) !== "free" && (
+              <details className="mt-2 text-xs text-gray-500" open={registrationMode(f) === "deferred"}>
+                <summary className="cursor-pointer select-none">추가 옵션{registrationMode(f) === "deferred" ? " · 후불 발급 선택됨" : ""}</summary>
+                <div className="mt-2 p-3 border border-gray-200 rounded-lg bg-gray-50">
+                  <label className="flex gap-2 items-center text-gray-700">
+                    <input type="checkbox" checked={registrationMode(f) === "deferred"} onChange={e => setF({ ...f, billing_mode: e.target.checked ? "deferred" : "prepaid", pay_card: 0, pay_cash: 0, pay_transfer: 0, pay_other: 0, unpaid: 0, discount: 0 })} />
+                    이번 건만 후불로 발급하기 (수업 먼저 · 결제 나중)
+                  </label>
                   {registrationMode(f) === "deferred" && <>
                     <label className="block text-xs font-semibold mt-2 mb-1">결제처 / 후불 기관 *</label>
                     <input value={f.payer_name || ""} onChange={e => setF({ ...f, payer_name: e.target.value })} placeholder="예: 밀알복지재단" className="w-full p-2 border rounded-lg text-sm" />
-                    <p className="text-xs text-blue-800 mt-2">횟수권만 먼저 발급합니다. 출석 시 해당 회원권에서 차감하고, 나중에 목록의 ‘후불 수납’으로 결제하세요. 금액 미정이면 0원으로 발급할 수 있습니다.</p>
+                    <p className="text-xs text-gray-600 mt-2">횟수권만 먼저 발급합니다. 추후 해당 회원권의 ‘후불 수납’을 이용하세요. 금액 미정은 0원 입력 가능합니다.</p>
                   </>}
-                </>}
-              </div>
+                </div>
+              </details>
             )}
 
             {/* ✅ v3.63.0: 회원권 수량(몇 개 충전) 선택 — 기본 횟수·금액을 자동으로 배수 계산 */}

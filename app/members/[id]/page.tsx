@@ -2365,6 +2365,9 @@ function MemberHistoryPanel({ memberId }: { memberId: string }) {
                       <div className={`text-lg font-black ${remaining <= 2 ? "text-red-500" : "text-purple-700"}`}>
                         {remaining}/{(m.total_sessions || 0) + (m.adjustment || 0)}
                       </div>
+                      <Link href={`/payments?membership_id=${encodeURIComponent(m.id)}`} className="text-[11px] px-2 py-1 rounded border border-aqu-200 text-aqu-700 hover:bg-aqu-50">
+                        결제/수납 보기 →
+                      </Link>
                       {/* ✅ v3.48.5: 수동 잔여 보정 - 외부 시스템(원장 원본 데이터) 기준으로 직접 맞추기 */}
                       <button
                         onClick={async () => {
