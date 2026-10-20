@@ -2,6 +2,7 @@
 // v3.73.1: 회원권을 추측하지 않는다. 출석/수업에 연결된 권 또는 사용자가 명시한 권만 처리한다.
 import { supabase } from "@/lib/supabase";
 import { remainingOf } from "@/lib/membershipFifo";
+import { reconcileSelectedMembership } from "@/lib/reconcileSelectedMembership";
 
 export const USAGE_CANCELLED = "회원권 선택이 취소되어 저장하지 않았습니다.";
 export const countedStatus = (status: any): boolean =>
@@ -50,6 +51,7 @@ type SaveOptions = {
   slotStatus?: string; timeSlot?: string | null;
   signatureOnly?: boolean; resolvePending?: boolean;
   selectedMembershipId?: string | null; historicalHandling?: "deduct" | "link_only"; allowAutoUnique?: boolean;
+  deferInvalidMembership?: boolean;
 };
 
 /** 한 수업에 대한 저장 경로를 통일한다. 새 출석의 대상 선택은 모든 쓰기 전에 완료한다.
@@ -102,6 +104,12 @@ export async function saveActualAttendance(options: SaveOptions): Promise<{
     slot = r.data;
     if (slot && day(slot.event_date) !== date) throw new Error("연결된 수업일이 다릅니다.");
   }
+  // 완료 수업의 실제 사용권을 관리자가 명시한 경우, 슬롯 연결만으로 이미 차감됐다고 막지 않는다.
+  if (options.selectedMembershipId && countedStatus(status) && slot &&
+      (countedStatus(previous?.status) || countedStatus(slot.status)) &&
+      lessonBillingKind(slot) !== "free" && previous?.deduction_mode !== "pending") {
+    return reconcileSelectedMembership({ ...options, slot });
+  }
   if (previous?.membership_id && slot?.membership_id && previous.membership_id !== slot.membership_id) {
     throw new Error("출석과 수업에 서로 다른 회원권이 연결되어 있습니다. 임의로 차감하지 않았습니다.");
   }
@@ -127,9 +135,19 @@ export async function saveActualAttendance(options: SaveOptions): Promise<{
     if (decision.previousCounted && decision.previousId) throw new Error("무료체험에 과거 회원권 차감이 연결돼 있습니다. 관리자 대조·정리 후 저장해주세요. 추가 차감하지 않았습니다.");
     membershipId = null; target = null;
   }
-  let pendingAssignment = existingPending && !options.resolvePending && billingKind !== "free";
+  const signatureDeferral = !!options.signatureOnly && !!options.deferInvalidMembership && billingKind !== "free" && !!target &&
+    !previous?.deducted_at && !["auto", "manual_link"].includes(previous?.deduction_mode) &&
+    (target.deleted_at || target.status === "cancelled" || remainingOf(target) < 1 ||
+      (target.start_date && day(target.start_date) > date) || (target.end_date && day(target.end_date) < date));
+  let pendingReason = "";
+  if (signatureDeferral) {
+    pendingReason = remainingOf(target) < 1 ? "연결 회원권 잔여 없음" : "연결 회원권 사용 기간 확인 필요";
+    membershipId = null; target = null;
+    decision.previousCounted = false; decision.previousId = null; decision.needsSelection = false; decision.legacyUnlinked = false;
+  }
+  let pendingAssignment = signatureDeferral || (existingPending && !options.resolvePending && billingKind !== "free");
   // 관리자가 일정 수정창에서 지정한 실제 회원권을 그대로 사용한다.
-  const selectedId = options.selectedMembershipId || (existingPending && options.allowAutoUnique ? slot?.membership_id : null);
+  const selectedId = signatureDeferral ? null : options.selectedMembershipId || (existingPending && options.allowAutoUnique ? slot?.membership_id : null);
   let manualLink = previous?.deduction_mode === "manual_link";
   if (manualLink && !decision.nextCounted) throw new Error("이미 수동 정산된 수업입니다. 이 건을 되돌리려면 기존 수동 조정 내역을 확인해주세요. 자동 복원하지 않았습니다.");
   if (selectedId && billingKind !== "free") {
@@ -148,7 +166,7 @@ export async function saveActualAttendance(options: SaveOptions): Promise<{
     if (existingPending) { decision.previousCounted = false; decision.previousId = null; decision.legacyUnlinked = false; pendingAssignment = false; }
   }
   // 같은 수업 트랙에 실제 사용 가능한 권이 하나뿐인 새 출석은 자동 연결한다.
-  if (options.allowAutoUnique && billingKind !== "free" && !decision.previousId && !selectedId && !slot?.membership_id && slot?.track) {
+  if (!signatureDeferral && options.allowAutoUnique && billingKind !== "free" && !decision.previousId && !selectedId && !slot?.membership_id && slot?.track) {
     const isGround = (m: any) => /지상|디바이스|리커버리|ground|device/i.test(String(m.plan_name || "")) || ["ground", "device"].includes(m.category);
     const eligible = memberships.filter((m: any) => !m.deleted_at && !["cancelled", "refunded"].includes(m.status) && remainingOf(m) > 0 &&
       (!m.start_date || day(m.start_date) <= date) && (!m.end_date || day(m.end_date) >= date) &&
@@ -302,5 +320,5 @@ export async function saveActualAttendance(options: SaveOptions): Promise<{
     throw new Error((error?.message || String(error)) + (rollbackErrors.length ? `\n⚠️ ${rollbackErrors.join("·")} 복구 확인이 필요합니다. 다시 저장하지 말고 관리자에게 알려주세요.` : "\n저장을 중단했습니다."));
   }
   return { deducted: delta > 0, restored: delta < 0, membershipId,
-    warning: pendingAssignment && decision.nextCounted ? "서명은 저장했습니다. 사용 회원권이 미지정이어서 차감하지 않았습니다. 관리자가 출결장의 ‘차감 확인’에서 처리해주세요." : decision.legacyUnlinked ? "과거 출석의 사용 회원권이 미지정이라 소급 차감·복원하지 않았습니다." : "" };
+    warning: pendingAssignment && decision.nextCounted ? `서명은 저장했습니다. ${pendingReason || "사용 회원권 미지정"}으로 차감은 보류했습니다. 관리자가 출결장의 ‘차감 확인’에서 처리해주세요.` : decision.legacyUnlinked ? "과거 출석의 사용 회원권이 미지정이라 소급 차감·복원하지 않았습니다." : "" };
 }

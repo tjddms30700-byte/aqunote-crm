@@ -1147,7 +1147,7 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
     setSaving(true);
     try {
       const organization = orgId || (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
-      const result = await saveActualAttendance({ memberId: member.id, date, status, signatureOnly: true, allowAutoUnique: true,
+      const result = await saveActualAttendance({ memberId: member.id, date, status, signatureOnly: true, allowAutoUnique: true, deferInvalidMembership: true,
         slot: scheduleSlot, existing: existingAttendance, orgId: organization,
         extra: { signature: canvasRef.current!.toDataURL("image/png"), signer_role: signer,
           signed_at: new Date().toISOString() } });

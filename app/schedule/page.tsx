@@ -28,6 +28,8 @@ import { remainingOf, totalOf } from "@/lib/membershipFifo";
 import { isPaymentCancelled } from "@/lib/paymentCancellation";
 import { saveActualAttendance } from "@/lib/actualMembershipUsage";
 import { saveScheduleAttendance } from "@/lib/scheduleAttendanceSave";
+import { availableReservationMemberships, reservationMembershipDecision, isFreeReservation } from "@/lib/reservationMembership";
+import { planReservationLinks, applyReservationLinks } from "@/lib/reservationLinkMaintenance";
 import { resolveBillingCategory } from "@/lib/billingCategory";
 import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import {
@@ -1042,6 +1044,26 @@ export default function SchedulePage() {
     alert(`📅 이월 처리 완료 • ${rec.member_name} • ${rec.date}\n(회원권 만료일 +30일 연장)`);
   }
 
+  async function maintainReservationLinks() {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const mr = await supabase.from("memberships").select("*");
+      const ar = await supabase.from("attendance").select("slot_id").is("deleted_at", null);
+      if (mr.error || ar.error) throw mr.error || ar.error;
+      const signedIds = new Set<string>((ar.data || []).map((a: any) => a.slot_id).filter(Boolean));
+      const plan = planReservationLinks(slots, mr.data || [], signedIds);
+      const text = `현재 시간표에 불러온 예약만 점검합니다.\n\n유일한 사용 가능 권으로 연결: ${plan.changes.length}건\n여러 권 중 직접 선택 필요: ${plan.needsChoice.length}건\n사용 가능한 권 없음: ${plan.unavailable.length}건\n\n완료·서명 기록과 회차·결제는 변경하지 않습니다. 연결을 적용할까요?`;
+      if (!confirm(text)) return;
+      const result = await applyReservationLinks(plan.changes);
+      await loadAll();
+      alert(`예약 연결 ${result.updated}건 완료 / 상태 변경 등으로 건너뜀 ${result.skipped}건\n직접 선택 필요 ${plan.needsChoice.length}건 / 사용 가능한 권 없음 ${plan.unavailable.length}건\n횟수를 차감하거나 소진된 회원권 기록을 삭제하는 작업은 하지 않았습니다.`);
+    } catch (error: any) {
+      alert("예약 연결 점검 중단: " + (error?.message || String(error)) + "\n일부 연결은 적용됐을 수 있습니다. 새로고침 후 다시 점검할 수 있습니다.");
+      await loadAll();
+    } finally { setSaving(false); }
+  }
+
   async function saveSlot() {
     if (!f.event_date) { alert("날짜가 필요합니다"); return; }
     // ✅ v3.69.0: 공휴일에는 회원 수업(lesson) 예약 차단 (직원 근무/휴무 기록은 허용)
@@ -1049,6 +1071,18 @@ export default function SchedulePage() {
     if (_hd && f.event_type !== "staff_work" && f.event_type !== "staff_off") {
       alert(`🚫 ${f.event_date}은(는) 공휴일(${_hd.name})로 등록되어 있어 회원 수업을 예약할 수 없습니다.\n\n공휴일 관리에서 해제하거나, 날짜를 변경해 주세요.`);
       return;
+    }
+    let reservationMembershipId = f.membership_id || null;
+    let reservationMemberships: any[] = [];
+    const isReservation = ["scheduled", "reserved"].includes(f.status || "scheduled") && f.member_id && ["lesson", "trial", "makeup"].includes(f.event_type);
+    if (isReservation) {
+      const query = await supabase.from("memberships").select("*").eq("member_id", f.member_id);
+      if (query.error) { alert("회원권 확인 실패: " + query.error.message); return; }
+      reservationMemberships = query.data || [];
+      const choice = reservationMembershipDecision({ ...f, track: f.track || trackTab }, reservationMemberships);
+      if (choice.reason === "choose") { alert("사용 가능한 회원권이 여러 개입니다. 보유 회원권 목록에서 이번 예약에 사용할 권을 선택해주세요."); return; }
+      if (choice.reason === "none") { alert("이 수업일에 사용 가능한 회원권이 없습니다. 소진된 권은 선택하지 않으며, 회원권 발급·기간 연장 후 다시 예약해주세요. 무료체험은 무료체험 수업으로 등록해주세요."); return; }
+      reservationMembershipId = choice.id;
     }
     setSaving(true);
 
@@ -1101,7 +1135,7 @@ export default function SchedulePage() {
     const previousSlot = f.id ? slots.find((row: any) => row.id === f.id) : null;
     const counted = (value: any) => ["done", "completed", "noshow", "cancel"].includes(value);
     const classEvent = !!f.member_id && ["lesson", "trial", "makeup"].includes(f.event_type);
-    basePayload.membership_id = f.membership_id || null;
+    basePayload.membership_id = isReservation ? reservationMembershipId : (f.membership_id || null);
     let lastInsertedSlot: any = null;
 
     // ✅ v3.28.1: safeInsert 강화 - RLS/타입 오류 명확히 표시, 삽입 결과 검증까지
@@ -1193,6 +1227,13 @@ export default function SchedulePage() {
             recurring_id: recurringId,
             recurring_weeks: f.recurring_weeks,
           };
+          if (isReservation) {
+            const choice = reservationMembershipDecision(row, reservationMemberships);
+            if (["choose", "none"].includes(choice.reason)) {
+              failCount++; lastError = new Error(`${dateStr}: 사용 가능한 회원권 선택 또는 기간 확인이 필요합니다.`); continue;
+            }
+            row.membership_id = choice.id;
+          }
           const safeRow = classEvent && counted(effectiveStatus) ? { ...row, status: "scheduled" } : row;
           const err = await safeInsert(safeRow);
           if (err) { failCount++; lastError = err; }
@@ -1226,7 +1267,7 @@ export default function SchedulePage() {
       setModal(null);
       await loadAll();
     } catch (err: any) {
-      alert("저장 실패: " + err.message + "\n\n💡 필수 필드가 누락되었거나 DB 컴럼이 없을 수 있습니다.");
+      alert("저장하지 못했습니다: " + (err?.message || String(err)));
     } finally {
       setSaving(false);
     }
@@ -1796,6 +1837,7 @@ export default function SchedulePage() {
                 title="검색 초기화">✕</button>
             )}
           </div>
+          <button onClick={maintainReservationLinks} disabled={saving} className="px-3 py-1.5 rounded-lg border border-aqu-200 bg-white text-aqu-700 text-xs font-semibold disabled:opacity-50">예약 회원권 점검</button>
           {/* ✅ v3.69.0: 공휴일(빨간날) 관리 버튼 */}
           <button onClick={() => setHolidayModal(true)}
             className="px-3 py-1.5 rounded-lg border border-red-200 bg-red-50 text-red-700 text-xs font-semibold hover:bg-red-100">
@@ -3153,6 +3195,18 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
     return () => { stopped = true; window.removeEventListener("focus", onVisible); document.removeEventListener("visibilitychange", onVisible); };
   }, [f.member_id, f.membership_id]);
 
+  const reservationSlot = { ...f, track: f.track || track };
+  const pickerMemberships = availableReservationMemberships(reservationSlot, memberMemberships);
+  const oldCompleted = ["done", "completed", "noshow", "cancel"].includes(modal?.editing?.status || "");
+  const linkedHistorical = oldCompleted ? memberMemberships.find((m: any) => m.id === modal?.editing?.membership_id) : null;
+  useEffect(() => {
+    if (oldCompleted || loadingMs || !f.member_id || !["lesson", "trial", "makeup"].includes(f.event_type)) return;
+    const choice = reservationMembershipDecision({ ...f, track: f.track || track }, memberMemberships);
+    if (f.membership_id !== choice.id && (choice.reason === "unique" || choice.reason === "free" || !choice.choices.some((m: any) => m.id === f.membership_id))) {
+      setF((prev: any) => ({ ...prev, membership_id: choice.id }));
+    }
+  }, [memberMemberships, loadingMs, f.member_id, f.membership_id, f.event_date, f.event_type, f.lesson_name, f.track, track, oldCompleted]);
+
   const selectedMs = memberMemberships.find((m: any) => m.id === f.membership_id);
   const selectedMember = (members || []).find((m: any) => m.id === f.member_id);
 
@@ -3376,21 +3430,24 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
             <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3">
               <div className="flex items-center justify-between mb-2">
                 <div className="text-xs font-bold text-emerald-700">🎫 보유 회원권</div>
-                <span className="text-[10px] text-emerald-600">출석 시 자동 차감</span>
+                <span className="text-[10px] text-emerald-600">예약은 연결만 · 완료/사인 시 차감</span>
               </div>
-              {loadingMs ? (
+              {isFreeReservation(reservationSlot) ? (
+                <div className="text-xs text-emerald-800 p-2 bg-white rounded-lg">무료체험 예약입니다. 회원권을 연결하거나 횟수를 차감하지 않습니다.</div>
+              ) : loadingMs ? (
                 <div className="text-xs text-emerald-600">회원권 불러오는 중...</div>
-              ) : memberMemberships.length === 0 ? (
+              ) : pickerMemberships.length === 0 && !linkedHistorical ? (
                 <div className="text-xs text-emerald-800 bg-white rounded p-2 border border-emerald-200">
-                  ⚠️ 보유 회원권이 없습니다. <a href="/payments" className="underline font-bold">결제 등록</a>으로 이동하세요.
+                  ⚠️ 사용 가능한 회원권이 없습니다. 소진·기간 만료 회원권은 이 선택 목록에서 숨깁니다. <a href="/payments" className="underline font-bold">결제 등록</a>으로 이동하세요.
                 </div>
               ) : (
                 <div className="space-y-1 max-h-48 overflow-y-auto">
+                  {linkedHistorical && !pickerMemberships.some((m: any) => m.id === linkedHistorical.id) && <div className="p-2 rounded-lg bg-slate-100 text-slate-600 text-xs">기존 완료 수업 사용권: {linkedHistorical.plan_name} · 잔여 {remainingOf(linkedHistorical)}회 (과거 이력 보존·새 예약 선택 불가)</div>}
                   <label className="flex items-center gap-2 p-2 bg-white rounded-lg border-2 border-gray-200 cursor-pointer hover:bg-gray-50">
                     <input type="radio" name="ms" checked={!f.membership_id} onChange={() => setF({ ...f, membership_id: null })} />
-                    <span className="text-xs text-gray-600">회원권 미지정 (서명만 저장 · 관리자 확인 후 차감)</span>
+                    <span className="text-xs text-gray-600">사용 회원권 선택 (유효한 권 1개면 자동 연결)</span>
                   </label>
-                  {memberMemberships.map((m: any) => {
+                  {pickerMemberships.map((m: any) => {
                     const remaining = remainingOf(m);
                     const low = remaining <= 3;
                     const isActive = f.membership_id === m.id;
