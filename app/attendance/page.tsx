@@ -5,6 +5,7 @@ import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import { supabase } from "@/lib/supabase";
 import { saveActualAttendance } from "@/lib/actualMembershipUsage";
+import { remainingOf, totalOf } from "@/lib/membershipFifo";
 import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import {
   ClipboardCheck, Home, Calendar, RefreshCw, Save, Check,
@@ -658,7 +659,7 @@ export default function AttendancePage() {
                     {/* ✅ v3.13.5: 저장일 / 차감일 / 수동·자동 배지 */}
                     <td className="p-2 text-center text-[10px]">
                       {(() => {
-                        const rec = attendance.find((a: any) => a.member_id === m.id && normDate(a.attend_date) === date);
+                        const rec = attendance.find((a: any) => a.member_id === m.id && (a.slot_id === sl.id || (!a.slot_id && normDate(a.attend_date) === date && (!a.time_slot || a.time_slot === sl.time_slot))));
                         if (!rec) return <span className="text-gray-300">-</span>;
                         const savedAt  = rec.saved_at    ? String(rec.saved_at).slice(5, 16).replace("T", " ")  : (rec.created_at ? String(rec.created_at).slice(5, 16).replace("T", " ") : null);
                         const deducted = rec.deducted_at ? String(rec.deducted_at).slice(5, 16).replace("T", " ") : null;
@@ -671,9 +672,16 @@ export default function AttendancePage() {
                             {deducted && (
                               <div className="text-orange-600 font-medium">🔻 {deducted}</div>
                             )}
+                            {mode === "pending" && <button onClick={async () => {
+                              try {
+                                const result = await saveActualAttendance({ memberId: m.id, date, status: rec.status, slot: sl, existing: rec, resolvePending: true });
+                                alert(result.deducted ? "선택한 회원권에서 1회 차감했습니다." : result.warning || "추가 차감 없이 확인했습니다.");
+                                await loadAll();
+                              } catch (error: any) { alert("차감 확인 실패: " + (error?.message || String(error))); }
+                            }} className="px-2 py-1 rounded border border-amber-300 bg-amber-50 text-amber-800 font-semibold">차감 확인</button>}
                             {mode && (
                               <span className={`px-1.5 py-0.5 rounded font-semibold ${mode === "auto" ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"}`}>
-                                {mode === "auto" ? "🤖 자동" : "✋ 수동"}
+                                {mode === "pending" ? "회원권 확인 대기" : mode === "auto" ? "🤖 자동" : "✋ 수동"}
                               </span>
                             )}
                           </div>
@@ -1030,9 +1038,9 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
         // ✅ v3.48.0: FIFO - 잔여>0인 가장 오래된 회원권 표시
         const linkedId = existingAttendance?.membership_id || scheduleSlot?.membership_id;
         const activeMs = linkedId ? (allMs || []).find((m: any) => m.id === linkedId) || null : null;
-        const total = (activeMs?.total_sessions || 0) + (activeMs?.adjustment || 0);
+        const total = totalOf(activeMs);
         const used = activeMs?.used_sessions || 0;
-        const remain = Math.max(0, total - used);
+        const remain = remainingOf(activeMs);
 
         // v3.73.0: 출석 사인창에서는 과거 보강 이력을 별도로 조회하지 않음
         setMemberInfo({ activeMs, remain, total, loading: false });
@@ -1139,7 +1147,7 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
     setSaving(true);
     try {
       const organization = orgId || (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
-      const result = await saveActualAttendance({ memberId: member.id, date, status,
+      const result = await saveActualAttendance({ memberId: member.id, date, status, signatureOnly: true,
         slot: scheduleSlot, existing: existingAttendance, orgId: organization,
         extra: { signature: canvasRef.current!.toDataURL("image/png"), signer_role: signer,
           signed_at: new Date().toISOString() } });
@@ -1207,7 +1215,7 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
                     )}
                   </>
                 ) : (
-                  <div className="text-xs text-slate-500 italic">사용 회원권 미지정 · 새 출석 저장 시 실제 사용 회원권 선택</div>
+                  <div className="text-xs text-slate-500 italic">사용 회원권 미지정 · 서명은 저장하고 관리자가 확인한 뒤 차감</div>
                 )}
               </div>
 
@@ -1251,7 +1259,7 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
               📜 출석 확인 및 동의서
             </div>
             <div className="text-[11px] text-purple-900 leading-relaxed bg-white rounded p-2 border border-purple-100">
-              본 서명으로 <b>당일 출석 및 세션 차감</b>이 처리되며,<br/>
+              본 서명으로 <b>당일 출석이 저장되고 지정된 회원권만 차감</b>이 처리되며,<br/>
               서명 정보는 <b>출석 증빙 목적</b>으로 보관됩니다.
             </div>
           </div>

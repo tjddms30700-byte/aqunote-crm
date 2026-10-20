@@ -24,6 +24,7 @@ import HomeButton from "@/components/HomeButton";
 import MemberSearch from "@/components/MemberSearch";
 import SignatureAttendanceModal from "@/components/SignatureAttendanceModal";
 import { supabase } from "@/lib/supabase";
+import { remainingOf, totalOf } from "@/lib/membershipFifo";
 import { isPaymentCancelled } from "@/lib/paymentCancellation";
 import { saveActualAttendance } from "@/lib/actualMembershipUsage";
 import { resolveBillingCategory } from "@/lib/billingCategory";
@@ -3125,23 +3126,20 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
   const [loadingMs, setLoadingMs] = useState(false);
   useEffect(() => {
     if (!f.member_id) { setMemberMemberships([]); return; }
-    setLoadingMs(true);
-    (async () => {
-      // ✅ v3.16.1: price/amount 모두 조회 + status 없는 경우도 포함
-      const { data } = await supabase
-        .from("memberships")
-        .select("id, plan_name, total_sessions, used_sessions, start_date, end_date, status, amount, price")
-        .eq("member_id", f.member_id)
-        .order("created_at", { ascending: false });
-      // ✅ v3.16.1: 제외 조건을 명시적으로 반전 (status가 null이거나 다른 값이어도 포함)
-      const active = (data || []).filter((m: any) => {
-        if (m.status === "cancelled" || m.status === "refunded" || m.status === "expired") return false;
-        return true;
-      });
-      setMemberMemberships(active);
+    let stopped = false;
+    const refresh = async () => {
+      setLoadingMs(true);
+      const { data, error } = await supabase.from("memberships").select("*").eq("member_id", f.member_id).order("created_at", { ascending: false });
+      if (stopped) return;
+      setMemberMemberships(error ? [] : (data || []).filter((m: any) => !m.deleted_at && !["cancelled", "refunded", "expired"].includes(m.status)));
       setLoadingMs(false);
-    })();
-  }, [f.member_id]);
+    };
+    void refresh();
+    const onVisible = () => { if (!document.hidden) void refresh(); };
+    window.addEventListener("focus", onVisible);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { stopped = true; window.removeEventListener("focus", onVisible); document.removeEventListener("visibilitychange", onVisible); };
+  }, [f.member_id, f.membership_id]);
 
   const selectedMs = memberMemberships.find((m: any) => m.id === f.membership_id);
   const selectedMember = (members || []).find((m: any) => m.id === f.member_id);
@@ -3378,10 +3376,10 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
                 <div className="space-y-1 max-h-48 overflow-y-auto">
                   <label className="flex items-center gap-2 p-2 bg-white rounded-lg border-2 border-gray-200 cursor-pointer hover:bg-gray-50">
                     <input type="radio" name="ms" checked={!f.membership_id} onChange={() => setF({ ...f, membership_id: null })} />
-                    <span className="text-xs text-gray-600">회원권 없이 진행 (차감 안함)</span>
+                    <span className="text-xs text-gray-600">회원권 미지정 (서명만 저장 · 관리자 확인 후 차감)</span>
                   </label>
                   {memberMemberships.map((m: any) => {
-                    const remaining = (m.total_sessions || 0) - (m.used_sessions || 0);
+                    const remaining = remainingOf(m);
                     const low = remaining <= 3;
                     const isActive = f.membership_id === m.id;
                     return (
@@ -3393,7 +3391,7 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
                           <div className="flex items-center gap-2">
                             <span className="font-bold text-sm text-gray-800">{m.plan_name || "회원권"}</span>
                             <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${low ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>
-                              {remaining}/{m.total_sessions}회 남음
+                              {remaining}/{totalOf(m)}회 남음
                             </span>
                           </div>
                           <div className="text-[10px] text-gray-500 mt-0.5">
@@ -4295,7 +4293,7 @@ function DayListModal({ date, slots, members, staff, memberships, onClose, onQui
                 const stf: any = staffMap.get(s.staff_id) || {};
                 const st = statusMeta[s.status] || statusMeta.scheduled;
                 const memMs = (msMap.get(s.member_id) || [])[0];
-                const remain = memMs ? Math.max(0, (memMs.total_sessions||0) - (memMs.used_sessions||0)) : null;
+                const remain = memMs ? remainingOf(memMs) : null;
 
                 return (
                   <div key={s.id} className="time-slot-card aqu-card bg-white border border-slate-200 shadow-sm px-3 py-2.5 hover:shadow-md hover:border-aqu-300 transition-all"
@@ -4442,7 +4440,7 @@ function NextGroundBookingModal({ info, staff, memberships, onClose, onSaved }: 
           <div className="text-sm font-bold text-emerald-900">👤 {info.member_name}</div>
           {memberMs[0] && (
             <div className="text-xs text-emerald-700 mt-1">
-              💳 잔여 회차: {(memberMs[0].total_sessions || 0) - (memberMs[0].used_sessions || 0)}회 / {memberMs[0].total_sessions || 0}회
+              💳 잔여 회차: {remainingOf(memberMs[0])}회 / {totalOf(memberMs[0])}회
             </div>
           )}
         </div>

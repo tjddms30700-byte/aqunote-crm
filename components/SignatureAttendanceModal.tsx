@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { saveActualAttendance } from "@/lib/actualMembershipUsage";
+import { remainingOf, totalOf } from "@/lib/membershipFifo";
 import { X, RotateCcw, Save, Trash2 } from "lucide-react";
 
 /**
@@ -127,7 +128,7 @@ export default function SignatureAttendanceModal({
     setSaving(true);
     try {
       const organization = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
-      const result = await saveActualAttendance({ memberId: member.id, date, status, slot, existing: existingRow,
+      const result = await saveActualAttendance({ memberId: member.id, date, status, slot, existing: existingRow, signatureOnly: true,
         orgId: organization, extra: { signature: canvasRef.current!.toDataURL("image/png"),
           signer_role: signer, signed_at: new Date().toISOString() } });
       alert(["✅ 사인 출결 저장 완료", result.deducted ? "선택한 회원권 1회 차감" : result.restored ? "연결 회원권 1회 복원" : "추가 차감 없음", result.warning].filter(Boolean).join("\n"));
@@ -152,9 +153,9 @@ export default function SignatureAttendanceModal({
         <div className="p-4">
           {/* ✅ v3.20.16: 회원권 정보 (몇회권 중 몇회수업 · 남은 회수) */}
           {membership ? (() => {
-            const total = (membership.total_sessions || 0) + (membership.adjustment || 0);
+            const total = totalOf(membership);
             const used  = membership.used_sessions || 0;
-            const remaining = Math.max(0, total - used);
+            const remaining = remainingOf(membership);
             const currentSessionNo = used + 1; // 본 수업이 바로 몇 회수업인지
             const lowStock = remaining <= 2;
             return (
@@ -182,13 +183,13 @@ export default function SignatureAttendanceModal({
             );
           })() : (
             <div className="mb-3 p-2 bg-yellow-50 border border-yellow-300 rounded text-[11px] text-yellow-800">
-              사용 회원권 미지정 · 새 출석 저장 시 실제 사용한 회원권을 선택합니다.
+              사용 회원권 미지정 · 서명은 저장되며 관리자가 확인한 뒤 차감합니다.
             </div>
           )}
 
           {/* 동의문 */}
           <div className="mb-3 p-2.5 bg-purple-50 border border-purple-200 rounded-lg text-[11px] text-purple-800">
-            📝 <b>본 서명으로 당일 출석 및 세션 차감이 처리</b>되며, 서명 정보는 출석 증빙 목적으로 보관됩니다.
+            📝 <b>본 서명으로 당일 출석이 저장되고, 사용 회원권이 지정된 경우에만 차감 처리</b>되며, 서명 정보는 출석 증빙 목적으로 보관됩니다.
           </div>
 
           {/* 상태 선택 */}

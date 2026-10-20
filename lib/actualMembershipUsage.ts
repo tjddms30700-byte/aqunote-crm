@@ -48,6 +48,7 @@ type SaveOptions = {
   memberId: string; date: string; status: string | null;
   slot?: any; existing?: any; extra?: Record<string, any>; orgId?: string | null;
   slotStatus?: string; timeSlot?: string | null;
+  signatureOnly?: boolean; resolvePending?: boolean;
 };
 
 /** 한 수업에 대한 저장 경로를 통일한다. 새 출석의 대상 선택은 모든 쓰기 전에 완료한다.
@@ -104,6 +105,15 @@ export async function saveActualAttendance(options: SaveOptions): Promise<{
     throw new Error("출석과 수업에 서로 다른 회원권이 연결되어 있습니다. 임의로 차감하지 않았습니다.");
   }
   const decision = usageDecision(previous, slot, status);
+  const existingPending = previous?.deduction_mode === "pending" && !previous?.membership_id;
+  if (options.resolvePending && !existingPending) throw new Error("관리자 확인 대기 중인 출석만 이 버튼으로 처리할 수 있습니다.");
+  if (existingPending) {
+    decision.previousId = null;
+    decision.previousCounted = !options.resolvePending;
+    decision.needsSelection = !!options.resolvePending && decision.nextCounted && !slot?.membership_id;
+    decision.legacyUnlinked = !options.resolvePending;
+  }
+
   const mr = await supabase.from("memberships").select("*").eq("member_id", memberId);
   if (mr.error) throw mr.error;
   const memberships = mr.data || [];
@@ -116,9 +126,14 @@ export async function saveActualAttendance(options: SaveOptions): Promise<{
     if (decision.previousCounted && decision.previousId) throw new Error("무료체험에 과거 회원권 차감이 연결돼 있습니다. 관리자 대조·정리 후 저장해주세요. 추가 차감하지 않았습니다.");
     membershipId = null; target = null;
   }
+  let pendingAssignment = existingPending && !options.resolvePending && billingKind !== "free";
   if (decision.needsSelection && billingKind !== "free") {
-    target = chooseActualMembership(memberships, memberId, date, billingKind === "trial");
-    membershipId = target.id;
+    if (options.signatureOnly) {
+      membershipId = null; target = null; pendingAssignment = true;
+    } else {
+      target = chooseActualMembership(memberships, memberId, date, billingKind === "trial");
+      membershipId = target.id;
+    }
   }
   // 이미 출석 처리된 미연결 과거 기록은 재서명/상태변경 시에도 소급 차감하지 않는다.
   if (decision.legacyUnlinked) { membershipId = null; target = null; }
@@ -154,10 +169,10 @@ export async function saveActualAttendance(options: SaveOptions): Promise<{
     slot_id: slot?.id || previous?.slot_id || null, time_slot: time,
     membership_id: decision.nextCounted ? membershipId : null,
     deducted_at: nextUsed ? (previous?.deducted_at || now) : null,
-    deduction_mode: nextUsed ? "auto" : null,
+    deduction_mode: nextUsed ? "auto" : (pendingAssignment && decision.nextCounted ? "pending" : null),
   };
   if (orgId) payload.org_id = orgId;
-  const slotPatch: any = { status: nextSlotStatus, membership_id: membershipId };
+  const slotPatch: any = { status: nextSlotStatus, membership_id: pendingAssignment ? (slot?.membership_id || null) : membershipId };
   if (nextAction || slot?.noshow_action) slotPatch.noshow_action = nextAction;
   let writtenId: string | null = null;
   let attendanceWritten = false, slotWritten = false, usageWritten = false;
@@ -168,6 +183,7 @@ export async function saveActualAttendance(options: SaveOptions): Promise<{
   if (carryDelta) usagePatch.carryover_count = Math.max(0, (target?.carryover_count || 0) + carryDelta);
   // 보조 표시 컬럼만 생략할 수 있다. 회원권·날짜·상태·수업 연결 컬럼은 절대 버리지 않는다.
   const optional = new Set(["saved_at", "signer_role", "deducted_at", "deduction_mode"]);
+  if (pendingAssignment && decision.nextCounted) optional.delete("deduction_mode");
   async function writeAttendance(): Promise<any> {
     let p = { ...payload };
     for (let i = 0; i < 5; i++) {
@@ -251,5 +267,5 @@ export async function saveActualAttendance(options: SaveOptions): Promise<{
     throw new Error((error?.message || String(error)) + (rollbackErrors.length ? `\n⚠️ ${rollbackErrors.join("·")} 복구 확인이 필요합니다. 다시 저장하지 말고 관리자에게 알려주세요.` : "\n저장을 중단했습니다."));
   }
   return { deducted: delta > 0, restored: delta < 0, membershipId,
-    warning: decision.legacyUnlinked ? "과거 출석의 사용 회원권이 미지정이라 소급 차감·복원하지 않았습니다." : "" };
+    warning: pendingAssignment && decision.nextCounted ? "서명은 저장했습니다. 사용 회원권이 미지정이어서 차감하지 않았습니다. 관리자가 출결장의 ‘차감 확인’에서 처리해주세요." : decision.legacyUnlinked ? "과거 출석의 사용 회원권이 미지정이라 소급 차감·복원하지 않았습니다." : "" };
 }

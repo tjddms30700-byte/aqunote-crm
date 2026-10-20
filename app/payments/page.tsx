@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
+import { remainingOf, totalOf } from "@/lib/membershipFifo";
 import { isPaymentCancelled, cancelMembershipRegistration } from "@/lib/paymentCancellation";
 import { resolveBillingCategory } from "@/lib/billingCategory";
 import { registrationMode, readBillingMetadata, issueWithoutPayment, settleDeferredMembership } from "@/lib/deferredBilling";
@@ -872,7 +873,7 @@ export default function PaymentsPage() {
                     return String(bKey).localeCompare(String(aKey));
                   })
                   .map(m => {
-                  const remaining = (m.total_sessions || 0) - (m.used_sessions || 0);
+                  const remaining = remainingOf(m);
                   const expired = m.end_date && new Date(m.end_date) < new Date();
                   const isCancelled = m.status === "cancelled";
                   const billing = readBillingMetadata(m);
@@ -899,8 +900,8 @@ export default function PaymentsPage() {
                           <button onClick={() => adjustSessions(m, -1)}
                             className="w-6 h-6 rounded bg-red-50 text-red-600 hover:bg-red-100 flex items-center justify-center font-bold"
                             disabled={billing?.mode === "free"} title="회차 차감">−</button>
-                          <span className={`font-bold min-w-[70px] ${(remaining + (m.adjustment || 0)) <= 2 ? "text-red-500" : "text-aqu-700"}`}>
-                            {remaining + (m.adjustment || 0)}/{(m.total_sessions || 0) + (m.adjustment || 0)}
+                          <span className={`font-bold min-w-[70px] ${remaining <= 2 ? "text-red-500" : "text-aqu-700"}`}>
+                            {remaining}/{totalOf(m)}
                             {(m.adjustment || 0) !== 0 && (
                               <span className={`ml-1 text-[10px] ${(m.adjustment || 0) > 0 ? "text-green-600" : "text-orange-600"}`}>
                                 ({(m.adjustment || 0) > 0 ? "+" : ""}{m.adjustment})

@@ -13,8 +13,11 @@ export function fifoSort(list: any[]): any[] {
 }
 
 /** 잔여 횟수 (음수 방지 clamp) */
+export function totalOf(m: any): number {
+  return Math.max(0, Number(m?.total_sessions || 0) + Number(m?.adjustment || 0));
+}
 export function remainingOf(m: any): number {
-  return Math.max(0, (m.total_sessions || 0) + (m.adjustment || 0) - (m.used_sessions || 0));
+  return Math.max(0, totalOf(m) - Number(m?.used_sessions || 0));
 }
 
 /**
