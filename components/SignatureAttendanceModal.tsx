@@ -128,7 +128,7 @@ export default function SignatureAttendanceModal({
     setSaving(true);
     try {
       const organization = (await supabase.from("organizations").select("id").limit(1).single()).data?.id;
-      const result = await saveActualAttendance({ memberId: member.id, date, status, slot, existing: existingRow, signatureOnly: true,
+      const result = await saveActualAttendance({ memberId: member.id, date, status, slot, existing: existingRow, signatureOnly: true, allowAutoUnique: true,
         orgId: organization, extra: { signature: canvasRef.current!.toDataURL("image/png"),
           signer_role: signer, signed_at: new Date().toISOString() } });
       alert(["✅ 사인 출결 저장 완료", result.deducted ? "선택한 회원권 1회 차감" : result.restored ? "연결 회원권 1회 복원" : "추가 차감 없음", result.warning].filter(Boolean).join("\n"));

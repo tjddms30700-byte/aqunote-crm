@@ -49,6 +49,7 @@ type SaveOptions = {
   slot?: any; existing?: any; extra?: Record<string, any>; orgId?: string | null;
   slotStatus?: string; timeSlot?: string | null;
   signatureOnly?: boolean; resolvePending?: boolean;
+  selectedMembershipId?: string | null; historicalHandling?: "deduct" | "link_only"; allowAutoUnique?: boolean;
 };
 
 /** 한 수업에 대한 저장 경로를 통일한다. 새 출석의 대상 선택은 모든 쓰기 전에 완료한다.
@@ -127,6 +128,37 @@ export async function saveActualAttendance(options: SaveOptions): Promise<{
     membershipId = null; target = null;
   }
   let pendingAssignment = existingPending && !options.resolvePending && billingKind !== "free";
+  // 관리자가 일정 수정창에서 지정한 실제 회원권을 그대로 사용한다.
+  const selectedId = options.selectedMembershipId || (existingPending && options.allowAutoUnique ? slot?.membership_id : null);
+  let manualLink = previous?.deduction_mode === "manual_link";
+  if (manualLink && !decision.nextCounted) throw new Error("이미 수동 정산된 수업입니다. 이 건을 되돌리려면 기존 수동 조정 내역을 확인해주세요. 자동 복원하지 않았습니다.");
+  if (selectedId && billingKind !== "free") {
+    if (decision.previousId && decision.previousId !== selectedId) throw new Error("이미 차감된 수업의 회원권을 바꾸면 이중 정산될 수 있습니다. 기존 사용 회원권을 유지해주세요.");
+    const selected = memberships.find((m: any) => m.id === selectedId && m.member_id === memberId && !m.deleted_at && m.status !== "cancelled");
+    if (!selected || (selected.start_date && day(selected.start_date) > date) || (selected.end_date && day(selected.end_date) < date)) throw new Error("선택한 회원권의 회원/수업일/사용 기간을 확인해주세요.");
+    if (decision.legacyUnlinked && !existingPending) {
+      if (!options.historicalHandling) throw new Error("과거 미연결 수업입니다. 미차감 건인지 이미 수동 정산한 건인지 선택해주세요.");
+      decision.legacyUnlinked = false;
+      decision.previousCounted = options.historicalHandling === "link_only";
+      decision.previousId = options.historicalHandling === "link_only" ? selectedId : null;
+      manualLink = options.historicalHandling === "link_only";
+    }
+    membershipId = selectedId; target = selected;
+    decision.needsSelection = false;
+    if (existingPending) { decision.previousCounted = false; decision.previousId = null; decision.legacyUnlinked = false; pendingAssignment = false; }
+  }
+  // 같은 수업 트랙에 실제 사용 가능한 권이 하나뿐인 새 출석은 자동 연결한다.
+  if (options.allowAutoUnique && billingKind !== "free" && !decision.previousId && !selectedId && !slot?.membership_id && slot?.track) {
+    const isGround = (m: any) => /지상|디바이스|리커버리|ground|device/i.test(String(m.plan_name || "")) || ["ground", "device"].includes(m.category);
+    const eligible = memberships.filter((m: any) => !m.deleted_at && !["cancelled", "refunded"].includes(m.status) && remainingOf(m) > 0 &&
+      (!m.start_date || day(m.start_date) <= date) && (!m.end_date || day(m.end_date) >= date) &&
+      (billingKind === "trial" ? isTrialMembership(m) : !isTrialMembership(m) && !/무료체험/.test(String(m.plan_name || ""))) &&
+      ((slot.track === "ground" || slot.track === "device") === isGround(m)));
+    if (eligible.length === 1 && (!decision.legacyUnlinked || existingPending)) {
+      target = eligible[0]; membershipId = target.id; decision.needsSelection = false;
+      if (existingPending) { decision.previousCounted = false; decision.previousId = null; decision.legacyUnlinked = false; pendingAssignment = false; }
+    }
+  }
   if (decision.needsSelection && billingKind !== "free") {
     if (options.signatureOnly) {
       membershipId = null; target = null; pendingAssignment = true;
@@ -144,6 +176,9 @@ export async function saveActualAttendance(options: SaveOptions): Promise<{
   const nextAction = nextSlotStatus === "noshow" ? (policy === "carryover" ? "carried_over" : policy === "refund" ? "refunded" : "deducted") : null;
   const nextUsed = billingKind !== "free" && decision.nextCounted && !!membershipId && !["carried_over", "refunded"].includes(nextAction || "");
   const delta = Number(nextUsed) - Number(previousUsed);
+  const localNow = new Date();
+  const today = `${localNow.getFullYear()}-${String(localNow.getMonth()+1).padStart(2,"0")}-${String(localNow.getDate()).padStart(2,"0")}`;
+  if (delta > 0 && date > today) throw new Error("미래 예약은 미리 차감하지 않습니다. 예약으로 저장해주세요.");
   if (delta > 0 && (!target || target.status === "cancelled" || remainingOf(target) < 1 ||
     (target.start_date && day(target.start_date) > date) || (target.end_date && day(target.end_date) < date))) {
     throw new Error("선택된 회원권의 기간 또는 잔여 횟수가 수업일에 맞지 않습니다. 다른 회원권으로 자동 차감하지 않았습니다.");
@@ -169,7 +204,7 @@ export async function saveActualAttendance(options: SaveOptions): Promise<{
     slot_id: slot?.id || previous?.slot_id || null, time_slot: time,
     membership_id: decision.nextCounted ? membershipId : null,
     deducted_at: nextUsed ? (previous?.deducted_at || now) : null,
-    deduction_mode: nextUsed ? "auto" : (pendingAssignment && decision.nextCounted ? "pending" : null),
+    deduction_mode: nextUsed ? (manualLink ? "manual_link" : "auto") : (pendingAssignment && decision.nextCounted ? "pending" : null),
   };
   if (orgId) payload.org_id = orgId;
   const slotPatch: any = { status: nextSlotStatus, membership_id: pendingAssignment ? (slot?.membership_id || null) : membershipId };
@@ -183,7 +218,7 @@ export async function saveActualAttendance(options: SaveOptions): Promise<{
   if (carryDelta) usagePatch.carryover_count = Math.max(0, (target?.carryover_count || 0) + carryDelta);
   // 보조 표시 컬럼만 생략할 수 있다. 회원권·날짜·상태·수업 연결 컬럼은 절대 버리지 않는다.
   const optional = new Set(["saved_at", "signer_role", "deducted_at", "deduction_mode"]);
-  if (pendingAssignment && decision.nextCounted) optional.delete("deduction_mode");
+  if ((pendingAssignment || manualLink) && decision.nextCounted) optional.delete("deduction_mode");
   async function writeAttendance(): Promise<any> {
     let p = { ...payload };
     for (let i = 0; i < 5; i++) {

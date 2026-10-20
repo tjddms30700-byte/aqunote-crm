@@ -27,6 +27,7 @@ import { supabase } from "@/lib/supabase";
 import { remainingOf, totalOf } from "@/lib/membershipFifo";
 import { isPaymentCancelled } from "@/lib/paymentCancellation";
 import { saveActualAttendance } from "@/lib/actualMembershipUsage";
+import { saveScheduleAttendance } from "@/lib/scheduleAttendanceSave";
 import { resolveBillingCategory } from "@/lib/billingCategory";
 import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import {
@@ -431,7 +432,7 @@ export default function SchedulePage() {
     try {
       const attStatus = status === "done" ? "present" : status === "noshow" || status === "cancel" ? "absent" : status === "sick" ? "sick" : status === "personal" ? "personal" : null;
       const result = await saveActualAttendance({ memberId: slot.member_id, date: String(slot.event_date).slice(0, 10),
-        status: attStatus, slot, slotStatus: status, orgId });
+        status: attStatus, slot, slotStatus: status, orgId, allowAutoUnique: true });
       sessionMsg = result.deducted ? " (선택 회원권 1회 차감)" : result.restored ? " (연결 회원권 1회 복원)" : " (추가 차감 없음)";
       if (result.warning) alert(result.warning);
     } catch (error: any) {
@@ -901,6 +902,8 @@ export default function SchedulePage() {
   function openEditModal(slot: any) {
     setF({
       id: slot.id,
+      membership_id: slot.membership_id || null,
+      historical_handling: "deduct",
       event_date: slot.event_date,
       time_slot: slot.time_slot || "10:00",
       event_type: slot.event_type || "lesson",
@@ -1094,17 +1097,12 @@ export default function SchedulePage() {
     const _activeBranch = getActiveBranchId();
     if (_activeBranch) basePayload.branch_id = _activeBranch;
 
-    // v3.73.1: 예약 편집창에서는 사용량을 바꾸지 않는다. 출결 처리는 시간표의 완료/사인 버튼으로 통일.
+    // v3.74.3: 완료/노쇼/복원은 사용 회원권을 지정한 동일 출결 경로로 저장한다.
     const previousSlot = f.id ? slots.find((row: any) => row.id === f.id) : null;
     const counted = (value: any) => ["done", "completed", "noshow", "cancel"].includes(value);
-    if ((counted(effectiveStatus) && !previousSlot) ||
-        (previousSlot && (counted(effectiveStatus) !== counted(previousSlot.status) ||
-          (counted(previousSlot.status) && (previousSlot.member_id !== f.member_id ||
-            (previousSlot.membership_id || null) !== (f.membership_id || null)))))) {
-      setSaving(false);
-      alert("회원권 오차감 방지를 위해 이 창에서는 완료·노쇼 처리 또는 사용 회원권 변경을 할 수 없습니다. 예약으로 저장한 뒤 시간표의 완료/사인 버튼에서 실제 사용 회원권을 선택해주세요.");
-      return;
-    }
+    const classEvent = !!f.member_id && ["lesson", "trial", "makeup"].includes(f.event_type);
+    basePayload.membership_id = f.membership_id || null;
+    let lastInsertedSlot: any = null;
 
     // ✅ v3.28.1: safeInsert 강화 - RLS/타입 오류 명확히 표시, 삽입 결과 검증까지
     async function safeInsert(payload: any): Promise<any> {
@@ -1118,6 +1116,7 @@ export default function SchedulePage() {
       for (let i = 0; i < 20; i++) {
         const r = await supabase.from("schedule_slots").insert(cur).select();
         if (!r.error && r.data && r.data.length > 0) {
+          lastInsertedSlot = r.data[0];
           console.log("✅ v3.28.1 schedule_slots 삽입 성공:", r.data[0]?.id);
           return null;
         }
@@ -1168,10 +1167,13 @@ export default function SchedulePage() {
           day_of_week: buildDow(f.event_date),
         };
         // ✅ v3.16.0: 이전 상태 확인 (done으로 바뀌는 경우에만 차감)
-        const { data: prev } = await supabase.from("schedule_slots")
-          .select("status, membership_id").eq("id", f.id).maybeSingle();
-        const err = await safeUpdate(payload, f.id);
-        if (err) throw err;
+        if (classEvent && (counted(effectiveStatus) || counted(previousSlot?.status))) {
+          const result = await saveScheduleAttendance({ id: f.id, payload, historicalHandling: f.historical_handling || "deduct" });
+          if (result.warning) alert(result.warning);
+        } else {
+          const err = await safeUpdate(payload, f.id);
+          if (err) throw err;
+        }
 
       } else if (f.recurring_enabled && f.recurring_weeks > 1) {
         // v3.23.3: 반복예약도 개별 INSERT + 폴백 (하나라도 실패해도 나머지 저장)
@@ -1191,9 +1193,15 @@ export default function SchedulePage() {
             recurring_id: recurringId,
             recurring_weeks: f.recurring_weeks,
           };
-          const err = await safeInsert(row);
+          const safeRow = classEvent && counted(effectiveStatus) ? { ...row, status: "scheduled" } : row;
+          const err = await safeInsert(safeRow);
           if (err) { failCount++; lastError = err; }
-          else successCount++;
+          else {
+            successCount++;
+            if (classEvent && counted(effectiveStatus) && i === 0 && lastInsertedSlot?.id) {
+              await saveScheduleAttendance({ id: lastInsertedSlot.id, payload: row });
+            }
+          }
         }
         if (successCount === 0 && lastError) throw lastError;
         if (failCount > 0 && lastError) {
@@ -1206,9 +1214,13 @@ export default function SchedulePage() {
           event_date: f.event_date,
           day_of_week: buildDow(f.event_date),
         };
-        const err = await safeInsert(payload);
-        if (err) throw err;
-        // ✅ v3.16.0: 처음부터 done으로 등록되는 경우에도 차감
+        if (classEvent && counted(effectiveStatus)) {
+          await saveScheduleAttendance({ payload, historicalHandling: f.historical_handling || "deduct" });
+        } else {
+          const err = await safeInsert(payload);
+          if (err) throw err;
+        }
+        // 완료 신규 등록도 공용 출결 경로로 1회만 차감
 
       }
       setModal(null);
@@ -3406,9 +3418,17 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
               )}
               {selectedMs && (
                 <div className="mt-2 p-2 bg-white rounded border border-emerald-300 text-[11px] text-emerald-800">
-                  💡 이 예약을 <b>완료</b> 상태로 저장하면 <b>{selectedMs.plan_name}</b>에서 1회 자동 차감됩니다.
+                  💡 <b>완료</b>로 저장하면 선택한 <b>{selectedMs.plan_name}</b>에서 1회 차감합니다. 이미 처리된 수업은 중복 차감하지 않습니다.
                 </div>
               )}
+            </div>
+          )}
+
+          {f.id && ["done", "completed", "noshow", "cancel"].includes(modal?.editing?.status || "") && !modal?.editing?.membership_id && f.membership_id && (
+            <div className="p-3 rounded-xl border border-amber-200 bg-amber-50 text-xs text-amber-900 mb-3">
+              <div className="font-bold mb-2">과거 수업 정산 방식</div>
+              <label className="flex items-center gap-2 mb-2"><input type="radio" name="historical_handling" checked={f.historical_handling !== "link_only"} onChange={() => setF({ ...f, historical_handling: "deduct" })} />아직 차감하지 않음 — 선택 회원권에서 1회 차감</label>
+              <label className="flex items-center gap-2"><input type="radio" name="historical_handling" checked={f.historical_handling === "link_only"} onChange={() => setF({ ...f, historical_handling: "link_only" })} />이미 수동 정산함 — 연결만 저장 (추가 차감 없음)</label>
             </div>
           )}
 
