@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { saveActualAttendance } from "@/lib/actualMembershipUsage";
 import { remainingOf, totalOf } from "@/lib/membershipFifo";
+import { signatureMembershipDecision } from "@/lib/signatureMembership";
+import { loadMemberMemberships } from "@/lib/memberMembershipQuery";
 import { X, RotateCcw, Save, Trash2 } from "lucide-react";
 
 /**
@@ -32,21 +34,24 @@ export default function SignatureAttendanceModal({
   const [existingRow, setExistingRow] = useState<any | null>(null);
   // ✅ v3.20.16: 회원권 자동 조회
   const [membership, setMembership] = useState<any | null>(null);
+  const [membershipMessage, setMembershipMessage] = useState("");
+  const [membershipReload,setMembershipReload]=useState(0);
 
-  // 회원권 조회 (목달 생성 순 · 유효기간 내)
-  useEffect(() => {
-    if (!member?.id) return;
-    (async () => {
-      const { data } = await supabase.from("memberships")
-        .select("*")
-        .eq("member_id", member.id)
-        .neq("status", "cancelled")
-        .order("created_at", { ascending: false });
-      const linkedId = existingRow?.membership_id || slot?.membership_id;
-      const active = linkedId ? (data || []).find((m: any) => m.id === linkedId) : null;
-      setMembership(active || null);
-    })();
-  }, [member?.id, slot?.membership_id, existingRow?.membership_id]);
+  useEffect(()=>{
+    if(!member?.id)return;
+    let stopped=false;
+    const refresh=async()=>{
+      try {
+        const data=await loadMemberMemberships(member.id);if(stopped)return;
+        const resolution=signatureMembershipDecision({...slot,member_id:member.id,event_date:date},data,existingRow);
+        setMembership(resolution.activeMs || null);setMembershipMessage(resolution.message || "");
+      }catch(error:any){if(stopped)return;setMembership(null);setMembershipMessage(error?.message || "회원권 조회 실패. 다시 조회해주세요.");}
+    };
+    void refresh();
+    const visible=()=>{if(!document.hidden)void refresh();};
+    window.addEventListener("focus",visible);document.addEventListener("visibilitychange",visible);
+    return ()=>{stopped=true;window.removeEventListener("focus",visible);document.removeEventListener("visibilitychange",visible);};
+  },[member?.id,date,slot?.id,slot?.lesson_name,slot?.membership_id,existingRow?.membership_id,existingRow?.deduction_mode,membershipReload]);
 
   // 기존 서명 조회
   useEffect(() => {
@@ -183,9 +188,11 @@ export default function SignatureAttendanceModal({
             );
           })() : (
             <div className="mb-3 p-2 bg-yellow-50 border border-yellow-300 rounded text-[11px] text-yellow-800">
-              사용 회원권 미지정 · 서명은 저장되며 관리자가 확인한 뒤 차감합니다.
+              {membershipMessage || "수업에 맞는 사용 회원권을 확인해주세요. 서명은 저장하고 차감은 관리자 확인 후 처리합니다."}
             </div>
           )}
+
+          <button type="button" onClick={()=>setMembershipReload(x=>x+1)} className="text-[11px] text-slate-600 underline mb-2">회원권 다시 조회</button>
 
           {/* 동의문 */}
           <div className="mb-3 p-2.5 bg-purple-50 border border-purple-200 rounded-lg text-[11px] text-purple-800">

@@ -6,6 +6,10 @@ import HomeButton from "@/components/HomeButton";
 import { supabase } from "@/lib/supabase";
 import { saveActualAttendance } from "@/lib/actualMembershipUsage";
 import { remainingOf, totalOf } from "@/lib/membershipFifo";
+import { signatureMembershipDecision } from "@/lib/signatureMembership";
+import { loadMemberMemberships } from "@/lib/memberMembershipQuery";
+import { tabletSignTargets, attendanceForSignTarget } from "@/lib/tabletSignTargets";
+import { lessonDurationMinutes } from "@/lib/lessonProduct";
 import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import {
   ClipboardCheck, Home, Calendar, RefreshCw, Save, Check,
@@ -76,7 +80,7 @@ export default function AttendancePage() {
     const branchId = getActiveBranchId();
     // ✅ branch_id 필터 (컴럼 미존재 시 폴백)
     const safeQ = async (baseFn: () => any, filterFn: (q: any) => any) => {
-      if (!branchId) return await baseFn();
+      if (!branchId || branchId === "ALL") return await baseFn();
       const r = await filterFn(baseFn());
       if (r.error && (r.error.code === "42703" || r.error.message?.includes("branch_id"))) return await baseFn();
       return r;
@@ -232,6 +236,8 @@ export default function AttendancePage() {
     console.log(`[v3.36.2] todayMembers 결과: ${result.length}명`, result.map((m: any) => ({ id: m.id?.slice(0, 8), name: m.name, from_slot: !!m._from_slot })));
     return result;
   }, [scheduleSlots, members, mode]);
+
+  const tabletMembers = useMemo(() => tabletSignTargets(todayMembers, scheduleSlots, date), [todayMembers, scheduleSlots, date]);
 
   /* ✅ v3.26.1: 회원별 그날의 시간표 슬롯 - 삭제되지 않은 슬롯만 */
   function slotsForMember(memberId: string) {
@@ -451,7 +457,7 @@ export default function AttendancePage() {
       {view === "sign" && (
         <SignInBoard
           date={date}
-          members={todayMembers}
+          members={tabletMembers}
           attendance={attendance}
           onOpenSign={(m: any) => setSignTarget(m)}
         />
@@ -463,8 +469,8 @@ export default function AttendancePage() {
           member={signTarget}
           date={date}
           orgId={null}
-          existingAttendance={attendance.find((a: any) => a.member_id === signTarget.id && normDate(a.attend_date) === date) || null}
-          scheduleSlot={scheduleSlots.find((s: any) => s.member_id === signTarget.id) || null}
+          existingAttendance={attendanceForSignTarget(signTarget, attendance, date)}
+          scheduleSlot={signTarget._signSlot || null}
           onClose={() => setSignTarget(null)}
           onSaved={async () => { setSignTarget(null); await loadAll(); }}
         />
@@ -964,7 +970,7 @@ td.sig-cell img { max-width: 130px; max-height: 55px; object-fit: contain; }
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
           {filtered.filter((m: any) => m && m.id).map((m: any) => {
             // ✅ v3.26.3: null 방어 + 사인 완료 시 status 표시 강화
-            const rec = recMap.get(m.id);
+            const rec = attendanceForSignTarget(m, attendance, date);
             const signed = !!rec?.signature;
             const status = rec?.status;
             const bgClass = signed
@@ -986,7 +992,7 @@ td.sig-cell img { max-width: 130px; max-height: 55px; object-fit: contain; }
                 : "터치해서 사인";
             return (
               <button
-                key={m.id}
+                key={m._signKey || m.id}
                 onClick={() => onOpenSign && onOpenSign(m)}
                 className={`p-4 rounded-2xl border-2 transition-all text-left shadow-sm hover:shadow-md ${bgClass}`}
               >
@@ -995,6 +1001,7 @@ td.sig-cell img { max-width: 130px; max-height: 55px; object-fit: contain; }
                   {signed && <span className="text-xs text-purple-600">✓ 사인</span>}
                 </div>
                 <div className="text-[10px] text-gray-500 mb-2">
+                  {m._signSlot && <div className="font-semibold text-slate-700 mb-1">{m._signSlot.time_slot} · {m._signSlot.lesson_name || "수업"}{lessonDurationMinutes(m._signSlot.lesson_name) ? ` · ${lessonDurationMinutes(m._signSlot.lesson_name)}분` : ""}</div>}
                   {m.member_type === "child" ? "🧒 아동" : "👤 성인"}
                   {m.guardian_name ? ` · ${m.guardian_name}` : ""}
                 </div>
@@ -1024,32 +1031,33 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
     activeMs: any | null;
     remain: number;
     total: number;
-    loading: boolean;
+    loading: boolean; message?: string; reason?: string; error?: string;
   }>({ activeMs: null, remain: 0, total: 0, loading: true });
 
-  // ✨ v3.32.2: 사인 팝업 열 때 회원권/출결 이력 자동 조회
+  const [membershipReload, setMembershipReload] = useState(0);
+  // 공용 조회: 전체 보유권을 조회하고 실패·소진·만료·상품 불일치를 구분한다.
   useEffect(() => {
     if (!member?.id) return;
-    (async () => {
+    let stopped=false;
+    const refresh=async()=>{
+      setMemberInfo((old:any)=>({...old,loading:true,error:undefined}));
       try {
-        // 1) 활성 회원권 조회
-        const { data: allMs } = await supabase.from("memberships").select("*")
-          .eq("member_id", member.id).or("status.is.null,status.neq.cancelled");
-        // ✅ v3.48.0: FIFO - 잔여>0인 가장 오래된 회원권 표시
-        const linkedId = existingAttendance?.membership_id || scheduleSlot?.membership_id;
-        const activeMs = linkedId ? (allMs || []).find((m: any) => m.id === linkedId) || null : null;
-        const total = totalOf(activeMs);
-        const used = activeMs?.used_sessions || 0;
-        const remain = remainingOf(activeMs);
-
-        // v3.73.0: 출석 사인창에서는 과거 보강 이력을 별도로 조회하지 않음
-        setMemberInfo({ activeMs, remain, total, loading: false });
-      } catch (e) {
-        console.warn("[v3.32.2] 사인 팝업 자동조회 예외:", e);
-        setMemberInfo({ activeMs: null, remain: 0, total: 0, loading: false });
+        const allMs=await loadMemberMemberships(member.id);
+        if(stopped)return;
+        const context={...(scheduleSlot || {}),member_id:member.id,event_date:date};
+        const resolution=signatureMembershipDecision(context,allMs,existingAttendance);
+        const activeMs=resolution.activeMs;
+        setMemberInfo({activeMs,remain:remainingOf(activeMs),total:totalOf(activeMs),loading:false,message:resolution.message,reason:resolution.reason});
+      } catch(error:any){
+        if(stopped)return;
+        setMemberInfo({activeMs:null,remain:0,total:0,loading:false,error:error?.message || "회원권 조회 실패. 다시 조회해주세요.",reason:"query_error"});
       }
-    })();
-  }, [member?.id, date, existingAttendance?.membership_id, scheduleSlot?.membership_id]);
+    };
+    void refresh();
+    const visible=()=>{if(!document.hidden)void refresh();};
+    window.addEventListener("focus",visible);document.addEventListener("visibilitychange",visible);
+    return ()=>{stopped=true;window.removeEventListener("focus",visible);document.removeEventListener("visibilitychange",visible);};
+  },[member?.id,date,existingAttendance?.membership_id,existingAttendance?.deduction_mode,scheduleSlot?.id,scheduleSlot?.membership_id,scheduleSlot?.lesson_name,membershipReload]);
 
   useEffect(() => {
     // ✅ v3.25.3: member 없어도 훅은 실행되고, 캔버스 초기화만 조건부로 건너뜀
@@ -1163,7 +1171,7 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
         <div className="flex items-center justify-between px-5 py-4 border-b bg-purple-50 rounded-t-2xl">
           <div>
             <div className="text-lg font-bold text-purple-800">✍️ 출석 사인</div>
-            <div className="text-xs text-gray-600">{member?.name} · {date}</div>
+            <div className="text-xs text-gray-600">{member?.name} · {date}{scheduleSlot?.time_slot ? ` · ${scheduleSlot.time_slot}` : ""}{scheduleSlot?.lesson_name ? ` · ${scheduleSlot.lesson_name}` : ""}</div>
           </div>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-800 text-2xl leading-none">×</button>
         </div>
@@ -1182,7 +1190,7 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
                   <span className="text-lg">🎫</span>
                   <span className="text-xs font-bold text-slate-700">회원권 잔여</span>
                 </div>
-                {memberInfo.activeMs ? (
+                {memberInfo.error ? <div className="text-sm text-rose-700">{memberInfo.error}</div> : memberInfo.activeMs ? (
                   <>
                     <div className="text-[11px] text-slate-600 font-medium mb-1 truncate flex items-center gap-1.5">
                       {memberInfo.activeMs.plan_name || "회원권"}
@@ -1202,7 +1210,7 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
                     </div>
                     {memberInfo.remain === 0 && (
                       <div className="mt-1 text-[10px] font-bold text-rose-600 bg-white/70 px-2 py-0.5 rounded-full inline-block">
-                        ⚠️ 잔여 0 – 재결제 필요
+                        {memberInfo.reason === "recorded" ? "이미 차감된 당일 수업 · 추가 차감 없음" : "이 수업 상품의 잔여 0회 — 회원권 확인 필요"}
                       </div>
                     )}
                     {memberInfo.remain > 0 && memberInfo.remain <= 2 && (
@@ -1210,15 +1218,17 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
                         ⚡ 만료 임박
                       </div>
                     )}
+                    {memberInfo.message && <div className="mt-1 text-[10px] text-slate-600">{memberInfo.message}</div>}
                     {memberInfo.activeMs.end_date && (
                       <div className="mt-1 text-[10px] text-slate-500">만료일: {memberInfo.activeMs.end_date}</div>
                     )}
                   </>
                 ) : (
-                  <div className="text-xs text-slate-500 italic">사용 회원권 미지정 · 서명은 저장하고 관리자가 확인한 뒤 차감</div>
+                  <div className="text-xs text-slate-500 italic">{memberInfo.message || "수업에 맞는 사용 회원권을 확인해주세요. 서명은 저장하고 차감은 관리자 확인 후 처리합니다."}</div>
                 )}
               </div>
 
+              <button type="button" disabled={memberInfo.loading} onClick={()=>setMembershipReload(x=>x+1)} className="text-[11px] text-slate-600 underline disabled:opacity-50">회원권 다시 조회</button>
               {/* v3.73.0: 보강 관리는 시간표 관리자 패널에서만 수행 */}
             </div>
           )}

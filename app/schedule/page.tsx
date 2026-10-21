@@ -30,6 +30,7 @@ import { saveActualAttendance } from "@/lib/actualMembershipUsage";
 import { saveScheduleAttendance } from "@/lib/scheduleAttendanceSave";
 import { availableReservationMemberships, reservationMembershipDecision, isFreeReservation } from "@/lib/reservationMembership";
 import { planReservationLinks, applyReservationLinks } from "@/lib/reservationLinkMaintenance";
+import { lessonDurationMinutes } from "@/lib/lessonProduct";
 import { resolveBillingCategory } from "@/lib/billingCategory";
 import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import {
@@ -1104,6 +1105,8 @@ export default function SchedulePage() {
       // ✅ v3.57.1: 지상/수중 트랙 저장 (누락 시 지상 등록이 수중으로 들어가는 버그 수정)
       track: f.track || trackTab || "aqua",
     };
+    const productMinutes = lessonDurationMinutes(f.lesson_name);
+    if (productMinutes) { basePayload.duration = productMinutes; basePayload.duration_minutes = productMinutes; }
     // ✅ v3.57.1: 보강 배정 연결 필드 저장
     if (f.is_makeup_reservation) basePayload.is_makeup_reservation = true;
     if (f.original_absence_slot_id) basePayload.original_absence_slot_id = f.original_absence_slot_id;

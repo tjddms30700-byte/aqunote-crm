@@ -3,6 +3,8 @@
 import { supabase } from "@/lib/supabase";
 import { remainingOf } from "@/lib/membershipFifo";
 import { reconcileSelectedMembership } from "@/lib/reconcileSelectedMembership";
+import { reservationMembershipDecision, availableReservationMemberships } from "@/lib/reservationMembership";
+import { matchesLessonProduct } from "@/lib/lessonProduct";
 
 export const USAGE_CANCELLED = "회원권 선택이 취소되어 저장하지 않았습니다.";
 export const countedStatus = (status: any): boolean =>
@@ -128,12 +130,22 @@ export async function saveActualAttendance(options: SaveOptions): Promise<{
   const memberships = mr.data || [];
   let membershipId: string | null = decision.previousId || slot?.membership_id || null;
   let target: any = membershipId ? memberships.find((m: any) => m.id === membershipId) : null;
-  if (membershipId && !target) throw new Error("연결된 회원권이 이 회원의 회원권이 아니거나 삭제되었습니다.");
+  if (membershipId && !target && !(options.allowAutoUnique && (!decision.previousCounted || existingPending))) throw new Error("연결된 회원권이 이 회원의 회원권이 아니거나 삭제되었습니다.");
   const billingKind = lessonBillingKind(slot);
   if (billingKind === "free") {
     // 과거 차감 복원은 증빙 대조 후 별도로 수행한다. 재서명만으로 추정 복원하지 않는다.
     if (decision.previousCounted && decision.previousId) throw new Error("무료체험에 과거 회원권 차감이 연결돼 있습니다. 관리자 대조·정리 후 저장해주세요. 추가 차감하지 않았습니다.");
     membershipId = null; target = null;
+  }
+  let autoRebound = false;
+  const priorCharge = previous?.membership_id && (previous.deduction_mode === "auto" || previous.deduction_mode === "manual_link" || previous.deducted_at);
+  if (options.allowAutoUnique && !priorCharge && billingKind !== "free" && (!decision.previousCounted || existingPending) && slot) {
+    const choice = reservationMembershipDecision({ ...slot, member_id: memberId, event_date: date }, memberships);
+    if (choice.id && choice.id !== membershipId && ["unique", "keep"].includes(choice.reason)) {
+      membershipId = choice.id; target = memberships.find((m: any) => m.id === choice.id);
+      decision.previousId = null; decision.previousCounted = false; decision.needsSelection = false; decision.legacyUnlinked = false;
+      autoRebound = true;
+    }
   }
   const signatureDeferral = !!options.signatureOnly && !!options.deferInvalidMembership && billingKind !== "free" && !!target &&
     !previous?.deducted_at && !["auto", "manual_link"].includes(previous?.deduction_mode) &&
@@ -147,7 +159,7 @@ export async function saveActualAttendance(options: SaveOptions): Promise<{
   }
   let pendingAssignment = signatureDeferral || (existingPending && !options.resolvePending && billingKind !== "free");
   // 관리자가 일정 수정창에서 지정한 실제 회원권을 그대로 사용한다.
-  const selectedId = signatureDeferral ? null : options.selectedMembershipId || (existingPending && options.allowAutoUnique ? slot?.membership_id : null);
+  const selectedId = signatureDeferral ? null : (autoRebound ? membershipId : options.selectedMembershipId) || (existingPending && options.allowAutoUnique ? slot?.membership_id : null);
   let manualLink = previous?.deduction_mode === "manual_link";
   if (manualLink && !decision.nextCounted) throw new Error("이미 수동 정산된 수업입니다. 이 건을 되돌리려면 기존 수동 조정 내역을 확인해주세요. 자동 복원하지 않았습니다.");
   if (selectedId && billingKind !== "free") {
@@ -166,12 +178,8 @@ export async function saveActualAttendance(options: SaveOptions): Promise<{
     if (existingPending) { decision.previousCounted = false; decision.previousId = null; decision.legacyUnlinked = false; pendingAssignment = false; }
   }
   // 같은 수업 트랙에 실제 사용 가능한 권이 하나뿐인 새 출석은 자동 연결한다.
-  if (!signatureDeferral && options.allowAutoUnique && billingKind !== "free" && !decision.previousId && !selectedId && !slot?.membership_id && slot?.track) {
-    const isGround = (m: any) => /지상|디바이스|리커버리|ground|device/i.test(String(m.plan_name || "")) || ["ground", "device"].includes(m.category);
-    const eligible = memberships.filter((m: any) => !m.deleted_at && !["cancelled", "refunded"].includes(m.status) && remainingOf(m) > 0 &&
-      (!m.start_date || day(m.start_date) <= date) && (!m.end_date || day(m.end_date) >= date) &&
-      (billingKind === "trial" ? isTrialMembership(m) : !isTrialMembership(m) && !/무료체험/.test(String(m.plan_name || ""))) &&
-      ((slot.track === "ground" || slot.track === "device") === isGround(m)));
+  if (!signatureDeferral && options.allowAutoUnique && billingKind !== "free" && !decision.previousId && !selectedId && !slot?.membership_id && (slot?.track || !slot)) {
+    const eligible = availableReservationMemberships({ ...slot, member_id: memberId, event_date: date }, memberships);
     if (eligible.length === 1 && (!decision.legacyUnlinked || existingPending)) {
       target = eligible[0]; membershipId = target.id; decision.needsSelection = false;
       if (existingPending) { decision.previousCounted = false; decision.previousId = null; decision.legacyUnlinked = false; pendingAssignment = false; }
@@ -202,6 +210,7 @@ export async function saveActualAttendance(options: SaveOptions): Promise<{
     throw new Error("선택된 회원권의 기간 또는 잔여 횟수가 수업일에 맞지 않습니다. 다른 회원권으로 자동 차감하지 않았습니다.");
   }
   if (nextUsed && target) {
+    if (!previousUsed && slot && billingKind === "regular" && !isTrialMembership(target) && !matchesLessonProduct(slot,target,memberships)) throw new Error("수업 상품과 회원권이 다릅니다. STANDARD 40분과 STANDARD-HALF 20분은 각각 해당 회원권을 사용해주세요.");
     const trial = isTrialMembership(target);
     if ((billingKind === "trial" && !trial) || (billingKind === "regular" && trial)) {
       throw new Error("체험 수업은 체험권에서만, 정규 수업은 정규 회원권에서만 차감할 수 있습니다. 저장하지 않았습니다.");

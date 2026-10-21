@@ -2,6 +2,7 @@
 // 예약 연결 != 차감 증빙. 기존 권에 남은 다른 완료 수업의 사용량은 복원하지 않는다.
 import { supabase } from "@/lib/supabase";
 import { remainingOf } from "@/lib/membershipFifo";
+import { matchesLessonProduct } from "@/lib/lessonProduct";
 const d = (r: any) => String(r?.event_date || r?.attend_date || r?.date || r?.attendance_date || r?.session_date || "").slice(0,10);
 const counted = (s: any) => ["done","completed","present","absent","noshow","cancel"].includes(String(s || ""));
 const free = (s: any) => String(s?.lesson_name || "").replace(/\s/g, "") === "무료체험";
@@ -33,6 +34,7 @@ export async function reconcileSelectedMembership(options: any): Promise<any> {
   const old = (mr.data || []).find(m => m.id === oldId);
   if (!target || target.deleted_at || ["cancelled","refunded"].includes(target.status)) throw new Error("선택한 회원권을 사용할 수 없습니다.");
   if ((target.start_date && target.start_date.slice(0,10) > date) || (target.end_date && target.end_date.slice(0,10) < date)) throw new Error("선택한 회원권의 기간이 수업일과 다릅니다. 기간을 확인해주세요.");
+  if (!matchesLessonProduct(slot,target,mr.data || [])) throw new Error("수업 상품과 선택한 회원권이 다릅니다. STANDARD/하프 등 실제 수업 상품을 확인해주세요.");
   const trialClass = slot.event_type === "trial" || /체험|trial/i.test(String(slot.lesson_name || ""));
   const trialTicket = /체험|trial/i.test(String(target.plan_name || ""));
   if (trialClass !== trialTicket || /무료체험/.test(String(target.plan_name || ""))) throw new Error("유료체험은 결제한 체험권만, 일반 수업은 일반 회원권만 사용할 수 있습니다.");
