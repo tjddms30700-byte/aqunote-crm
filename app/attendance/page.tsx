@@ -1197,7 +1197,7 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
                       {/* ✅ v3.57.2: 기한은 지났지만 잔여 있음 (폴백 사용 중) 배지 */}
                       {memberInfo.activeMs.end_date && memberInfo.activeMs.end_date < date && (
                         <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 border border-amber-300 rounded text-[9px] font-bold whitespace-nowrap">
-                          ⚠️ 기한만료 {memberInfo.activeMs.end_date.slice(5)}
+                          ⚠️ 기간 만료 · 잔여 사용 가능 {memberInfo.activeMs.end_date.slice(5)}
                         </span>
                       )}
                     </div>

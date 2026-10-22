@@ -1082,7 +1082,7 @@ export default function SchedulePage() {
       reservationMemberships = query.data || [];
       const choice = reservationMembershipDecision({ ...f, track: f.track || trackTab }, reservationMemberships);
       if (choice.reason === "choose") { alert("사용 가능한 회원권이 여러 개입니다. 보유 회원권 목록에서 이번 예약에 사용할 권을 선택해주세요."); return; }
-      if (choice.reason === "none") { alert("이 수업일에 사용 가능한 회원권이 없습니다. 소진된 권은 선택하지 않으며, 회원권 발급·기간 연장 후 다시 예약해주세요. 무료체험은 무료체험 수업으로 등록해주세요."); return; }
+      if (choice.reason === "none") { alert("이 수업일에 사용 가능한 회원권이 없습니다. 소진·취소·환불된 권은 사용할 수 없습니다. 보유권의 잔여와 시작일을 확인해주세요. 무료체험은 무료체험 수업으로 등록해주세요."); return; }
       reservationMembershipId = choice.id;
     }
     setSaving(true);
@@ -3188,7 +3188,7 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
       setLoadingMs(true);
       const { data, error } = await supabase.from("memberships").select("*").eq("member_id", f.member_id).order("created_at", { ascending: false });
       if (stopped) return;
-      setMemberMemberships(error ? [] : (data || []).filter((m: any) => !m.deleted_at && !["cancelled", "refunded", "expired"].includes(m.status)));
+      setMemberMemberships(error ? [] : (data || []).filter((m: any) => !m.deleted_at && !["cancelled", "refunded"].includes(m.status)));
       setLoadingMs(false);
     };
     void refresh();
@@ -3441,7 +3441,7 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
                 <div className="text-xs text-emerald-600">회원권 불러오는 중...</div>
               ) : pickerMemberships.length === 0 && !linkedHistorical ? (
                 <div className="text-xs text-emerald-800 bg-white rounded p-2 border border-emerald-200">
-                  ⚠️ 사용 가능한 회원권이 없습니다. 소진·기간 만료 회원권은 이 선택 목록에서 숨깁니다. <a href="/payments" className="underline font-bold">결제 등록</a>으로 이동하세요.
+                  ⚠️ 사용 가능한 회원권이 없습니다. 소진·취소·환불된 권은 숨깁니다. 기간이 만료돼도 잔여가 있으면 사용할 수 있습니다. <a href="/payments" className="underline font-bold">결제 등록</a>으로 이동하세요.
                 </div>
               ) : (
                 <div className="space-y-1 max-h-48 overflow-y-auto">
@@ -3467,7 +3467,7 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
                             </span>
                           </div>
                           <div className="text-[10px] text-gray-500 mt-0.5">
-                            {m.start_date && `${m.start_date}`}{m.end_date && ` ~ ${m.end_date}`}
+                            {m.start_date && `${m.start_date}`}{m.end_date && ` ~ ${m.end_date}`}{m.end_date && String(m.end_date).slice(0,10)<String(f.event_date).slice(0,10) && <span className="ml-1 text-amber-700 font-semibold">기간 만료 · 잔여 사용 가능</span>}
                             {m.amount ? ` · ₩${Number(m.amount).toLocaleString()}` : ""}
                           </div>
                         </div>

@@ -35,10 +35,9 @@ export function lessonBillingKind(slot: any): "free" | "trial" | "regular" {
 export function chooseActualMembership(list: any[], memberId: string, date: string, trialOnly = false): any {
   const eligible = list.filter(m => m.member_id === memberId && m.status !== "cancelled" && !m.deleted_at &&
     !/무료체험/.test(String(m.plan_name || "").replace(/\s/g, "")) && (trialOnly ? isTrialMembership(m) : !isTrialMembership(m)) &&
-    remainingOf(m) > 0 && (!m.start_date || day(m.start_date) <= date) &&
-    (!m.end_date || day(m.end_date) >= date));
+    remainingOf(m) > 0 && (!m.start_date || day(m.start_date) <= date));
   if (!eligible.length) throw new Error("수업일에 사용 가능한 회원권이 없습니다. 회원권 기간과 잔여 횟수를 확인해주세요.");
-  const description = eligible.map((m, i) => `${i + 1}. ${m.plan_name || "회원권"} · 잔여 ${remainingOf(m)}회 · ${m.start_date || "-"}~${m.end_date || "-"}`).join("\n");
+  const description = eligible.map((m, i) => `${i + 1}. ${m.plan_name || "회원권"} · 잔여 ${remainingOf(m)}회 · ${m.start_date || "-"}~${m.end_date || "-"}${m.end_date && day(m.end_date)<date ? " (기간 만료·잔여 사용 가능)" : ""}`).join("\n");
   const answer = window.prompt(`실제 사용한 회원권 선택\n수업일: ${date}\n\n${description}\n\n사용한 회원권 번호를 입력해주세요.\n자동 선택하지 않으며, 취소하면 저장하지 않습니다.`, "");
   if (answer === null) throw new Error(USAGE_CANCELLED);
   if (!/^[1-9]\d*$/.test(answer.trim())) throw new Error("목록에 있는 회원권 번호를 입력해주세요. 저장하지 않았습니다.");
@@ -150,7 +149,7 @@ export async function saveActualAttendance(options: SaveOptions): Promise<{
   const signatureDeferral = !!options.signatureOnly && !!options.deferInvalidMembership && billingKind !== "free" && !!target &&
     !previous?.deducted_at && !["auto", "manual_link"].includes(previous?.deduction_mode) &&
     (target.deleted_at || target.status === "cancelled" || remainingOf(target) < 1 ||
-      (target.start_date && day(target.start_date) > date) || (target.end_date && day(target.end_date) < date));
+      (target.start_date && day(target.start_date) > date));
   let pendingReason = "";
   if (signatureDeferral) {
     pendingReason = remainingOf(target) < 1 ? "연결 회원권 잔여 없음" : "연결 회원권 사용 기간 확인 필요";
@@ -165,7 +164,7 @@ export async function saveActualAttendance(options: SaveOptions): Promise<{
   if (selectedId && billingKind !== "free") {
     if (decision.previousId && decision.previousId !== selectedId) throw new Error("이미 차감된 수업의 회원권을 바꾸면 이중 정산될 수 있습니다. 기존 사용 회원권을 유지해주세요.");
     const selected = memberships.find((m: any) => m.id === selectedId && m.member_id === memberId && !m.deleted_at && m.status !== "cancelled");
-    if (!selected || (selected.start_date && day(selected.start_date) > date) || (selected.end_date && day(selected.end_date) < date)) throw new Error("선택한 회원권의 회원/수업일/사용 기간을 확인해주세요.");
+    if (!selected || selected.status === "refunded" || (selected.start_date && day(selected.start_date) > date)) throw new Error("선택한 회원권의 회원/수업일/사용 기간을 확인해주세요.");
     if (decision.legacyUnlinked && !existingPending) {
       if (!options.historicalHandling) throw new Error("과거 미연결 수업입니다. 미차감 건인지 이미 수동 정산한 건인지 선택해주세요.");
       decision.legacyUnlinked = false;
@@ -179,9 +178,9 @@ export async function saveActualAttendance(options: SaveOptions): Promise<{
   }
   // 같은 수업 트랙에 실제 사용 가능한 권이 하나뿐인 새 출석은 자동 연결한다.
   if (!signatureDeferral && options.allowAutoUnique && billingKind !== "free" && !decision.previousId && !selectedId && !slot?.membership_id && (slot?.track || !slot)) {
-    const eligible = availableReservationMemberships({ ...slot, member_id: memberId, event_date: date }, memberships);
-    if (eligible.length === 1 && (!decision.legacyUnlinked || existingPending)) {
-      target = eligible[0]; membershipId = target.id; decision.needsSelection = false;
+    const autoChoice = reservationMembershipDecision({ ...slot, member_id: memberId, event_date: date }, memberships);
+    if (autoChoice.id && (!decision.legacyUnlinked || existingPending)) {
+      target = memberships.find((m:any)=>m.id===autoChoice.id); membershipId = target.id; decision.needsSelection = false;
       if (existingPending) { decision.previousCounted = false; decision.previousId = null; decision.legacyUnlinked = false; pendingAssignment = false; }
     }
   }
@@ -205,8 +204,8 @@ export async function saveActualAttendance(options: SaveOptions): Promise<{
   const localNow = new Date();
   const today = `${localNow.getFullYear()}-${String(localNow.getMonth()+1).padStart(2,"0")}-${String(localNow.getDate()).padStart(2,"0")}`;
   if (delta > 0 && date > today) throw new Error("미래 예약은 미리 차감하지 않습니다. 예약으로 저장해주세요.");
-  if (delta > 0 && (!target || target.status === "cancelled" || remainingOf(target) < 1 ||
-    (target.start_date && day(target.start_date) > date) || (target.end_date && day(target.end_date) < date))) {
+  if (delta > 0 && (!target || target.deleted_at || ["cancelled","refunded"].includes(target.status) || remainingOf(target) < 1 ||
+    (target.start_date && day(target.start_date) > date))) {
     throw new Error("선택된 회원권의 기간 또는 잔여 횟수가 수업일에 맞지 않습니다. 다른 회원권으로 자동 차감하지 않았습니다.");
   }
   if (nextUsed && target) {

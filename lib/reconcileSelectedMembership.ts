@@ -33,7 +33,7 @@ export async function reconcileSelectedMembership(options: any): Promise<any> {
   const target = (mr.data || []).find(m => m.id === selectedMembershipId);
   const old = (mr.data || []).find(m => m.id === oldId);
   if (!target || target.deleted_at || ["cancelled","refunded"].includes(target.status)) throw new Error("선택한 회원권을 사용할 수 없습니다.");
-  if ((target.start_date && target.start_date.slice(0,10) > date) || (target.end_date && target.end_date.slice(0,10) < date)) throw new Error("선택한 회원권의 기간이 수업일과 다릅니다. 기간을 확인해주세요.");
+  if ((target.start_date && target.start_date.slice(0,10) > date)) throw new Error("선택한 회원권의 기간이 수업일과 다릅니다. 기간을 확인해주세요.");
   if (!matchesLessonProduct(slot,target,mr.data || [])) throw new Error("수업 상품과 선택한 회원권이 다릅니다. STANDARD/하프 등 실제 수업 상품을 확인해주세요.");
   const trialClass = slot.event_type === "trial" || /체험|trial/i.test(String(slot.lesson_name || ""));
   const trialTicket = /체험|trial/i.test(String(target.plan_name || ""));

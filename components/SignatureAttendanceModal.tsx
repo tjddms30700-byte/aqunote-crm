@@ -184,6 +184,7 @@ export default function SignatureAttendanceModal({
                     🚨 회원권 소진! 지금 결제 안내해 주세요.
                   </div>
                 )}
+                {membership.end_date && String(membership.end_date).slice(0,10)<date && <div className="mt-1 text-xs text-amber-700">기간 만료 · 잔여 사용 가능 (출석 시 1회 차감)</div>}
               </div>
             );
           })() : (
