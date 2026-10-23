@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabase";
 
-export type PrivateDebt = { id: string; creditor: string; principal: number; balance: number; monthly_target: number; due_date: string | null };
+export type PrivateDebt = { id: string; creditor: string; principal: number; balance: number; monthly_target: number; due_date: string | null; balance_confirmed?: boolean; notes?: string };
 export type PrivateEntry = { flow: "income" | "expense" | "capital_in" | "capital_out"; amount: number; is_fixed: boolean; category: string; transaction_id: string };
 export type PrivateTransaction = { id: string; kind: string; amount: number; occurred_on: string; category: string; note: string; debt_id: string | null; voided_at: string | null; void_reason?: string };
 export type PrivateSnapshot = { debts: PrivateDebt[]; entries: PrivateEntry[]; transactions: PrivateTransaction[]; approved_center_amount: number; center_used: number; advance_balance: number; loan_balance: number };
@@ -17,7 +17,7 @@ export async function privateFinanceRpc(name: string, args: Record<string,unknow
   if (sessionError || !data.session?.access_token) throw new Error("대표 계정으로 로그인해야 합니다. 다시 로그인해주세요.");
   const { data: result, error } = await supabase.rpc(name, args).setHeader("Authorization", `Bearer ${data.session.access_token}`);
   if (error) {
-    if (["PGRST202", "42P01", "3F000", "42883"].includes(error.code)) throw new Error("개인 재무 DB 설치가 필요합니다. 동봉된 v3.76.0 SQL을 먼저 실행해주세요.");
+    if (["PGRST202", "42P01", "3F000", "42883"].includes(error.code)) throw new Error("개인 재무 DB 설치가 필요합니다. 동봉된 v3.77.0 SQL을 먼저 실행해주세요.");
     throw new Error(error.message || "개인 재무 요청에 실패했습니다.");
   }
   return result;
@@ -37,9 +37,11 @@ export function privateKpis(s: PrivateSnapshot, today = koreaToday()) {
   const sum = (fn: (e: PrivateEntry)=>boolean) => s.entries.filter(fn).reduce((a,e)=>a+Number(e.amount),0);
   const income = sum(e=>e.flow==="income"), fixed = sum(e=>e.flow==="expense" && e.is_fixed);
   const net = income-fixed, availableCenter = Math.max(0, Number(s.approved_center_amount)-Number(s.center_used));
-  const active = s.debts.filter(d=>Number(d.balance)>0), estimates = active.map(d=>debtEstimate(d,today));
-  const finish = estimates.some(e=>e===null) ? null : estimates.reduce<ReturnType<typeof debtEstimate>>((a,e)=>!a || (e && e.months>a.months) ? e : a,{months:0,month:"완제",days:0});
-  return { income, fixed, net, availableCenter, available:net+availableCenter, debtBalance:active.reduce((a,d)=>a+Number(d.balance),0), monthlyTarget:active.reduce((a,d)=>a+Number(d.monthly_target),0), finish,
+  const unconfirmedDebts=s.debts.filter(d=>d.balance_confirmed===false).length;
+  const declaredPrincipal=s.debts.reduce((a,d)=>a+Number(d.principal||0),0);
+  const active = s.debts.filter(d=>d.balance_confirmed!==false&&Number(d.balance)>0), estimates = active.map(d=>debtEstimate(d,today));
+  const finish = unconfirmedDebts>0 || estimates.some(e=>e===null) ? null : estimates.reduce<ReturnType<typeof debtEstimate>>((a,e)=>!a || (e && e.months>a.months) ? e : a,{months:0,month:"완제",days:0});
+  return { unconfirmedDebts, declaredPrincipal, income, fixed, net, availableCenter, available:net+availableCenter, debtBalance:active.reduce((a,d)=>a+Number(d.balance),0), monthlyTarget:active.reduce((a,d)=>a+Number(d.monthly_target),0), finish,
     cashFlow:sum(e=>e.flow==="income"||e.flow==="capital_in")-sum(e=>e.flow==="expense"||e.flow==="capital_out") };
 }
 export function safeCsv(rows: unknown[][]) {

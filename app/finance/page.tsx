@@ -5,6 +5,7 @@ import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import { Waves, Plus, X, Save, TrendingUp, TrendingDown, DollarSign, Download } from "lucide-react";
 import JSZip from "jszip";
+import RecurringFinanceCosts from "@/components/RecurringFinanceCosts";
 import DirectorOnly from "@/components/DirectorOnly";
 import FinanceWorkspace, { CenterFundLedger, OPEN_PRIVATE_FINANCE, usePrivateMaster } from "@/components/FinanceWorkspace";
 import { centerFundRows, safeCsv } from "@/lib/privateFinance";
@@ -536,6 +537,7 @@ function FinancePage() {
         </div>
       </div>
 
+      <RecurringFinanceCosts scope="center" month={selectedMonth} />
       <CenterFundLedger month={selectedMonth} />
 
       {/* Summary KPI */}
