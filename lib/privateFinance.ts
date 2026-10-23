@@ -17,7 +17,7 @@ export async function privateFinanceRpc(name: string, args: Record<string,unknow
   if (sessionError || !data.session?.access_token) throw new Error("대표 계정으로 로그인해야 합니다. 다시 로그인해주세요.");
   const { data: result, error } = await supabase.rpc(name, args).setHeader("Authorization", `Bearer ${data.session.access_token}`);
   if (error) {
-    if (["PGRST202", "42P01", "3F000", "42883"].includes(error.code)) throw new Error("개인 재무 DB 설치가 필요합니다. 동봉된 v3.77.1 SQL을 먼저 실행해주세요.");
+    if (["PGRST202", "42P01", "3F000", "42883"].includes(error.code)) throw new Error("개인 재무 DB 설치가 필요합니다. 동봉된 v3.77.2 SQL을 먼저 실행해주세요.");
     throw new Error(error.message || "개인 재무 요청에 실패했습니다.");
   }
   return result;
