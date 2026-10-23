@@ -1,0 +1,14 @@
+"use client";
+import type {PrivateDebt} from "@/lib/privateFinance";
+import {won} from "@/lib/privateFinance";
+import {nextPriorityGroup,priorityGroups} from "@/lib/debtPriority";
+export default function DebtPriorityPlan({debts}:{debts:PrivateDebt[]}) {
+ const groups=priorityGroups(debts),next=nextPriorityGroup(debts),contracts=debts.filter(d=>d.debt_group==="contract"),monthly=contracts.reduce((n,d)=>n+Number(d.monthly_obligation||0),0);
+ if(groups.length===0&&contracts.length===0)return null;
+ return <section className="space-y-3 rounded-2xl border border-violet-200 bg-white p-4" aria-label="채무 추가 상환 우선순위">
+  <header><h2 className="font-bold text-violet-950">추가 상환 우선순위</h2><p className="mt-1 text-xs leading-5 text-slate-500">대출 약정 납부와 필수 고정지출을 유지한 뒤, 추가로 상환할 여유자금의 순서입니다. 자동 이체·자동 상환 배분은 실행하지 않습니다.</p></header>
+  {next&&<div className="rounded-xl bg-violet-50 p-3 text-sm text-violet-900"><b>현재 우선 확인·상환 대상: {next.priority}순위</b><div className="mt-1 text-xs">{next.rows.map(d=>d.creditor).join(" / ")}{next.unknown>0?` · 현재 잔액 확인 필요 ${next.unknown}건`:` · 확인 잔액 합계 ${won(next.balance)}`}</div></div>}
+  <div className="space-y-2">{groups.map(g=><div key={g.priority} className={"flex flex-wrap items-start gap-3 rounded-xl border p-3 "+(g.complete?"bg-emerald-50":"bg-white")}><span className="rounded-full bg-violet-100 px-2 py-1 text-xs font-bold text-violet-900">{g.priority}순위</span><div className="min-w-0 flex-1">{g.rows.map(d=><p key={d.id} className="break-words text-xs leading-6"><b>{d.creditor}</b> · {d.balance_confirmed===false?"현재 잔액 확인 전":`잔액 ${won(d.balance)}`}</p>)}</div><span className="text-xs text-slate-500">{g.complete?"완제":g.unknown>0?"잔액 확인 필요":"상환 대기"}</span></div>)}</div>
+  {contracts.length>0&&<div className="rounded-xl border border-sky-200 bg-sky-50 p-3"><h3 className="text-sm font-bold text-sky-950">별도 유지할 주택대출 약정 납부 · 월 {won(monthly)}</h3><div className="mt-2 grid gap-2 md:grid-cols-2">{contracts.map(d=><article key={d.id} className="rounded-lg bg-white p-3 text-xs"><b>{d.creditor}</b><p className="mt-1">대출 원금 {won(d.principal)}</p><p className="mt-1 font-semibold">월 원리금 {won(d.monthly_obligation)}</p>{d.known_monthly_principal!=null&&d.known_monthly_interest!=null?<p className="mt-1 leading-5">입력 기준 원금 {won(d.known_monthly_principal)} + 이자 {won(d.known_monthly_interest)}</p>:<p className="mt-1 text-slate-500">원금·이자 세부 비중 미확인</p>}<p className="mt-1 text-slate-500">{d.balance_confirmed===false?"현재 남은 원금은 별도 확인 필요":`확인된 현재 잔액 ${won(d.balance)}`}</p></article>)}</div><p className="mt-2 text-[11px] leading-5 text-slate-600">원리금 납부액은 고정지출 예정표에도 표시되며, 이 안내 때문에 월 합계에 한 번 더 더하지 않습니다. 모기지 원금·이자는 입력 시점 내역이며 전체 대출 만기·금리·향후 상환표를 추정하지 않았습니다.</p></div>}
+ </section>;
+}
