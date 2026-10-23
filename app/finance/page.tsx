@@ -6,6 +6,8 @@ import HomeButton from "@/components/HomeButton";
 import { Waves, Plus, X, Save, TrendingUp, TrendingDown, DollarSign, Download } from "lucide-react";
 import JSZip from "jszip";
 import DirectorOnly from "@/components/DirectorOnly";
+import FinanceWorkspace, { CenterFundLedger, OPEN_PRIVATE_FINANCE, usePrivateMaster } from "@/components/FinanceWorkspace";
+import { centerFundRows, safeCsv } from "@/lib/privateFinance";
 
 // ✅ v3.20.19: 수입 카테고리 (지원금·대출·기타)
 const INCOME_CATEGORIES = [
@@ -39,10 +41,11 @@ const CATEGORY_GROUPS: { label: string; items: string[] }[] = [
 const CATEGORIES = CATEGORY_GROUPS.flatMap((g) => g.items);
 
 export default function FinancePageWrapper() {
-  return <DirectorOnly><FinancePage /></DirectorOnly>;
+  return <DirectorOnly><FinanceWorkspace><FinancePage /></FinanceWorkspace></DirectorOnly>;
 }
 
 function FinancePage() {
+  const privateMaster = usePrivateMaster();
   const [expenses, setExpenses] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [payroll, setPayroll] = useState<any[]>([]);
@@ -289,6 +292,17 @@ function FinancePage() {
       const monthLabel = selectedMonth;
       const BOM = "\uFEFF"; // Excel 한글 CSV 인코딩 보증
 
+      // v3.76.0: 센터 자금 이동은 별도 CSV. 개인 채권자·메모는 RPC 결과에도 없습니다.
+      // 조회 실패 시 조용히 누락된 정산 파일을 만들지 않습니다.
+      const fundRows = await centerFundRows(selectedMonth);
+      zip.file(`04_대표자금이동_세무별도_${monthLabel}.csv`, safeCsv([
+        ["날짜", "회계 분류", "센터 입금", "센터 출금", "결제수단", "상태"],
+        ...fundRows.map((r: any) => [r.occurred_on, r.account_label, r.direction === "in" ? String(r.amount) : "", r.direction === "out" ? String(r.amount) : "", r.payment_method, r.voided_at ? "취소" : "정상"]),
+      ]));
+      const activeFunds = fundRows.filter((r: any) => !r.voided_at);
+      const fundIn = activeFunds.filter((r: any) => r.direction === "in").reduce((a: number, r: any) => a + Number(r.amount), 0);
+      const fundOut = activeFunds.filter((r: any) => r.direction === "out").reduce((a: number, r: any) => a + Number(r.amount), 0);
+
       // 1) 수입 CSV
       const incomeRows = [["날짜", "카테고리", "지급기관", "금액", "메모"]];
       monthIncomes.forEach((i: any) => incomeRows.push([i.received_at || "", i.category || "", i.source || "", String(i.amount || 0), i.description || ""]));
@@ -322,7 +336,10 @@ function FinancePage() {
         `총 급여:   ₩${totalPayroll.toLocaleString()}`,
         `순이익:     ₩${(totalIncome - totalExpense - totalPayroll).toLocaleString()}`,
         `────────────────────────────────────────`,
-        `포함 파일: 01_수입.csv / 02_지출.csv / 03_급여.csv`,
+        `대표 자금 센터 입금: ₩${fundIn.toLocaleString()} / 센터 출금: ₩${fundOut.toLocaleString()}`,
+        `대표 가지급금·가수금은 운영비/매출/순이익 계산에서 제외하고 04번 파일로 별도 분류합니다.`,
+        `배당·인출 및 가지급금의 세무 처리는 세무사 확인이 필요합니다.`,
+        `포함 파일: 01_수입.csv / 02_지출.csv / 03_급여.csv / 04_대표자금이동_세무별도.csv`,
       ].join("\n");
       zip.file(`00_요약_${monthLabel}.txt`, BOM + summary);
 
@@ -518,6 +535,8 @@ function FinancePage() {
           </button>
         </div>
       </div>
+
+      <CenterFundLedger month={selectedMonth} />
 
       {/* Summary KPI */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
@@ -884,6 +903,11 @@ function FinancePage() {
               <button onClick={() => setShowModal(false)}><X className="w-5 h-5 text-gray-500" /></button>
             </div>
             <div className="space-y-3">
+              {privateMaster && <div className="rounded-lg border border-purple-200 bg-purple-50 p-3">
+                <p className="mb-2 text-xs font-semibold text-purple-900">대표 개인 비용은 센터 운영비로 저장하지 마세요.</p>
+                <div className="flex flex-wrap gap-2">{[{kind:"center_pay_debt",label:"개인 채무 대납"},{kind:"center_pay_personal",label:"대표 개인 지출"}].map(x=><button key={x.kind} type="button" className="rounded-lg border bg-white px-3 py-2 text-xs text-purple-800" onClick={()=>{setShowModal(false);window.dispatchEvent(new CustomEvent(OPEN_PRIVATE_FINANCE,{detail:{kind:x.kind}}));}}>{x.label} → 가지급금 등록</button>)}</div>
+                <p className="mt-2 text-[11px] text-purple-700">별도 등록 창에서 대상 채무·개인 분류를 선택하면 센터와 개인 대장이 함께 기록됩니다.</p>
+              </div>}
               {/* v3.21.1: 카테고리 그룹핑 표시 (중복 제거 43→24개) */}
               <div>
                 <label className="text-xs text-gray-600 font-semibold">카테고리 *</label>
