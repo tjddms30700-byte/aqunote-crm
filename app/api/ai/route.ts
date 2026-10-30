@@ -1,4 +1,8 @@
+import {handleAiJournal} from "@/lib/aiJournalServer";
 import { NextRequest, NextResponse } from "next/server";
+
+// AI 응답 대기시간을 포함하는 통합 라우트 실행 한도.
+export const maxDuration = 60;
 
 /**
  * ═══════════════════════════════════════════════════════════════
@@ -1155,6 +1159,7 @@ export async function POST(req: NextRequest) {
   const action = url.searchParams.get("action") || "";
 
   switch (action) {
+    case "journal": return handleAiJournal(req);
     case "memo":     return handleAiMemo(req);
     case "message":  return handleAiMessage(req);
     case "clinical": return handleAiClinical(req);

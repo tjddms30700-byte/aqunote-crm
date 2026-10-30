@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
+import AiJournalButton from "@/components/AiJournalButton";
 import { remainingOf } from "@/lib/membershipFifo";
 import { buildFormSections } from "@/lib/consultFormMapper";  // ✅ v3.58.1: 신청폼 원본 섹션 카드 렌더링
 import { recommendIepGoals, detectBehaviors } from "@/lib/sessionAnalyzer";
@@ -1266,6 +1267,7 @@ export default function MemberDetail() {
           <div>
             <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
               <h3 className="text-lg font-bold text-aqu-900">📝 세션 기록 & 라벨링</h3>
+              <AiJournalButton memberId={id as string} memberName={member?.name||''} onSaved={async()=>{const {data,error}=await supabase.from('sessions').select('*').eq('member_id',id).is('deleted_at',null).order('session_date',{ascending:false}).order('created_at',{ascending:false});if(error)throw error;setSessions(data||[]);}}/>
             </div>
 
             {/* ✨ v3.34.0: 카톡 스마트 배치 입력 – 다중 날짜 붙여넣기 → 자동 태그 분석 */}
