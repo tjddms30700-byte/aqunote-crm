@@ -31,6 +31,8 @@ import { saveScheduleAttendance } from "@/lib/scheduleAttendanceSave";
 import { availableReservationMemberships, reservationMembershipDecision, isFreeReservation } from "@/lib/reservationMembership";
 import { planReservationLinks, applyReservationLinks } from "@/lib/reservationLinkMaintenance";
 import { lessonDurationMinutes } from "@/lib/lessonProduct";
+import MobileAgenda from "@/components/MobileAgenda";
+import {paymentDay,paymentInCalendarTrack,calendarPaymentNet,normalizeClockTime} from "@/lib/calendarPayments";
 import { resolveBillingCategory } from "@/lib/billingCategory";
 import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import {
@@ -129,7 +131,7 @@ function monthGrid(year: number, month0: number) {
 
 /* ═════ 메인 컴포넌트 ═════ */
 export default function SchedulePage() {
-  const [view, setView] = useState<"month" | "week" | "day">("month");
+  const [view, setView] = useState<"month" | "week" | "day" | "agenda">("month");
   // ✅ v3.38.0: 수중/지상 시간표 토글 (aqua = 수중재활, ground = 지상재활)
   const [trackTab, setTrackTab] = useState<"aqua" | "ground">("aqua");
   // ✅ v3.65.0: 회원 이름 검색 필터 - 전체 시간표에서 해당 회원 수업만 표시
@@ -146,6 +148,7 @@ export default function SchedulePage() {
   const [year, setYear]     = useState<number>(0);
   const [month0, setMonth0] = useState<number>(0);
   const [selectedDate, setSelectedDate] = useState<string>("");
+  useEffect(()=>{if(window.matchMedia("(max-width: 767px)").matches)setView("agenda");},[]);
   useEffect(() => {
     const now = new Date();
     setYear(now.getFullYear());
@@ -813,16 +816,15 @@ export default function SchedulePage() {
     // v3.23.3: 월 매출 = payments 테이블 기준 (할인·환불 차감된 실매출)
     // ✅ v3.38.2: 매출도 트랙별 분리 (payments.category 또는 membership.category 기준)
     const monthPayments = (payments || []).filter((p: any) => {
-      if (!(p.paid_at || "").startsWith(prefix)) return false;
+      if (!paymentDay(p.paid_at).startsWith(prefix)) return false;
       // ✅ v3.40.5: 다중 취소 시그널 통합 판별 (파일 최상단 헬퍼 사용)
       if (isPaymentCancelled(p, memberships)) return false;
-      const payCat = (p.category || p.track || "aqua").toLowerCase();
-      return payCat === trackTab;
+      return paymentInCalendarTrack(p,trackTab,memberships,plans);
     });
     const revenue = monthPayments.reduce((sum: number, p: any) => sum + Math.max(0, (p.amount || 0) - (p.discount_amount || 0) - (p.refunded_amount || 0)), 0);
     console.log(`[v3.38.2] monthStats(${trackTab}): 총=${total}, 매출=${revenue}`);
     return { total, byStatus, revenue };
-  }, [slots, payments, year, month0, trackTab]);
+  }, [slots, payments, memberships, plans, year, month0, trackTab]);
 
   /* 모달 열기 - 항상 액션 시트 우선 (time이 있어도 3가지 선택지 제공) */
   function openDateActionSheet(date: string, time?: string) {
@@ -1067,6 +1069,8 @@ export default function SchedulePage() {
 
   async function saveSlot() {
     if (!f.event_date) { alert("날짜가 필요합니다"); return; }
+    const normalizedTime=normalizeClockTime(f.time_slot);
+    if(!normalizedTime){alert("시간을 09:05 또는 0905 형식으로 직접 입력해주세요.");return;}
     // ✅ v3.69.0: 공휴일에는 회원 수업(lesson) 예약 차단 (직원 근무/휴무 기록은 허용)
     const _hd = isHoliday(f.event_date);
     if (_hd && f.event_type !== "staff_work" && f.event_type !== "staff_off") {
@@ -1097,7 +1101,7 @@ export default function SchedulePage() {
     const effectiveStatus = (f.event_type === "staff_work" || f.event_type === "staff_off")
       ? "scheduled" : f.status;
     const basePayload: any = {
-      time_slot: f.time_slot,
+      time_slot: normalizedTime,
       event_type: f.event_type,
       status: effectiveStatus,
       lesson_name: f.lesson_name || null,
@@ -1852,6 +1856,7 @@ export default function SchedulePage() {
             </div>
           )}
           <div className="flex bg-white border border-aqu-100 rounded-lg p-1 text-xs">
+            <button onClick={()=>setView("agenda")} className={`rounded px-3 py-1.5 ${view==="agenda"?"bg-sky-600 text-white":"text-gray-600"}`}>목록</button>
             <button onClick={() => setView("month")}
               className={`px-3 py-1.5 rounded flex items-center gap-1 ${view === "month" ? "bg-aqu-600 text-white" : "text-gray-600"}`}>
               <LayoutGrid className="w-3.5 h-3.5" /> 월간
@@ -1938,6 +1943,11 @@ export default function SchedulePage() {
 
       {loading ? (
         <div className="text-center py-10 text-gray-500">로딩 중...</div>
+      ) : view === "agenda" ? (
+        <MobileAgenda date={selectedDate} onDate={(date:string)=>{setSelectedDate(date);const [y,m]=date.split("-").map(Number);setYear(y);setMonth0(m-1);}}
+          slots={slotsByDate[selectedDate]||[]} members={members} staff={staff} onEdit={openEditModal} onStatus={quickStatus}
+          onAdd={()=>openNewModal(selectedDate)} onRevenue={()=>setRevenueDetailDate(selectedDate)}
+          revenue={payments.filter((p:any)=>paymentDay(p.paid_at)===selectedDate&&paymentInCalendarTrack(p,trackTab,memberships,plans)).reduce((sum:number,p:any)=>sum+calendarPaymentNet(p,memberships),0)} />
       ) : view === "month" ? (
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-3">
           {/* ═══ ✨ v3.32.0: 월간 캘린더 aqu-card 전환 ═══ */}
@@ -1964,11 +1974,10 @@ export default function SchedulePage() {
                 // ✅ v3.38.2: trackTab 적용 - 수중/지상 매출 분리
                 const dayPaymentsSum = payments
                   .filter((p: any) => {
-                    if (p.paid_at !== cellStr) return false;
+                    if (paymentDay(p.paid_at) !== cellStr) return false;
                     // ✅ v3.40.4: 다중 취소 시그널 통합 판별 (연은진 체험1회권 등 배제)
                     if (isPaymentCancelled(p, memberships)) return false;
-                    const payCat = (p.category || p.track || "aqua").toLowerCase();
-                    return payCat === trackTab;
+                    return paymentInCalendarTrack(p,trackTab,memberships,plans);
                   })
                   .reduce((sum: number, p: any) => sum + Math.max(0, (p.amount || 0) - (p.discount_amount || 0) - (p.refunded_amount || 0)), 0);
                 const dayRevenue = dayPaymentsSum; // 캘린더 표시용 통일 (할인 반영 실매출)
@@ -2389,6 +2398,7 @@ export default function SchedulePage() {
       {revenueDetailDate && (
         <RevenueDetailPopover
           date={revenueDetailDate}
+          plans={plans}
           payments={payments}
           members={members}
           staff={staff}
@@ -2450,7 +2460,7 @@ export default function SchedulePage() {
 
 /* ═══ v3.20.11: 매출 상세 팝오버 (셔 설정 이미지와 동일 레이아웃) ═══ */
 // ✅ v3.38.2: track prop 추가 - 수중/지상 매출 분리
-function RevenueDetailPopover({ date, payments, members, staff, memberships, onClose, track = "aqua" }: any) {
+function RevenueDetailPopover({ date, payments, members, staff, memberships, plans = [], onClose, track = "aqua" }: any) {
   // ✅ v3.40.4: paid_at 정규화 (타임존/문자열 형식 차이 방어)
   //   "2026-08-06" 또는 "2026-08-06T00:00:00+00:00" 모두 substring(0,10) 로 통일
   const normDate = (d: any) => {
@@ -2473,8 +2483,7 @@ function RevenueDetailPopover({ date, payments, members, staff, memberships, onC
 
   const dayPayments = (payments || []).filter((p: any) => {
     if (normDate(p.paid_at) !== normDate(date)) return false;
-    const payCat = (p.category || p.track || "aqua").toLowerCase();
-    return payCat === track;
+    return paymentInCalendarTrack(p,track,memberships,plans);
   });
   const active   = dayPayments.filter((p: any) => !isFullyCancelled(p));
   const refunded = dayPayments.filter((p: any) => !p.deleted_at && Number(p.refunded_amount || 0) > 0);
@@ -3238,9 +3247,9 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3"
-      onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[95vh] overflow-y-auto"
+    <div className="aqu-schedule-overlay fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3"
+      role="dialog" aria-modal="true" aria-label="일정 등록 및 수정" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[94dvh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}>
 
         {/* ✅ v3.16.0: 헤더 (색상 대조 강화) */}
@@ -3258,7 +3267,7 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
           </button>
         </div>
 
-        <div className="p-5 space-y-4">
+        <div className="min-h-0 flex-1 overflow-y-auto p-5 space-y-4">
           {/* ✅ v3.71.0: 보강 배정 탭 제거 — 보강은 일반 예약으로 잡고, 위 보강필요 카드에서만 관리자가 체크합니다 */}
 
 
@@ -3279,70 +3288,17 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-[11px] font-semibold text-gray-600">⏰ 시간 *</label>
                 <span className="text-[10px] text-aqu-600 bg-white px-2 py-0.5 rounded-full border border-aqu-200">
-                  {timeSlotOptions?.length || 0}개 타임 등록됨
+                  분 단위 직접 입력
                 </span>
               </div>
               {/* ✅ v3.52.2: 지상재활 시간표는 10분 단위 드롭다운 (프리셋 그리드 대신) */}
-              {track === "ground" ? (
-                <div className="bg-white border border-emerald-200 rounded-xl p-2.5 space-y-2">
-                  <select value={f.time_slot?.slice(0, 5) || "10:00"}
-                    onChange={e => setF({ ...f, time_slot: e.target.value })}
-                    className="w-full px-3 py-2.5 border border-emerald-200 rounded-lg text-sm font-semibold focus:ring-2 focus:ring-emerald-400 focus:outline-none bg-white">
-                    {(() => {
-                      const opts: string[] = [];
-                      // ✅ v3.53.0: 지상재활은 30분 단위 (10:00, 10:30, 11:00 ...)
-                      for (let h = 9; h <= 21; h++) for (const m of [0, 30]) {
-                        opts.push(String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0"));
-                      }
-                      const cur = f.time_slot?.slice(0, 5);
-                      if (cur && !opts.includes(cur)) opts.push(cur);
-                      opts.sort();
-                      return opts.map(t => <option key={t} value={t}>{t}</option>);
-                    })()}
-                  </select>
-                  <div className="text-[10px] text-emerald-600">🏋️‍♂️ 지상재활은 30분 단위로 선택할 수 있습니다</div>
-                </div>
-              ) : timeSlotOptions && timeSlotOptions.length > 0 ? (
-                <div className="bg-white border border-gray-200 rounded-xl p-2.5 space-y-2">
-                  {/* 프리셋 버튼 그리드 */}
-                  <div className="grid grid-cols-4 gap-1">
-                    {timeSlotOptions.map((t: string) => {
-                      const isActive = f.time_slot?.slice(0, 5) === t;
-                      return (
-                        <button key={t} type="button"
-                          onClick={() => setF({ ...f, time_slot: t })}
-                          className={`py-1.5 rounded-lg text-xs font-semibold transition ${isActive ? "bg-aqu-600 text-white shadow-sm" : "bg-gray-50 text-gray-700 hover:bg-aqu-100 border border-gray-200"}`}>
-                          {t}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {/* 구분선 */}
-                  <div className="flex items-center gap-2 text-[10px] text-gray-400">
-                    <div className="flex-1 h-px bg-gray-200" />
-                    <span>또는 직접 입력</span>
-                    <div className="flex-1 h-px bg-gray-200" />
-                  </div>
-                  {/* 직접 입력 */}
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] text-gray-500">🔧</span>
-                    <input type="time" value={f.time_slot?.slice(0, 5) || ""}
-                      onChange={e => setF({ ...f, time_slot: e.target.value })}
-                      title="운영시간 외 수동 입력"
-                      className="flex-1 px-3 py-2 border border-orange-200 bg-orange-50 rounded-lg text-sm focus:ring-2 focus:ring-orange-400 focus:outline-none" />
-                    <span className="text-[10px] text-orange-600 whitespace-nowrap">운영시간 외 OK</span>
-                  </div>
-                  {!timeSlotOptions.includes(f.time_slot?.slice(0, 5)) && f.time_slot && (
-                    <div className="text-[10px] text-orange-700 bg-orange-50 border border-orange-200 rounded-lg px-2 py-1.5">
-                      ⚠️ 지점 운영시간 외 사용자 지정 시간: <b>{f.time_slot?.slice(0, 5)}</b>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <input type="time" value={f.time_slot}
-                  onChange={e => setF({ ...f, time_slot: e.target.value })}
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none bg-white" />
-              )}
+              <div className="rounded-xl border border-sky-200 bg-white p-3">
+                <input aria-label="수업 시작 시간 직접 입력" type="text" inputMode="numeric" maxLength={5} placeholder="예: 15:25 또는 1525"
+                  value={f.time_slot || ""} onChange={e=>setF({...f,time_slot:e.target.value})}
+                  onBlur={e=>{const time=normalizeClockTime(e.target.value);if(time)setF((prev:any)=>({...prev,time_slot:time}));}}
+                  className="w-full rounded-lg border border-sky-300 p-3 text-lg font-bold tracking-wider" />
+                <p className="mt-2 text-xs text-slate-500">원하는 시간을 직접 입력하세요. 30분 간격 제한 없이 분 단위로 등록합니다.</p>
+              </div>
             </div>
             <div className="mt-2">
               <Field label="유형">
@@ -3573,7 +3529,7 @@ function SlotModal({ f, setF, modal, members, staff, plans, timeSlotOptions, onC
         </div>
 
         {/* ✅ v3.20.16: 삭제 버튼 3종 통일 디자인 (동일 크기·글꼴·패딩) */}
-        <div className="flex flex-wrap items-center gap-2 mt-5">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t bg-white p-3">
           {onDelete && (
             <div className="flex flex-wrap gap-1.5">
               <button onClick={() => onDelete({ mode: "single" })}

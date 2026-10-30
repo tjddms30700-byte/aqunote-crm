@@ -1,6 +1,10 @@
 import "./globals.css";
-import type { Metadata } from "next";
+import MobileAppShell from "@/components/MobileAppShell";
+import NativeAppBridge from "@/components/NativeAppBridge";
+import type { Metadata, Viewport } from "next";
 import GlobalHeaderWrapper from "@/components/GlobalHeaderWrapper";
+
+export const viewport: Viewport = {width:"device-width",initialScale:1,viewportFit:"cover",themeColor:"#0284c7"};
 
 export const metadata: Metadata = {
   title: "아쿠노트 프로그램",
@@ -26,6 +30,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* v3.30.0: 전 페이지 공용 글로벌 헤더 (홈 버튼 우측 상단 고정) */}
         <GlobalHeaderWrapper />
         {children}
+        <MobileAppShell />
+        <NativeAppBridge />
       </body>
     </html>
   );

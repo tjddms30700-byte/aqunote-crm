@@ -1,9 +1,9 @@
 import { supabase } from "@/lib/supabase";
 
-export type PrivateDebt = { id: string; creditor: string; principal: number; balance: number; monthly_target: number; due_date: string | null; balance_confirmed?: boolean; notes?: string; repayment_priority?: number | null; debt_group?: "priority" | "contract" | "other"; monthly_obligation?: number; known_monthly_principal?: number | null; known_monthly_interest?: number | null; principal_is_opening_balance?: boolean };
+export type PrivateDebt = { id: string; creditor: string; principal: number; balance: number; monthly_target: number; due_date: string | null; balance_confirmed?: boolean; notes?: string; repayment_priority?: number | null; debt_group?: "priority" | "contract" | "other"; monthly_obligation?: number; known_monthly_principal?: number | null; known_monthly_interest?: number | null; principal_is_opening_balance?: boolean;has_history?:boolean;archived_at?:string|null;archive_reason?:string|null };
 export type PrivateEntry = { flow: "income" | "expense" | "capital_in" | "capital_out"; amount: number; is_fixed: boolean; category: string; transaction_id: string };
 export type PrivateTransaction = { id: string; kind: string; amount: number; occurred_on: string; category: string; note: string; debt_id: string | null; voided_at: string | null; void_reason?: string };
-export type PrivateSnapshot = { debts: PrivateDebt[]; entries: PrivateEntry[]; transactions: PrivateTransaction[]; approved_center_amount: number; center_used: number; advance_balance: number; loan_balance: number };
+export type PrivateSnapshot = { debts: PrivateDebt[]; archived_debts?:PrivateDebt[]; entries: PrivateEntry[]; transactions: PrivateTransaction[]; approved_center_amount: number; center_used: number; advance_balance: number; loan_balance: number };
 export const PRIVATE_INCOME_CATEGORIES = ["센터 급여", "외부 자문/강의", "기타 수입"];
 export const PRIVATE_EXPENSE_CATEGORIES = ["주거/생활비", "보험/저축", "개인 카드값", "기타 개인 지출"];
 export const PERSONAL_KIND_LABELS: Record<string,string> = { income: "개인 수입", expense: "개인 지출", personal_repay: "개인 자금으로 채무 상환", center_pay_debt: "센터에서 개인 채무 대납", center_pay_personal: "센터에서 대표 개인 지출", center_withdrawal: "대표 가지급금 인출", owner_injection: "대표 가수금 입금", owner_return_advance: "대표 가지급금 회수", center_return_loan: "대표 가수금 상환" };
@@ -17,7 +17,7 @@ export async function privateFinanceRpc(name: string, args: Record<string,unknow
   if (sessionError || !data.session?.access_token) throw new Error("대표 계정으로 로그인해야 합니다. 다시 로그인해주세요.");
   const { data: result, error } = await supabase.rpc(name, args).setHeader("Authorization", `Bearer ${data.session.access_token}`);
   if (error) {
-    if (["PGRST202", "42P01", "3F000", "42883"].includes(error.code)) throw new Error("개인 재무 DB 설치가 필요합니다. 동봉된 v3.77.2 SQL을 먼저 실행해주세요.");
+    if (["PGRST202", "42P01", "3F000", "42883"].includes(error.code)) throw new Error("개인 재무 DB 설치가 필요합니다. 동봉된 v3.78.0 SQL을 먼저 실행해주세요.");
     throw new Error(error.message || "개인 재무 요청에 실패했습니다.");
   }
   return result;
