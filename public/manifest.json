@@ -1,0 +1,26 @@
+{
+  "id": "/",
+  "name": "아쿠노트",
+  "short_name": "AquNote",
+  "lang": "ko-KR",
+  "display": "standalone",
+  "start_url": "/",
+  "scope": "/",
+  "background_color": "#0a5f6e",
+  "theme_color": "#0a5f6e",
+  "icons": [
+    {
+      "src": "/pwa-icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/pwa-icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "description": "위례아쿠수중운동센터 현장 업무 앱"
+}

@@ -1,4 +1,5 @@
 "use client";
+import {ResponsiveWork} from "@/components/MobileWorkView";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -99,7 +100,9 @@ const GROUPS = [
   },
 ];
 
-export default function Home() {
+export default function Home(){return <ResponsiveWork view="home"><DesktopHome /></ResponsiveWork>;}
+
+function DesktopHome() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [isDirector, setIsDirector] = useState(false);      // ✅ v3.49.0: 운영 그룹 표시 여부 (대표 또는 센터장)

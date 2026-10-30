@@ -17,6 +17,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 "use client";
+import {ResponsiveWork} from "@/components/MobileWorkView";
 
 import { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
@@ -130,7 +131,9 @@ function monthGrid(year: number, month0: number) {
 }
 
 /* ═════ 메인 컴포넌트 ═════ */
-export default function SchedulePage() {
+export default function SchedulePage(){return <ResponsiveWork view="sessions"><DesktopSchedulePage /></ResponsiveWork>;}
+
+function DesktopSchedulePage() {
   const [view, setView] = useState<"month" | "week" | "day" | "agenda">("month");
   // ✅ v3.38.0: 수중/지상 시간표 토글 (aqua = 수중재활, ground = 지상재활)
   const [trackTab, setTrackTab] = useState<"aqua" | "ground">("aqua");

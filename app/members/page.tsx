@@ -1,4 +1,5 @@
 "use client";
+import {ResponsiveWork} from "@/components/MobileWorkView";
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
@@ -38,7 +39,9 @@ function getStatusInfo(status: string | null) {
   return STATUS_OPTIONS.find((s) => s.key === status) || STATUS_OPTIONS.find((s) => s.key === "regular")!;
 }
 
-export default function MembersPage() {
+export default function MembersPage(){return <ResponsiveWork view="members"><DesktopMembersPage /></ResponsiveWork>;}
+
+function DesktopMembersPage() {
   const router = useRouter();
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);

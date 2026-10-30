@@ -1,4 +1,5 @@
 "use client";
+import {ResponsiveWork} from "@/components/MobileWorkView";
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
@@ -11,7 +12,9 @@ import {
   UserCheck, UserX, Activity, Target, Sparkles
 } from "lucide-react";
 
-export default function DashboardPage() {
+export default function DashboardPage(){return <ResponsiveWork view="home"><DesktopDashboardPage /></ResponsiveWork>;}
+
+function DesktopDashboardPage() {
   const [data, setData] = useState<any>({
     members: [], payments: [], memberships: [], slots: [], attendance: [], staff: [],
   });

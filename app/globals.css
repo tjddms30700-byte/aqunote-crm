@@ -154,3 +154,13 @@ html, body { font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Malg
  .aqu-schedule-overlay>div {max-height:94dvh;border-bottom-left-radius:0;border-bottom-right-radius:0;padding-bottom:env(safe-area-inset-bottom);}
 }
 @media print {.aqu-mobile-nav{display:none!important;}body.aqu-mobile-shell{padding-bottom:0!important;}}
+
+/* v3.79.0 PRD: <=768px is mobile-only; desktop retains original views. */
+.aqu-mobile-nav,.aqu-mobile-drawer{display:none;}
+@media(max-width:768px){
+ .aqu-mobile-nav{display:grid;}.aqu-mobile-drawer{display:flex;}
+ body.aqu-mobile-shell{padding-bottom:calc(60px + env(safe-area-inset-bottom));}
+ body.aqu-mobile-shell>header{display:none;}
+ body.aqu-mobile-shell input,body.aqu-mobile-shell select,body.aqu-mobile-shell textarea{font-size:16px;}
+}
+@media(min-width:769px){body.aqu-mobile-shell{padding-bottom:0;}}

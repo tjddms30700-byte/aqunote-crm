@@ -7,6 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { uploadToStorage } from "@/lib/storageUpload";  // ✅ v3.47.0: 영수증 이미지 업로드
 import HomeButton from "@/components/HomeButton";
+import CommuteLedger from "@/components/CommuteLedger";
 import StaffNavTabs from "@/components/StaffNavTabs";
 import {
   Clock, Play, Square, TrendingUp, FileCheck, MessageSquare, UserCog,
@@ -538,6 +539,8 @@ function StaffAttendancePage() {
       </div>
 
       {/* ✅ v3.61.0: 공통 직원 탭 바 (6개 메뉴 모든 페이지 공유) */}
+      <CommuteLedger />
+
       <StaffNavTabs active={
         tab === "attendance" ? "commute" :
         tab === "leave" ? "leave" :
