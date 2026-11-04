@@ -185,3 +185,32 @@ html, body { font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Malg
 }
 
 @media(max-width:768px){body.aqu-mobile-shell:has(.aqu-mobile-work){padding-bottom:0!important;}}
+
+/* v3.83.0 — mobile timeline only. Keep desktop, accounting and safe-area behavior intact. */
+@media (max-width:768px){
+ body.aqu-mobile-shell:has(.aqu-premium-timeline){background:#f8fafc;}
+ .aqu-premium-timeline{--aqu-timeline-accent:#0a5f6e;}
+ .aqu-premium-timeline .aqu-timeline-header{padding-top:8px;padding-bottom:12px;}
+ .aqu-premium-timeline .aqu-timeline-date{min-height:48px;}
+ .aqu-premium-timeline .aqu-lesson-card{isolation:isolate;padding:10px 12px 10px 16px;margin-top:8px;margin-bottom:8px;}
+ .aqu-premium-timeline .aqu-lesson-card:before{content:"";position:absolute;left:0;top:12px;bottom:12px;width:4px;border-radius:0 4px 4px 0;background:var(--aqu-timeline-accent);pointer-events:none;}
+ .aqu-premium-timeline .aqu-lesson-card[data-lesson-state="done"]:before{background:#10b981;}
+ .aqu-premium-timeline .aqu-lesson-card[data-lesson-state="sick"]:before,
+ .aqu-premium-timeline .aqu-lesson-card[data-lesson-state="holding"]:before{background:#f59e0b;}
+ .aqu-premium-timeline .aqu-lesson-card[data-lesson-state="carry"]:before{background:#94a3b8;}
+ .aqu-premium-timeline .aqu-lesson-card[data-collapsed="true"]{padding-top:8px;padding-bottom:8px;}
+ .aqu-premium-timeline .aqu-lesson-name{min-height:44px;}
+ .aqu-premium-timeline .aqu-compact-note{min-height:40px;border:0;line-height:18px;}
+ .aqu-premium-timeline .aqu-compact-note:hover{background:#084f5c;}
+ .aqu-premium-timeline .aqu-compact-attendance{gap:6px;margin-top:8px;}
+ .aqu-premium-timeline .aqu-compact-attendance>button{min-height:36px;border:0;border-radius:12px;padding:8px 4px;font-size:12px;line-height:18px;font-weight:500;transition:background-color .15s;}
+ .aqu-premium-timeline .aqu-action-present{background:#ecfdf5;color:#059669;}
+ .aqu-premium-timeline .aqu-action-present:hover{background:#d1fae5;}
+ .aqu-premium-timeline .aqu-action-sick{background:#fffbeb;color:#d97706;}
+ .aqu-premium-timeline .aqu-action-sick:hover{background:#fef3c7;}
+ .aqu-premium-timeline .aqu-action-carry{background:#f8fafc;color:#64748b;}
+ .aqu-premium-timeline .aqu-action-carry:hover{background:#f1f5f9;}
+ .aqu-premium-timeline button:focus-visible,.aqu-premium-timeline input:focus-visible{outline:2px solid #0a5f6e;outline-offset:3px;}
+ .aqu-premium-timeline .aqu-lesson-card[data-complete="true"] .aqu-lesson-time{color:#0a5f6e;}
+}
+@media(prefers-reduced-motion:reduce){.aqu-premium-timeline .aqu-lesson-card,.aqu-premium-timeline button{transition:none!important;}}
