@@ -84,6 +84,16 @@ export async function saveActualAttendance(options: SaveOptions): Promise<{
     slot = sr.data?.[0] || null;
     time = time || slot?.time_slot || null;
   }
+  if(slot?.status==='holding')throw new Error('체험 홀딩은 실제 수업이 아닙니다. 체험 결과에서 정규 전환/미등록 종료를 처리해주세요.');
+  if(slot?.workflow_kind==='trial_split'&&!slot.trial_balance_paid&&['present','done','completed'].includes(status))throw new Error('시간표의 잔금 35,000원 결제 및 출석 완료 버튼을 이용해주세요.');
+  if(slot?.is_unpaid){
+    const action=['present','done','completed'].includes(status)?'present':status==='sick'?'sick':status==='personal'?'carry':null;
+    if(!action)throw new Error('결제예정 수업은 시간표에서 출석/병결/이월로 처리해주세요. 기존 소급 차감으로 처리하지 않습니다.');
+    if(options.signatureOnly||Object.keys(extra).some(k=>/sign/i.test(k)&&!!extra[k]))throw new Error('결제예정 수업은 먼저 시간표에서 출석 처리하고, 수납 연결 후 서명해주세요.');
+    const {deskRpc}=await import('@/lib/deskBooking');
+    await deskRpc('mobile_finish_lesson',{p_slot:slot.id,p_action:action,p_note:null});
+    return {deducted:false,restored:false,warning:'결제예정 출석으로 기록했습니다. 실제 결제 회원권과 명확히 연결될 때 정산합니다.',membershipId:null};
+  }
   const ar = await supabase.from("attendance").select("*").eq("member_id", memberId)
     .or(`attend_date.eq.${date},date.eq.${date},attendance_date.eq.${date},session_date.eq.${date}`);
   if (ar.error) throw ar.error;

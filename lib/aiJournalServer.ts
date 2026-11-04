@@ -1,11 +1,11 @@
 import {NextRequest,NextResponse} from 'next/server';
 import {createClient} from '@supabase/supabase-js';
-import {JOURNAL_GENERATION_SCHEMA,journalPrompt,parseGeneratedJournalResponse,JournalFormatError} from './aiJournal';
+import {JOURNAL_GENERATION_SCHEMA,journalPrompt,parseGeneratedJournalResponse,JournalFormatError,finalizeParentMessage,messageThemeCount} from './aiJournal';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const reply=(body:unknown,status=200)=>NextResponse.json(body,{status,headers:{'Cache-Control':'no-store, private'}});
 export async function handleAiJournal(req:NextRequest){
  let phase='auth',providerName='unknown';
- const fail=(code:string,message:string,status=502)=>{console.warn('[ai-journal]',JSON.stringify({code,phase,provider:providerName,version:'3.80.2'}));return reply({error:`${message} [${code}]`,code,version:'3.80.2'},status);};
+ const fail=(code:string,message:string,status=502)=>{console.warn('[ai-journal]',JSON.stringify({code,phase,provider:providerName,version:'3.81.0'}));return reply({error:`${message} [${code}]`,code,version:'3.81.0'},status);};
  try{
   const token=req.headers.get('authorization')?.match(/^Bearer (.+)$/i)?.[1];
   if(!token)return reply({error:'로그인 후 다시 이용해주세요.'},401);
@@ -27,12 +27,12 @@ export async function handleAiJournal(req:NextRequest){
   const realName=String(ctx.member_name||''),redact=(s:string)=>{let text=realName?s.split(realName).join('회원이름'):s;return text.replace(/01[016789][-\s]?\d{3,4}[-\s]?\d{4}/g,'[연락처 제외]').replace(/\b\d{6}[-\s]?[1-8]\d{6}\b/g,'[주민번호 제외]');};
   const input={member_name:'회원이름',memo:redact(b.memo.trim()),style:b.style,history:b.include_history===false?[]:(Array.isArray(ctx?.history)?ctx.history:[]).map((h:any)=>({date:h.date,memo:redact(String(h.memo||'')),activities:h.activities}))};
   const system=journalPrompt(b.style,ctx.track,ctx.member_type==='child');
-  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),25000);phase='network';let response:Response;let data:any;
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000);phase='network';let response:Response;let data:any;
   try{if(provider==='openai'){
-   response=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',signal:controller.signal,headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:process.env.OPENAI_JOURNAL_MODEL||'gpt-4.1-mini',store:false,messages:[{role:'system',content:system},{role:'user',content:JSON.stringify(input)}],response_format:{type:'json_schema',json_schema:{name:'aqunote_dual_journal',strict:true,schema:JOURNAL_GENERATION_SCHEMA}},max_completion_tokens:2500})});
+   response=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',signal:controller.signal,headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:process.env.OPENAI_JOURNAL_MODEL||'gpt-4.1-mini',store:false,messages:[{role:'system',content:system},{role:'user',content:JSON.stringify(input)}],response_format:{type:'json_schema',json_schema:{name:'aqunote_dual_journal',strict:true,schema:JOURNAL_GENERATION_SCHEMA}},max_completion_tokens:4500})});
   }else{
    const model=(process.env.GEMINI_JOURNAL_MODEL||'gemini-2.5-flash').trim();if(!/^[a-zA-Z0-9_.-]+$/.test(model))return reply({error:'Gemini 모델 설정을 확인해주세요.'},503);
-   response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',signal:controller.signal,headers:{'x-goog-api-key':apiKey,'Content-Type':'application/json'},body:JSON.stringify({systemInstruction:{parts:[{text:system}]},contents:[{role:'user',parts:[{text:JSON.stringify(input)}]}],generationConfig:{responseMimeType:'application/json',responseJsonSchema:JOURNAL_GENERATION_SCHEMA,maxOutputTokens:4096}})});
+   response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',signal:controller.signal,headers:{'x-goog-api-key':apiKey,'Content-Type':'application/json'},body:JSON.stringify({systemInstruction:{parts:[{text:system}]},contents:[{role:'user',parts:[{text:JSON.stringify(input)}]}],generationConfig:{responseMimeType:'application/json',responseJsonSchema:JOURNAL_GENERATION_SCHEMA,maxOutputTokens:8192,...(model.startsWith('gemini-2.5-flash')?{thinkingConfig:{thinkingBudget:0}}:{})}})});
   }
   phase='response_body';
   try{data=await response.json();}catch{return fail('AI_PROVIDER_BODY','AI 서버의 응답을 읽지 못했습니다. 잠시 후 다시 시도해주세요.');}
@@ -59,8 +59,8 @@ export async function handleAiJournal(req:NextRequest){
    text=(Array.isArray(c?.content?.parts)?c.content.parts:[]).filter((p:any)=>p&&p.thought!==true&&typeof p.text==='string').map((p:any)=>p.text).join('');
   }
   phase='parse_validate';
-  const result=parseGeneratedJournalResponse(text);result.parent_message=result.parent_message.split('회원이름').join(realName);result.clinical_record=result.clinical_record.split('회원이름').join(realName);
-  return reply({...result,provider,version:'3.80.2'});
+  const result=parseGeneratedJournalResponse(text);result.parent_message=finalizeParentMessage(result.parent_message,realName,b.style);result.clinical_record=result.clinical_record.split('회원이름').join(realName);
+  const chars=Array.from(result.parent_message).length,themes=messageThemeCount(result.parent_message);const warnings:string[]=[];if(chars<800||chars>1200)warnings.push(`현재 카톡문은 ${chars}자입니다. 800~1,200자 목표와 다르면 오늘의 관찰을 보완한 뒤 다시 생성해주세요.`);if(themes<2)warnings.push('현재 메모와 연결 가능한 전문 테마가 두 개 미만입니다. 실제 감각·움직임·호흡 관찰을 추가해주세요.');return reply({...result,provider,version:'3.81.0',quality:{characters:chars,themes,warnings}});
  }catch(e:any){
   if(e?.name==='AbortError')return fail('AI_TIMEOUT','AI 응답 대기시간이 초과되었습니다. 메모는 유지됩니다.',504);
   if(e instanceof JournalFormatError)return fail(e.code,e.message);
