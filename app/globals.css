@@ -164,3 +164,24 @@ html, body { font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Malg
  body.aqu-mobile-shell input,body.aqu-mobile-shell select,body.aqu-mobile-shell textarea{font-size:16px;}
 }
 @media(min-width:769px){body.aqu-mobile-shell{padding-bottom:0;}}
+
+/* v3.82.1: Android gesture/soft-key spacing is at least 20px even when env() is 0. */
+@media(max-width:768px){
+ :root{--aqu-safe-top:env(safe-area-inset-top,0px);--aqu-safe-bottom:env(safe-area-inset-bottom,0px);--aqu-nav-bottom:max(20px,var(--aqu-safe-bottom));--aqu-nav-height:calc(60px + var(--aqu-nav-bottom));}
+ body.aqu-mobile-shell{padding-bottom:calc(var(--aqu-nav-height) + 24px)!important;}
+ .aqu-mobile-nav{padding-bottom:var(--aqu-nav-bottom)!important;box-sizing:border-box;min-height:var(--aqu-nav-height);}
+ .aqu-mobile-nav-item{touch-action:manipulation;-webkit-tap-highlight-color:transparent;}
+ .aqu-mobile-work{padding-top:calc(var(--aqu-safe-top) + 16px);padding-bottom:max(112px,calc(var(--aqu-nav-height) + 24px));}
+ .aqu-safe-top{padding-top:calc(var(--aqu-safe-top) + 16px);}
+ .aqu-mobile-work-header{min-height:48px;}
+ .aqu-lesson-card{padding:10px 12px;}
+ .aqu-lesson-card[data-collapsed="true"]{padding-top:8px;padding-bottom:8px;}
+ .aqu-lesson-name,.aqu-compact-note{min-height:36px;touch-action:manipulation;}
+ .aqu-compact-toggle{min-height:32px;touch-action:manipulation;}
+ .aqu-compact-attendance>button{min-height:36px;border:1px solid #99d1d0;border-radius:8px;padding:6px 4px;font-size:12px;line-height:18px;font-weight:600;color:#134e4a;touch-action:manipulation;}
+ .aqu-compact-attendance>button:disabled{opacity:.4;}
+ .aqu-journal-modal{max-height:calc(100dvh - var(--aqu-safe-top) - 12px)!important;}
+ .aqu-journal-footer{padding-bottom:max(20px,var(--aqu-safe-bottom))!important;}
+}
+
+@media(max-width:768px){body.aqu-mobile-shell:has(.aqu-mobile-work){padding-bottom:0!important;}}
