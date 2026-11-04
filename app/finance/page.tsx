@@ -6,6 +6,8 @@ import HomeButton from "@/components/HomeButton";
 import { Waves, Plus, X, Save, TrendingUp, TrendingDown, DollarSign, Download } from "lucide-react";
 import JSZip from "jszip";
 import RecurringFinanceCosts from "@/components/RecurringFinanceCosts";
+import MobileReceiptInbox from '@/components/MobileReceiptInbox';
+import {RECEIPTS_CHANGED} from '@/lib/receiptWorkflow';
 import DirectorOnly from "@/components/DirectorOnly";
 import FinanceWorkspace, { CenterFundLedger, OPEN_PRIVATE_FINANCE, usePrivateMaster } from "@/components/FinanceWorkspace";
 import { centerFundRows, safeCsv } from "@/lib/privateFinance";
@@ -48,6 +50,7 @@ export default function FinancePageWrapper() {
 function FinancePage() {
   const privateMaster = usePrivateMaster();
   const [expenses, setExpenses] = useState<any[]>([]);
+  useEffect(()=>{const refresh=()=>{void loadAll();};window.addEventListener(RECEIPTS_CHANGED,refresh);return()=>window.removeEventListener(RECEIPTS_CHANGED,refresh);},[]);
   const [payments, setPayments] = useState<any[]>([]);
   const [payroll, setPayroll] = useState<any[]>([]);
   // ✅ v3.20.19: 수입(지원금·대출·기타)
@@ -69,7 +72,7 @@ function FinancePage() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState<string>("");
-  useEffect(() => { setSelectedMonth(new Date().toISOString().slice(0, 7)); }, []);
+  useEffect(()=>{const m=new URLSearchParams(window.location.search).get('month');setSelectedMonth(m&&/^\d{4}-(0[1-9]|1[0-2])$/.test(m)?m:new Date().toISOString().slice(0,7));},[]);
   const [newExpense, setNewExpense] = useState<any>({
     category: "임대료",
     amount: 0,
@@ -360,6 +363,7 @@ function FinancePage() {
 
   // v3.21.4: 지출 삭제 시 연결된 leave_requests도 함께 삭제 (직원·근무 관리와 완전 양방향 연동)
   async function deleteExpense(id: string) {
+    const linked=expenses.find((e:any)=>e.id===id)?.mobile_receipt_id;if(linked){alert('모바일 영수증 연결 지출입니다. 위쪽 모바일 영수증 결재에서 해당 건의 승인취소 기능을 이용해주세요.');return;}
     if (!confirm("지출 이력을 삭제할까요?\n\n전자결재 지출 결재와 연결된 경우 해당 결재 이력도 함께 삭제됩니다.")) return;
 
     // 1) 삭제할 지출의 leave_request_id 사전 조회
@@ -537,6 +541,7 @@ function FinancePage() {
         </div>
       </div>
 
+      <MobileReceiptInbox onChanged={loadAll} onFinanceMonth={m=>{setSelectedMonth(m);window.setTimeout(()=>document.getElementById('expense-history')?.scrollIntoView({behavior:'smooth'}),100);}}/>
       <RecurringFinanceCosts scope="center" month={selectedMonth} />
       <CenterFundLedger month={selectedMonth} />
 
@@ -759,7 +764,7 @@ function FinancePage() {
       {/* Recent expenses */}
       <div className="bg-white rounded-2xl shadow-md border border-aqu-100 overflow-hidden">
         <div className="p-4 border-b border-aqu-100">
-          <h3 className="font-bold text-aqu-900">🧾 이번달 지출 이력 ({monthExpenses.length}건)</h3>
+          <h3 id="expense-history" className="font-bold text-aqu-900">🧾 이번달 지출 이력 ({monthExpenses.length}건)</h3>
         </div>
         {loading ? (
           <div className="p-10 text-center text-gray-400">불러오는 중…</div>

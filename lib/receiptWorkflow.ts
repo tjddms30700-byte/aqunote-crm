@@ -1,0 +1,7 @@
+import {supabase} from '@/lib/supabase';
+export const RECEIPTS_CHANGED='aqunote-receipts-changed';
+export const RECEIPT_STATUS:Record<string,string>={submitted:'승인 대기',approved:'승인 · 재무 반영',rejected:'반려'};
+export const RECEIPT_METHOD:Record<string,string>={CORPORATE_CARD:'법인카드',PERSONAL_CARD:'개인카드',TRANSFER:'계좌이체',CASH:'현금'};
+export const RECEIPT_CATEGORIES=['임대료','관리비','공과금(수도·전기·가스)','인터넷·통신비','수영장 약품','수영장 청소·시설관리','수영복·수영모·수건','장비 구매·수리','교구·참고서적','사무용품·소모품','인쇄비','복리후생(식대·회식·선물·경조사)','교육·연수','상비약품','접대비(거래처·거래업체)','거래처 선물·경조사','온라인 광고(SNS·검색)','오프라인 홍보·이벤트','플랫폼 사용료','교통비·주차비','차량유지비·유류비','세금(종합소득세·부가세)','보험료','세무·회계 수수료','법무·자문·외부용역','은행·카드 수수료','기부금','기타'];
+export async function receiptRpc(name:string,args:any={}){const {data:{session}}=await supabase.auth.getSession();if(!session)throw new Error('직원 계정으로 로그인해주세요.');const {data,error}=await supabase.rpc(name,args).setHeader('Authorization',`Bearer ${session.access_token}`);if(error)throw new Error(['PGRST202','42883','42P01'].includes(error.code)?'영수증 결재 연결이 필요합니다. v3.82.2 SQL을 먼저 실행해주세요.':error.message);return data;}
+export async function getReceiptPhoto(receiptId:string){const r=await receiptRpc('mobile_receipt_photo',{p_receipt:receiptId});const {data,error}=await supabase.storage.from('mobile-receipts').createSignedUrl(r.object_path,300);if(error||!data?.signedUrl)throw new Error('비공개 영수증 사진을 열지 못했습니다. 로그인·저장소 권한을 확인해주세요.');return data.signedUrl;}

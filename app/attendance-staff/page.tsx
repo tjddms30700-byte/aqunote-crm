@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { uploadToStorage } from "@/lib/storageUpload";  // ✅ v3.47.0: 영수증 이미지 업로드
 import HomeButton from "@/components/HomeButton";
 import CommuteLedger from "@/components/CommuteLedger";
+import MobileReceiptInbox from '@/components/MobileReceiptInbox';
 import StaffNavTabs from "@/components/StaffNavTabs";
 import {
   Clock, Play, Square, TrendingUp, FileCheck, MessageSquare, UserCog,
@@ -859,6 +860,7 @@ function StaffAttendancePage() {
 
       {tab === "expense" && (
         <div className="space-y-5">
+          <MobileReceiptInbox onChanged={loadAll}/> 
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="text-xs text-slate-500">이번달 경비 청구 · 물품구매 · 외부서비스 결재</div>
@@ -874,7 +876,7 @@ function StaffAttendancePage() {
           {isDirector && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <StatCard label="승인 대기" value={`${pendingExpenses.length}건`} sub="원장 결재 대기중" color="text-amber-600" />
-            <StatCard label="이번달 승인 지출" value={`₩${expenses.filter(e => e.source === "leave_approval").reduce((s, e) => s + Number(e.amount || 0), 0).toLocaleString()}`} sub={`${expenses.filter(e => e.source === "leave_approval").length}건 자동 등록`} color="text-emerald-600" />
+            <StatCard label="이번달 승인 지출" value={`₩${expenses.filter(e => (e.source === "leave_approval"||e.source === "mobile_receipt"||e.mobile_receipt_id)).reduce((s, e) => s + Number(e.amount || 0), 0).toLocaleString()}`} sub={`${expenses.filter(e => (e.source === "leave_approval"||e.source === "mobile_receipt"||e.mobile_receipt_id)).length}건 자동 등록`} color="text-emerald-600" />
             <StatCard label="이번달 전체 운영비" value={`₩${expenses.reduce((s, e) => s + Number(e.amount || 0), 0).toLocaleString()}`} sub={`${expenses.length}건`} color="text-indigo-600" />
           </div>
           )}
