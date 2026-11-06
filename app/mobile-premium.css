@@ -1,0 +1,131 @@
+/* AquNote 3.84.0 mobile workspace. No external assets, logos or remote fonts. */
+@media(max-width:768px){
+ :root{--aqu-app-bg:#f6f7f9;--aqu-ink:#191f28;--aqu-muted:#8b95a1;--aqu-line:#edf0f3;--aqu-blue:#3182f6;--aqu-blue-soft:#edf5ff;}
+ body.aqu-mobile-shell{background:var(--aqu-app-bg);color:var(--aqu-ink);-webkit-font-smoothing:antialiased;}
+ .aqu-premium-mobile{max-width:680px;background:var(--aqu-app-bg)!important;letter-spacing:-.025em;padding-left:16px;padding-right:16px;}
+ .aqu-premium-mobile *{min-width:0;}
+ .aqu-premium-mobile .aqu-mobile-work-header{padding-top:8px;padding-bottom:12px;}
+ .aqu-premium-mobile .aqu-mobile-work-header h1{font-size:26px;line-height:1.3;color:var(--aqu-ink);font-weight:800;}
+ .aqu-premium-mobile .aqu-mobile-work-header p{line-height:1.6;}
+ .aqu-premium-mobile .aqu-surface,.aqu-premium-mobile .aqu-lesson-card,.aqu-premium-mobile .aqu-receipt-inbox{border:1px solid rgba(0,0,0,.025);border-radius:20px;box-shadow:0 3px 14px rgba(30,45,65,.035);background:#fff;}
+ .aqu-premium-mobile .aqu-ui-button[class*=bg-teal-800]{background:#3182f6;border-color:transparent;}
+ .aqu-premium-mobile .aqu-capture-button{padding:17px 14px;cursor:pointer;}
+ .aqu-premium-mobile .aqu-capture-button:focus-visible{outline:2px solid #3182f6;outline-offset:3px;}
+ .aqu-premium-mobile .aqu-ui-button,.aqu-premium-mobile .aqu-timeline-date{border-color:var(--aqu-line);border-radius:14px;min-height:46px;font-size:14px;}
+ .aqu-premium-mobile input:not([type=checkbox]):not([type=radio]):not([type=file]),.aqu-premium-mobile select,.aqu-premium-mobile textarea{max-width:100%;border:1px solid var(--aqu-line);background:white;color:var(--aqu-ink);font-size:16px;line-height:1.5;box-sizing:border-box;}
+ .aqu-premium-mobile .aqu-booking-add{background:var(--aqu-blue);border:0;min-height:44px;box-shadow:0 3px 10px rgba(49,130,246,.12);}
+ .aqu-premium-mobile .aqu-lesson-card{padding:10px 12px 10px 16px;margin-top:10px;margin-bottom:10px;}
+ .aqu-premium-mobile .aqu-lesson-name{font-size:16px;min-height:42px;}
+ .aqu-premium-mobile .aqu-lesson-time{font-size:18px;}
+ .aqu-premium-mobile .aqu-compact-note{min-height:40px;background:var(--aqu-blue);font-size:12px;border:0;box-shadow:none;padding:8px 10px;border-radius:12px;}
+ .aqu-premium-mobile .aqu-compact-attendance>button{min-height:38px;font-size:12px;line-height:18px;padding:8px 2px;}
+ .aqu-premium-mobile .aqu-lesson-meta{gap:7px;}
+ .aqu-premium-mobile .aqu-kpi-grid>div{min-height:104px;display:flex;flex-direction:column;justify-content:center;gap:6px;}
+ .aqu-premium-mobile .aqu-kpi-grid b{font-size:clamp(14px,4vw,21px);font-weight:800;line-height:1.2;overflow-wrap:anywhere;font-variant-numeric:tabular-nums;}
+ .aqu-premium-mobile .aqu-kpi-grid p{font-size:11px;color:#8b95a1;}
+ .aqu-premium-mobile .aqu-commute-card{padding:20px;}
+ .aqu-premium-mobile .aqu-commute-card h2{font-size:17px;color:var(--aqu-ink);}
+ .aqu-premium-mobile .aqu-commute-card>button{border-radius:14px;}
+ .aqu-premium-mobile .aqu-member-row{padding:16px;border:0;box-shadow:0 2px 8px rgba(30,45,65,.025);}
+ .aqu-member-avatar{display:grid;place-items:center;flex-shrink:0;width:42px;height:42px;border-radius:15px;background:#edf5ff;color:#3182f6;font-size:17px;font-weight:700;}
+ .aqu-mobile-nav{background:rgba(255,255,255,.97);border-color:var(--aqu-line);box-shadow:0 -4px 18px rgba(30,45,65,.025);backdrop-filter:blur(14px);}
+ .aqu-mobile-nav .aqu-mobile-nav-item{gap:1px;font-size:10px;letter-spacing:-.02em;font-weight:600;color:#8b95a1;}
+ .aqu-mobile-nav .aqu-nav-icon{display:grid;place-items:center;width:46px;height:31px;border-radius:12px;}
+ .aqu-mobile-nav .aqu-mobile-nav-item[aria-current=page]{color:var(--aqu-blue);}
+ .aqu-mobile-nav .aqu-mobile-nav-item[aria-current=page] .aqu-nav-icon{background:var(--aqu-blue-soft);}
+ .aqu-mobile-drawer{background:rgba(20,30,45,.3);backdrop-filter:blur(3px);}
+ .aqu-mobile-drawer aside{border-radius:26px 0 0 26px;padding-bottom:max(20px,env(safe-area-inset-bottom));}
+ .aqu-mobile-drawer .aqu-menu-row{border:0;margin-bottom:3px;border-radius:12px;color:#333d4b;padding:14px;}
+ .aqu-mobile-drawer .aqu-menu-row:hover{background:#f6f7f9;}
+ .aqu-mobile-sheet,.aqu-journal-overlay{background:rgba(20,30,45,.32);backdrop-filter:blur(3px);}
+ .aqu-mobile-sheet .aqu-sheet-card{max-height:calc(100dvh - var(--aqu-safe-top) - 12px);border-radius:28px 28px 0 0;box-shadow:0 -12px 48px rgba(20,30,45,.1);}
+ .aqu-sheet-card>header{padding:18px 20px 14px;border-bottom:1px solid var(--aqu-line);align-items:center;}
+ .aqu-sheet-card>header button{min-height:40px;min-width:40px;border-radius:50%;background:#f6f7f9;}
+ .aqu-sheet-content{padding:20px 20px max(24px,env(safe-area-inset-bottom));overscroll-behavior:contain;line-height:1.7;}
+ .aqu-sheet-content h3{font-size:23px;font-weight:800;}
+ .aqu-sheet-content section{border-radius:16px;padding:16px;}
+ .aqu-sheet-content p{overflow-wrap:anywhere;}
+ .aqu-journal-modal{max-width:680px;border-radius:28px 28px 0 0;background:#f6f7f9;box-shadow:0 -12px 48px rgba(20,30,45,.12);height:auto;min-height:min(72dvh,700px);}
+ .aqu-journal-header{padding:18px 20px 14px;border-bottom:1px solid #edf0f3;align-items:center;background:white;}
+ .aqu-eyebrow{display:block;font-size:9px;line-height:1.5;letter-spacing:.12em;color:#8b95a1;font-weight:700;}
+ .aqu-journal-header h2{font-size:21px;line-height:1.4;letter-spacing:-.04em;color:#191f28;font-weight:800;margin:3px 0;}
+ .aqu-journal-header>div{min-width:0;}
+ .aqu-journal-header p{font-size:12px;color:#8b95a1;overflow-wrap:anywhere;}
+ .aqu-journal-header>button{min-width:48px;min-height:40px;border:0;border-radius:12px;background:#f2f4f6;padding:8px 10px;color:#4e5968;font-size:12px;flex-shrink:0;}
+ .aqu-journal-body{padding:18px 16px 24px;scrollbar-width:thin;}
+ .aqu-journal-body>label,.aqu-journal-body>div.grid{font-size:13px;line-height:1.6;}
+ .aqu-journal-body input:not([type=checkbox]):not([type=radio]),.aqu-journal-body select,.aqu-journal-body textarea{max-width:100%;font-size:16px!important;border:1px solid #e5e8eb;background:white;border-radius:14px;color:#333d4b;line-height:1.7;box-sizing:border-box;}
+ .aqu-journal-body input[type=checkbox]{flex-shrink:0;width:18px;height:18px;accent-color:var(--aqu-blue);margin-top:2px;}
+ .aqu-journal-body label:has(input[type=checkbox]){font-size:12px;line-height:1.65;font-weight:400;}
+ .aqu-journal-body button{border-color:#e5e8eb;font-size:13px;min-height:42px;border-radius:13px;font-weight:600;}
+ .aqu-journal-body>button[class*=bg-teal-800]{background:var(--aqu-blue);}
+ .aqu-save-status{background:#ecf8f2;border:0;border-radius:16px;font-size:13px;padding:14px 16px;line-height:1.6;}
+ .aqu-save-status>b{font-size:13px;font-weight:600;}
+ .aqu-journal-guide{background:#fff;border:1px solid #edf0f3;border-radius:14px;color:#6b7684;font-size:12px;line-height:1.7;padding:12px 14px;}
+ .aqu-journal-guide summary{cursor:pointer;font-weight:600;min-height:20px;}
+ .aqu-journal-guide p{margin-top:8px;}
+ .aqu-result-tabs{padding:4px;background:#e9edf2;border-radius:14px;gap:4px;}
+ .aqu-result-tabs>button{min-height:42px;border:0;background:transparent;color:#8b95a1;border-radius:11px;font-size:13px;box-shadow:none;}
+ .aqu-result-tabs>button[aria-selected=true]{background:white;color:#191f28;box-shadow:0 2px 5px rgba(20,30,45,.06);}
+ .aqu-preview-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:16px 2px 12px;}
+ .aqu-preview-toolbar p{font-size:11px;margin-top:3px;color:#8b95a1;}
+ .aqu-journal-body .aqu-text-action{min-height:36px;border:0;padding:8px 10px;font-size:12px;color:#3182f6;background:#edf5ff;border-radius:10px;white-space:nowrap;}
+ .aqu-journal-body .aqu-tidy-action{min-height:32px;border:0;padding:5px 0;color:#6b7684;font-size:11px;background:transparent;}
+ .aqu-length-hint,.aqu-copy-note{font-size:11px;line-height:1.6;color:#8b95a1;background:none;margin:6px 2px;}
+ .aqu-letter-paper{border:1px solid #edf0f3;border-radius:20px;background:white;padding:22px 20px;box-shadow:0 3px 14px rgba(20,30,45,.025);color:#333d4b;font-size:15px;line-height:1.95;word-break:keep-all;overflow-wrap:anywhere;}
+ .aqu-letter-paper p{white-space:pre-wrap;margin:0 0 22px;}
+ .aqu-letter-paper p:last-child{margin-bottom:0;}
+ .aqu-journal-body textarea[aria-label='학부모 카톡문 수정']{height:clamp(220px,48dvh,500px);min-height:220px;padding:18px;line-height:1.85;resize:vertical;}
+ .aqu-chart-panel{padding:18px 16px;background:white;border:1px solid #edf0f3;border-radius:20px;}
+ .aqu-chart-panel h3{font-size:14px;font-weight:700;color:#333d4b;}
+ .aqu-chart-panel button[aria-label^='태그 ']{background:#edf5ff;color:#3182f6;border:0;min-height:34px;border-radius:11px;font-size:11px;padding:6px 10px;}
+ .aqu-chart-panel textarea{min-height:280px;line-height:1.8;}
+ .aqu-journal-footer{display:grid;grid-template-columns:minmax(0,1fr) 70px;gap:8px;padding:12px 16px;background:white;border-top:1px solid #edf0f3;}
+ .aqu-journal-footer>*{margin:0!important;min-height:50px;border-radius:14px;font-size:13px;line-height:1.4;}
+ .aqu-journal-footer:has(>button:only-child){grid-template-columns:1fr;}
+ .aqu-journal-footer .aqu-primary-action{background:#3182f6;border:0;box-shadow:0 3px 10px rgba(49,130,246,.12);}
+ .aqu-journal-footer .aqu-primary-action:disabled{background:#c8d8ef;box-shadow:none;}
+ .aqu-journal-footer .aqu-secondary-action{border:0;background:#f2f4f6;color:#6b7684;}
+ .aqu-retry-bar{padding:10px 16px;border-top:1px solid #edf0f3;background:#fff8e9;}
+ .aqu-retry-bar>p{font-size:11px;line-height:1.5;color:#8b6a24;}
+ .aqu-retry-bar>button{min-height:40px;font-size:12px;border-radius:12px;}
+ .aqu-journal-modal>div[role=status]:last-child{padding:9px 16px;font-size:11px;line-height:1.5;background:#e8f1ff;color:#3267a6;}
+ .aqu-receipt-inbox input,.aqu-receipt-inbox select,.aqu-receipt-dialog input,.aqu-receipt-dialog textarea,.aqu-receipt-dialog select{max-width:100%;font-size:16px;min-width:0;}
+ .aqu-receipt-inbox article{border:0;background:#f7f8fa;border-radius:16px;padding:14px;}
+ .aqu-receipt-dialog{max-height:calc(100dvh - var(--aqu-safe-top) - 12px);border-radius:26px 26px 0 0;}
+ .aqu-premium-mobile button:focus-visible,.aqu-journal-modal button:focus-visible,.aqu-journal-modal textarea:focus-visible{outline:2px solid #3182f6;outline-offset:3px;}
+}
+@media(max-width:359px){
+ .aqu-premium-mobile{padding-left:12px;padding-right:12px;}
+ .aqu-premium-mobile .aqu-mobile-work-header h1{font-size:23px;}
+ .aqu-premium-mobile .aqu-lesson-card{padding-left:13px;padding-right:9px;}
+ .aqu-premium-mobile .aqu-compact-note{padding:7px 8px;font-size:11px;}
+ .aqu-premium-mobile .aqu-lesson-name{font-size:15px;}
+ .aqu-journal-header{padding:14px 16px 12px;}
+ .aqu-journal-header h2{font-size:19px;}
+ .aqu-journal-body{padding:14px 12px 20px;}
+ .aqu-letter-paper{padding:18px 16px;font-size:15px;}
+ .aqu-journal-footer{padding-left:12px;padding-right:12px;grid-template-columns:minmax(0,1fr) 60px;}
+ .aqu-journal-footer>*{font-size:12px;}
+}
+@media(max-width:768px){
+ .aqu-save-status{padding:10px 14px;}
+ .aqu-save-status p{font-size:11px;line-height:1.5;}
+ .aqu-journal-body:has(.aqu-parent-panel[data-editing=false]){display:flex;flex-direction:column;gap:14px;}
+ .aqu-journal-body:has(.aqu-parent-panel[data-editing=false])>*{margin-top:0;margin-bottom:0;}
+ .aqu-journal-body:has(.aqu-parent-panel[data-editing=false])>.aqu-save-status{order:0;}
+ .aqu-journal-body:has(.aqu-parent-panel[data-editing=false])>.aqu-result-tabs{order:1;}
+ .aqu-journal-body:has(.aqu-parent-panel[data-editing=false])>.aqu-parent-panel{order:2;}
+ .aqu-journal-body:has(.aqu-parent-panel[data-editing=false])>.aqu-journal-guide{order:4;}
+ .aqu-journal-body:has(.aqu-parent-panel[data-editing=false])>.aqu-input-toggle{order:5;}
+ .aqu-parent-panel[data-editing=false] .aqu-tidy-action,.aqu-parent-panel[data-editing=false] .aqu-copy-note,.aqu-parent-panel[data-editing=false] .aqu-length-hint{display:none;}
+ .aqu-parent-panel[data-editing=false] .aqu-preview-toolbar{margin-top:0;}
+ .aqu-schedule-overlay{background:rgba(20,30,45,.32);backdrop-filter:blur(3px);}
+ .aqu-schedule-overlay>div{border-radius:26px 26px 0 0;max-height:calc(100dvh - var(--aqu-safe-top) - 12px);box-shadow:0 -12px 48px rgba(20,30,45,.12);}
+ .aqu-schedule-overlay>div>div:first-child{background:white;border-color:#edf0f3;}
+ .aqu-schedule-overlay input:not([type=checkbox]):not([type=radio]),.aqu-schedule-overlay select,.aqu-schedule-overlay textarea{font-size:16px!important;max-width:100%;border-radius:12px;border-color:#e5e8eb;}
+ .aqu-schedule-overlay button{border-radius:12px;}
+ .aqu-premium-mobile input[aria-label='회원명 또는 초성 검색']{outline:none;background:#fff;border:1px solid #edf0f3;min-height:48px;padding-left:16px;}
+ .aqu-premium-mobile input[aria-label='회원명 또는 초성 검색']:focus-visible{outline:2px solid #3182f6;outline-offset:2px;}
+}
+@media(prefers-reduced-motion:reduce){.aqu-mobile-nav *,.aqu-journal-modal *{scroll-behavior:auto!important;transition:none!important;}}

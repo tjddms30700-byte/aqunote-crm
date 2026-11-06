@@ -5,7 +5,7 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 const reply=(body:unknown,status=200)=>NextResponse.json(body,{status,headers:{'Cache-Control':'no-store, private'}});
 export async function handleAiJournal(req:NextRequest){
  let phase='auth',providerName='unknown';
- const fail=(code:string,message:string,status=502)=>{console.warn('[ai-journal]',JSON.stringify({code,phase,provider:providerName,version:'3.81.0'}));return reply({error:`${message} [${code}]`,code,version:'3.81.0'},status);};
+ const fail=(code:string,message:string,status=502)=>{console.warn('[ai-journal]',JSON.stringify({code,phase,provider:providerName,version:'3.84.0'}));return reply({error:`${message} [${code}]`,code,version:'3.84.0'},status);};
  try{
   const token=req.headers.get('authorization')?.match(/^Bearer (.+)$/i)?.[1];
   if(!token)return reply({error:'로그인 후 다시 이용해주세요.'},401);
@@ -59,8 +59,8 @@ export async function handleAiJournal(req:NextRequest){
    text=(Array.isArray(c?.content?.parts)?c.content.parts:[]).filter((p:any)=>p&&p.thought!==true&&typeof p.text==='string').map((p:any)=>p.text).join('');
   }
   phase='parse_validate';
-  const result=parseGeneratedJournalResponse(text);result.parent_message=finalizeParentMessage(result.parent_message,realName,b.style);result.clinical_record=result.clinical_record.split('회원이름').join(realName);
-  const chars=Array.from(result.parent_message).length,themes=messageThemeCount(result.parent_message);const warnings:string[]=[];if(chars<800||chars>1200)warnings.push(`현재 카톡문은 ${chars}자입니다. 800~1,200자 목표와 다르면 오늘의 관찰을 보완한 뒤 다시 생성해주세요.`);if(themes<2)warnings.push('현재 메모와 연결 가능한 전문 테마가 두 개 미만입니다. 실제 감각·움직임·호흡 관찰을 추가해주세요.');return reply({...result,provider,version:'3.81.0',quality:{characters:chars,themes,warnings}});
+  const result=parseGeneratedJournalResponse(text);result.parent_message=finalizeParentMessage(result.parent_message,realName,b.style,ctx.member_type==='child');result.clinical_record=result.clinical_record.split('회원이름').join(realName);
+  const chars=Array.from(result.parent_message).length,themes=messageThemeCount(result.parent_message);const warnings:string[]=[];if(chars<800||chars>1200)warnings.push(`현재 카톡문은 ${chars}자입니다. 분량은 권장 기준이며 복사는 가능합니다. 내용이 적절한지 검토해주세요.`);if(themes<2)warnings.push('현재 메모와 연결 가능한 전문 테마가 두 개 미만입니다. 실제 관찰과 설명을 검토해주세요. 이 안내는 복사를 막지 않습니다.');return reply({...result,provider,version:'3.84.0',quality:{characters:chars,themes,warnings}});
  }catch(e:any){
   if(e?.name==='AbortError')return fail('AI_TIMEOUT','AI 응답 대기시간이 초과되었습니다. 메모는 유지됩니다.',504);
   if(e instanceof JournalFormatError)return fail(e.code,e.message);

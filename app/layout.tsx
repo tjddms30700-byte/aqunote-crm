@@ -1,4 +1,5 @@
 import "./globals.css";
+import "./mobile-premium.css";
 import PwaRegister from "@/components/PwaRegister";
 import MobileAppShell from "@/components/MobileAppShell";
 import NativeAppBridge from "@/components/NativeAppBridge";
