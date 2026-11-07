@@ -17,6 +17,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 "use client";
+import {DateBusinessActions as DateActionSheet,NewTrialModal,CompactTrialSlot,HoldingSlotInfo} from '@/components/ScheduleBusinessActions';
 import SlotModal,{PlanPicker} from '@/components/ScheduleSlotModal';
 import BookingWorkflowActions,{BookingBadges} from '@/components/BookingWorkflowActions';
 import {deskRpc,bookingPayload} from '@/lib/deskBooking';
@@ -218,6 +219,8 @@ function DesktopSchedulePage() {
   const [signatureSlot, setSignatureSlot] = useState<any | null>(null);
   // ✅ v3.20.11: 매출 상세 팝오버 (셔 설정 날짜별)
   const [revenueDetailDate, setRevenueDetailDate] = useState<string | null>(null);
+  const [trialDate,setTrialDate]=useState<{date:string;time?:string}|null>(null);
+  const [holdingInfo,setHoldingInfo]=useState<any>(null);
   const [actionSheet, setActionSheet] = useState<{ date: string; time?: string } | null>(null);
   // ✅ v3.17.1: 더블클릭 시 onClick 지연 취소용 ref
   const clickTimerRef = useRef<any>(null);
@@ -429,6 +432,7 @@ function DesktopSchedulePage() {
 
   // 예약 클릭 시 액션 시트 열기
   function openQuickAction(slot: any) {
+    if(slot.status==='holding'){setHoldingInfo({...slot,member_name:memberName(slot.member_id)});return;}
     setQuickAction(slot);
   }
 
@@ -846,7 +850,8 @@ function DesktopSchedulePage() {
       });
       return;
     }
-    setActionSheet({ date, time });
+    if(clickTimerRef.current)clearTimeout(clickTimerRef.current);
+    clickTimerRef.current=setTimeout(()=>{setActionSheet({date,time});clickTimerRef.current=null;},250);
   }
 
   function openRevenueModalFromDate(date: string) {
@@ -888,6 +893,8 @@ function DesktopSchedulePage() {
   }
 
   function openNewModal(date: string, time?: string) {
+    if(clickTimerRef.current){clearTimeout(clickTimerRef.current);clickTimerRef.current=null;}
+    setActionSheet(null);
     // ✅ v3.20.5: 시간 미지정 시 지점 설정의 첫 번째 슬롯 사용
     const defaultSlot = time || (timeSlotOptions && timeSlotOptions.length > 0
       ? timeSlotOptions[0]
@@ -912,6 +919,7 @@ function DesktopSchedulePage() {
   }
 
   function openEditModal(slot: any) {
+    if(slot.status==='holding'){setHoldingInfo({...slot,member_name:memberName(slot.member_id)});return;}
     setF({
       id: slot.id,
       membership_id: slot.membership_id || null,
@@ -2009,7 +2017,7 @@ function DesktopSchedulePage() {
                       if (clickTimerRef.current) { clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
                       if (!isOtherMonth) { setActionSheet(null); openNewModal(cellStr); }
                     }}
-                    title="클릭: 새일정/결제/직원 선택 · 더블클릭: 바로 새 일정 등록"
+                    title="클릭: 정규·보강/신규 체험/결제·수납/직원 일정 · 더블클릭: 정규 수업 등록"
                     onDragOver={(e) => handleDragOver(cellStr, e)}
                     onDragLeave={() => dragOverDate === cellStr && setDragOverDate(null)}
                     onDrop={(e) => handleDrop(cellStr, e)}
@@ -2088,10 +2096,10 @@ function DesktopSchedulePage() {
                             draggable
                             onDragStart={(e) => handleDragStart(s, e)}
                             onClick={(e) => { e.stopPropagation(); openQuickAction(s); }}
-                            style={s.status==='holding'?{backgroundImage:'repeating-linear-gradient(135deg,#fef3c7,#fef3c7 8px,#fde68a 8px,#fde68a 12px)',borderColor:'#eab308',color:'#713f12'}:{ ...staffTint, opacity: attendanceOpacity }}
+                            style={s.status==='holding'?{backgroundColor:'#FFF7ED',color:'#9A3412',border:0}:{ ...staffTint, opacity: attendanceOpacity }}
                             className={`text-[9px] md:text-[10px] px-1 py-0.5 rounded border ${(isGrayState || isStaffEvent || staffP?.color) ? "" : meta.color} hover:shadow-sm cursor-move flex flex-col gap-0 ${isDone ? "ring-1 ring-green-400" : ""}`}
                             title={`${s.time_slot} ${memNameStr || s.lesson_name || s.note || ""}${msLabel ? " · " + msLabel : ""}${staffP ? " · " + staffP.name : ""} · ${meta.label || ""}`}>
-                            <BookingBadges slot={{...s,member_name:memNameStr}}/>
+                            {(s.event_type==='trial'||s.status==='holding')?<CompactTrialSlot slot={s} memberName={memNameStr} staffName={staffP?.name}/>:<><BookingBadges slot={{...s,member_name:memNameStr}}/>
                             {/* 상단: 시간 + 회원명 */}
                             <div className="flex items-center gap-0.5 truncate">
                               <span className="font-mono opacity-70">{s.time_slot?.slice(0,5)}</span>
@@ -2116,7 +2124,7 @@ function DesktopSchedulePage() {
                             )}
                             {memNameStr && staffP && (
                               <div className="text-[8px] md:text-[9px] opacity-70 truncate">{staffP.name}</div>
-                            )}
+                            )}</>}
                           </div>
                         );
                       })}
@@ -2223,11 +2231,14 @@ function DesktopSchedulePage() {
       <StatsSummary stats={monthStats} year={year} month0={month0} />
 
       {/* ═══ 날짜 액션 시트 ═══ */}
+      {trialDate&&<NewTrialModal date={trialDate.date} time={trialDate.time} onClose={()=>setTrialDate(null)} onSaved={loadAll}/>}
+      {holdingInfo&&<HoldingSlotInfo slot={holdingInfo} onClose={()=>setHoldingInfo(null)}/>}
       {actionSheet && (
         <DateActionSheet
           date={actionSheet.date}
           time={actionSheet.time}
           onReservation={() => { openNewModal(actionSheet.date, actionSheet.time); setActionSheet(null); }}
+          onTrial={()=>{setTrialDate(actionSheet);setActionSheet(null);}}
           onRevenue={() => openRevenueModalFromDate(actionSheet.date)}
           onStaffSchedule={() => openStaffScheduleFromDate(actionSheet.date)}
           onClose={() => setActionSheet(null)}
@@ -2989,9 +3000,9 @@ function WeekView({ slots, members, staff, onCellClick, onCellDoubleClick, onEdi
                           return (
                             <div key={s.id}
                               onClick={() => onEdit(s)}
-                              style={s.status==='holding'?{backgroundImage:'repeating-linear-gradient(135deg,#fef3c7,#fef3c7 8px,#fde68a 8px,#fde68a 12px)',color:'#713f12'}:forcedStyle}
+                              style={s.status==='holding'?{backgroundColor:'#FFF7ED',color:'#9A3412',border:0}:forcedStyle}
                               className={`text-[10px] p-1 rounded border ${(isGrayStatus || isStaffEvent || borderColor) ? "" : meta.color} cursor-pointer hover:shadow-sm`}>
-                              <BookingBadges slot={{...s,member_name:mem?.name}}/><div className="font-medium truncate">
+                              {(s.event_type==='trial'||s.status==='holding')?<CompactTrialSlot slot={s} memberName={mem?.name} staffName={staffP?.name}/>:<><BookingBadges slot={{...s,member_name:mem?.name}}/><div className="font-medium truncate">
                                 {mem?.name || s.lesson_name || (
                                   s.event_type === "staff_work" ? `👥 ${staffP?.name || "직원"}${s.note ? " · " + s.note : ""}` :
                                   s.event_type === "staff_off" ? `🏖️ ${staffP?.name || "직원"}${s.note ? " · " + s.note : " 휴무"}` :
@@ -3008,7 +3019,7 @@ function WeekView({ slots, members, staff, onCellClick, onCellDoubleClick, onEdi
                               )}
                               {s.status && s.status !== "scheduled" && (
                                 <div className="text-[9px] opacity-70">{meta.label}</div>
-                              )}
+                              )}</>}
                             </div>
                           );
                         })}
@@ -3130,9 +3141,9 @@ function DayView({ date, setDate, slots, members, staff, onCellClick, onCellDoub
                           return (
                             <div key={s.id}
                               onClick={() => onEdit(s)}
-                              style={s.status==='holding'?{backgroundImage:'repeating-linear-gradient(135deg,#fef3c7,#fef3c7 8px,#fde68a 8px,#fde68a 12px)',color:'#713f12'}:forcedStyle}
+                              style={s.status==='holding'?{backgroundColor:'#FFF7ED',color:'#9A3412',border:0}:forcedStyle}
                               className={`text-[10px] p-1.5 rounded cursor-pointer hover:shadow-sm`}>
-                              <BookingBadges slot={{...s,member_name:mem?.name}}/><div className="font-medium truncate">
+                              {(s.event_type==='trial'||s.status==='holding')?<CompactTrialSlot slot={s} memberName={mem?.name} staffName={st.name}/>:<><BookingBadges slot={{...s,member_name:mem?.name}}/><div className="font-medium truncate">
                                 {mem?.name || s.lesson_name || (
                                   s.event_type === "staff_work" ? `👥 ${st.name}${s.note ? " · " + s.note : " 근무"}` :
                                   s.event_type === "staff_off" ? `🏖️ ${st.name}${s.note ? " · " + s.note : " 휴무"}` :
@@ -3146,7 +3157,7 @@ function DayView({ date, setDate, slots, members, staff, onCellClick, onCellDoub
                               )}
                               {s.status && s.status !== "scheduled" && (
                                 <div className="text-[9px] font-bold">{meta.label}</div>
-                              )}
+                              )}</>}
                             </div>
                           );
                         })}
@@ -3638,68 +3649,6 @@ function MemberSearchSelect({ members, value, onChange }: any) {
 
 // ═══════════════════════════════════════════════════════════════
 // 📅 날짜 클릭 시 나오는 액션 시트 (예약등록 / 매출등록 / 직원일정등록)
-// ═══════════════════════════════════════════════════════════════
-function DateActionSheet({ date, time, onReservation, onRevenue, onStaffSchedule, onClose }: any) {
-  return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden" onClick={e => e.stopPropagation()}>
-        <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-aqu-50 to-blue-50">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-xs text-gray-500">선택한 날짜</div>
-              <div className="text-lg font-bold text-slate-900">{date}{time ? ` · ${time}` : ""}</div>
-            </div>
-            <button onClick={onClose} className="p-1.5 hover:bg-white/50 rounded-lg">
-              <span className="text-xl">✕</span>
-            </button>
-          </div>
-        </div>
-        <div className="p-4 space-y-2">
-          <button onClick={onReservation}
-            className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-blue-200 hover:bg-blue-50 hover:border-blue-400 transition">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-xl shadow">
-              📅
-            </div>
-            <div className="flex-1 text-left">
-              <div className="font-bold text-slate-900">새 일정 등록</div>
-              <div className="text-xs text-gray-500">회원 수업 · 체험 · 보강 · 기타</div>
-            </div>
-            <span className="text-gray-400">→</span>
-          </button>
-
-          <button onClick={onRevenue}
-            className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-pink-200 hover:bg-pink-50 hover:border-pink-400 transition">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-pink-500 to-rose-500 flex items-center justify-center text-white text-xl shadow">
-              💰
-            </div>
-            <div className="flex-1 text-left">
-              <div className="font-bold text-slate-900">결제 등록</div>
-              <div className="text-xs text-gray-500">결제 · 회원권 · 제품 판매</div>
-            </div>
-            <span className="text-gray-400">→</span>
-          </button>
-
-          <button onClick={onStaffSchedule}
-            className="w-full flex items-center gap-3 p-4 rounded-xl border-2 border-purple-200 hover:bg-purple-50 hover:border-purple-400 transition">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-500 flex items-center justify-center text-white text-xl shadow">
-              👥
-            </div>
-            <div className="flex-1 text-left">
-              <div className="font-bold text-slate-900">직원 일정 등록</div>
-              <div className="text-xs text-gray-500">근무 · 휴무 · 회의</div>
-            </div>
-            <span className="text-gray-400">→</span>
-          </button>
-
-          <div className="text-[11px] text-gray-500 text-center pt-1">
-            💡 <b>더블클릭</b>은 이 팝업 없이 바로 새 일정 모달을 엽니다
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ═══════════════════════════════════════════════════════════════
 // 🎫 회원권 선택 - 정액권/횟수권 자동 판별
 // ═══════════════════════════════════════════════════════════════

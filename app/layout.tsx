@@ -1,12 +1,14 @@
 import "./globals.css";
 import "./mobile-premium.css";
+import "./growth-report.css";
+import "./schedule-business.css";
 import PwaRegister from "@/components/PwaRegister";
 import MobileAppShell from "@/components/MobileAppShell";
 import NativeAppBridge from "@/components/NativeAppBridge";
 import type { Metadata, Viewport } from "next";
 import GlobalHeaderWrapper from "@/components/GlobalHeaderWrapper";
 
-export const viewport: Viewport = {width:"device-width",initialScale:1,viewportFit:"cover",themeColor:"#0a5f6e"};
+export const viewport: Viewport = {width:"device-width",initialScale:1,viewportFit:"cover",themeColor:"#0284C7"};
 
 export const metadata: Metadata = {
   title: "아쿠노트 프로그램",
