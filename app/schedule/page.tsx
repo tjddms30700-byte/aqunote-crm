@@ -20,6 +20,7 @@
 import {DateBusinessActions as DateActionSheet,NewTrialModal,CompactTrialSlot,HoldingSlotInfo} from '@/components/ScheduleBusinessActions';
 import {CalendarPaymentModal,StaffScheduleModal} from '@/components/CalendarOperationsModals';
 import {CompletedSlotBadge,isCompletedSlot,calendarSlotClass,CalendarStaffBand} from '@/components/CalendarSlotStatus';
+import {hydrateTrialStatuses,TRIALS_CHANGED} from '@/lib/trialStatus';
 import SlotModal,{PlanPicker} from '@/components/ScheduleSlotModal';
 import BookingWorkflowActions,{BookingBadges} from '@/components/BookingWorkflowActions';
 import {deskRpc,bookingPayload} from '@/lib/deskBooking';
@@ -169,7 +170,9 @@ function DesktopSchedulePage() {
   const [slots, setSlots]     = useState<any[]>([]);
   const [members, setMembers] = useState<any[]>([]);
   const [staff, setStaff]     = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true),[trialSyncError,setTrialSyncError]=useState("");
+  const loadVersion=useRef(0);
+  useEffect(()=>{const refresh=()=>{void loadAll();};window.addEventListener(TRIALS_CHANGED,refresh);return()=>window.removeEventListener(TRIALS_CHANGED,refresh);},[year,month0]);
 
   // Modal
   const [modal, setModal] = useState<{date: string, time?: string, editing?: any} | null>(null);
@@ -305,6 +308,7 @@ function DesktopSchedulePage() {
   const [plans, setPlans] = useState<any[]>([]);
 
   async function loadAll() {
+    const requestVersion=++loadVersion.current;setTrialSyncError("");
     setLoading(true);
     const branchId = getActiveBranchId();
     console.log(`[v3.34.2] loadAll 시작 - branch_id=${branchId || "(없음)"} (build: v3.34.2 · SQL deleted_at 안전가드 + 대시보드 라이트모드 + 근무직원 퇴사자 제외)`);
@@ -411,6 +415,8 @@ function DesktopSchedulePage() {
       console.log(`[v3.28.2] 샘플 row keys:`, Object.keys(rawSlots[0]));
     }
     // ✅ v3.28.2: 클라이언트 측 branch_id 2차 필터링 제거 → 서버에서 이미 필터 완료
+    try{rawSlots=await hydrateTrialStatuses(rawSlots);}catch(e:any){if(requestVersion===loadVersion.current)setTrialSyncError(e.message);}
+    if(requestVersion!==loadVersion.current)return;
     setSlots(rawSlots);
     setMembers(mRes.data || []);
     // v3.21.2: 시간표·상담 매칭에서 퇴사자 자동 배제
@@ -1872,6 +1878,7 @@ function DesktopSchedulePage() {
         </div>
       </div>
 
+      {trialSyncError&&<p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">체험 결제 상태 동기화 확인: {trialSyncError}</p>}
       {/* ✅ v3.20.10: 통합 탭바 – 시간표에서도 회원DB·출결장·사인이력 바로 이동 */}
       <div className="flex items-center gap-2 mb-4 border-b border-gray-200 pb-2 flex-wrap">
         <Link href="/members"
@@ -2212,7 +2219,7 @@ function DesktopSchedulePage() {
       {paymentDate&&<CalendarPaymentModal date={paymentDate} track={trackTab} onClose={()=>setPaymentDate(null)} onSaved={loadAll}/>}
       {staffDate&&<StaffScheduleModal date={staffDate} initialSlot={staffEditing} onClose={()=>setStaffDate(null)} onSaved={loadAll}/>}
       {trialDate&&<NewTrialModal date={trialDate.date} time={trialDate.time} onClose={()=>setTrialDate(null)} onSaved={loadAll}/>}
-      {holdingInfo&&<HoldingSlotInfo slot={holdingInfo} onClose={()=>setHoldingInfo(null)}/>}
+      {holdingInfo&&<HoldingSlotInfo slot={holdingInfo} onSaved={loadAll} onClose={()=>setHoldingInfo(null)}/>}
       {actionSheet && (
         <DateActionSheet
           date={actionSheet.date}
@@ -3299,7 +3306,7 @@ function QuickActionSheet({ slot, members, staff, plans, payments, attendance, o
 
         {/* 본문 */}
         <div className="flex-1 overflow-y-auto p-5">
-          {tab === "info" && (<><BookingBadges slot={slot}/><BookingWorkflowActions slot={slot} onChanged={()=>{onClose();window.location.reload();}}/>
+          {tab === "info" && (<><BookingBadges slot={slot}/><BookingWorkflowActions slot={slot} onChanged={()=>{onClose();window.dispatchEvent(new Event(TRIALS_CHANGED));}}/>
             <div className="space-y-3">
               <InfoLine label="날짜" value={slot.event_date} />
               <InfoLine label="시간" value={slot.time_slot} />
