@@ -1,0 +1,9 @@
+"use client";
+import {ReactNode,useEffect,useRef} from 'react';
+import {createPortal} from 'react-dom';
+/** One portal for the original registration form on both payments and calendar pages. */
+export default function PaymentDialogFrame({children,busy,onClose}:{children:ReactNode;busy:boolean;onClose:()=>void}){
+ const ref=useRef<HTMLDivElement>(null),latest=useRef({busy,onClose});latest.current={busy,onClose};
+ useEffect(()=>{const previous=document.activeElement as HTMLElement|null,old=document.body.style.overflow;document.body.style.overflow='hidden';const first=()=>ref.current?.querySelector<HTMLElement>('input:not(:disabled),select:not(:disabled),button:not(:disabled)')?.focus();const timer=setTimeout(first,0);const handler=(e:KeyboardEvent)=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();if(!latest.current.busy)latest.current.onClose();}if(e.key==='Tab'){const items=Array.from(ref.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href]')||[]).filter(n=>n.getClientRects().length);const a=items[0],b=items.at(-1);if(!a){e.preventDefault();return;}if(e.shiftKey&&document.activeElement===a){e.preventDefault();b?.focus();}else if(!e.shiftKey&&document.activeElement===b){e.preventDefault();a?.focus();}}};document.addEventListener('keydown',handler,true);return()=>{clearTimeout(timer);document.body.style.overflow=old;document.removeEventListener('keydown',handler,true);if(previous?.isConnected)previous.focus();};},[]);
+ return createPortal(<div ref={ref} role="dialog" aria-modal="true" aria-label="결제 · 회원권 등록" aria-busy={busy} className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-3" style={{paddingBottom:'max(12px, env(safe-area-inset-bottom))',paddingTop:'max(12px, env(safe-area-inset-top))'}}>{children}</div>,document.body);
+}
