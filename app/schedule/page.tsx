@@ -18,6 +18,8 @@
 
 "use client";
 import {DateBusinessActions as DateActionSheet,NewTrialModal,CompactTrialSlot,HoldingSlotInfo} from '@/components/ScheduleBusinessActions';
+import {CalendarPaymentModal,StaffScheduleModal} from '@/components/CalendarOperationsModals';
+import {CompletedSlotBadge,isCompletedSlot,calendarSlotClass,CalendarStaffBand} from '@/components/CalendarSlotStatus';
 import SlotModal,{PlanPicker} from '@/components/ScheduleSlotModal';
 import BookingWorkflowActions,{BookingBadges} from '@/components/BookingWorkflowActions';
 import {deskRpc,bookingPayload} from '@/lib/deskBooking';
@@ -220,6 +222,7 @@ function DesktopSchedulePage() {
   // ✅ v3.20.11: 매출 상세 팝오버 (셔 설정 날짜별)
   const [revenueDetailDate, setRevenueDetailDate] = useState<string | null>(null);
   const [trialDate,setTrialDate]=useState<{date:string;time?:string}|null>(null);
+  const [paymentDate,setPaymentDate]=useState<string|null>(null),[staffDate,setStaffDate]=useState<string|null>(null),[staffEditing,setStaffEditing]=useState<any>(null),[teacherFilter,setTeacherFilter]=useState('');
   const [holdingInfo,setHoldingInfo]=useState<any>(null);
   const [actionSheet, setActionSheet] = useState<{ date: string; time?: string } | null>(null);
   // ✅ v3.17.1: 더블클릭 시 onClick 지연 취소용 ref
@@ -432,6 +435,7 @@ function DesktopSchedulePage() {
 
   // 예약 클릭 시 액션 시트 열기
   function openQuickAction(slot: any) {
+    if(["staff_work","staff_off"].includes(slot.event_type)){setStaffEditing(slot);setStaffDate(String(slot.event_date).slice(0,10));return;}
     if(slot.status==='holding'){setHoldingInfo({...slot,member_name:memberName(slot.member_id)});return;}
     setQuickAction(slot);
   }
@@ -762,7 +766,7 @@ function DesktopSchedulePage() {
     const trackFilteredSlots = slots.filter((s: any) => {
       if (!s) return false;
       const slotTrack = s.track || "aqua"; // 기본값 수중재활
-      return slotTrack === trackTab;
+      return (slotTrack === trackTab || ['staff_work','staff_off'].includes(s.event_type)) && (!teacherFilter || s.staff_id===teacherFilter || (['staff_work','staff_off'].includes(s.event_type)&&!s.staff_id));
     });
     // ✅ v3.65.0: 회원 이름 검색 필터 - 이름 입력 시 해당 회원의 수업만 시간표에 표시
     const _mq = memberSearchQ.trim().toLowerCase();
@@ -799,8 +803,10 @@ function DesktopSchedulePage() {
     console.log(`[v3.38.0] slotsByDate 매핑 완료: 총 ${keys.length}개 날짜, 스킵 ${skipped}건 (트랙: ${trackTab})`);
     return map;
   // ✅ v3.65.1: memberSearchQ/members 의존성 추가 - 이름 검색 시 필터 재계산 안 되는 버그 수정
-  }, [slots, trackTab, memberSearchQ, members]);
+  }, [slots, trackTab, memberSearchQ, members,teacherFilter]);
 
+  const visibleCalendarSlots=Object.values(slotsByDate).flat();
+  const visibleCalendarStaff=teacherFilter?staff.filter(s=>s.id===teacherFilter):staff;
   const monthCells = useMemo(() => monthGrid(year, month0), [year, month0]);
 
   /* 이번 달 상태별 통계 */
@@ -854,38 +860,8 @@ function DesktopSchedulePage() {
     clickTimerRef.current=setTimeout(()=>{setActionSheet({date,time});clickTimerRef.current=null;},250);
   }
 
-  function openRevenueModalFromDate(date: string) {
-    // v3.21.3: 결제 등록 UI 완전 일원화 – /payments 매출분석 페이지의 동일 모달로 이동
-    // 기존 QuickPaymentModal의 간이 UI 및 payment_methods 컬럼 오류 이슈 근원 해소
-    setActionSheet(null);
-    try {
-      sessionStorage.setItem("aqunote_open_payment", JSON.stringify({ open: true, date, ts: Date.now() }));
-    } catch {}
-    window.location.href = `/payments?open=1&date=${encodeURIComponent(date)}`;
-  }
-
-  function openStaffScheduleFromDate(date: string) {
-    // 직원 일정 = event_type='staff_work'
-    // ✅ v3.20.5: 지점 설정의 최소 시작 시간 사용 (하드코딩 09:00 제거)
-    const firstSlot = (timeSlotOptions && timeSlotOptions.length > 0)
-      ? timeSlotOptions[0]
-      : (scheduleConfig.open_time || "10:00");
-    setF({
-      event_date: date,
-      time_slot: firstSlot,
-      event_type: "staff_work",
-      member_id: "",
-      staff_id: "",
-      lesson_name: "",
-      status: "scheduled",
-      note: "",
-      amount: 0,
-      recurring_enabled: false,
-      recurring_weeks: 4,
-    });
-    setModal({ date });
-    setActionSheet(null);
-  }
+  function openRevenueModalFromDate(date: string) {setActionSheet(null);setPaymentDate(date);}
+  function openStaffScheduleFromDate(date: string) {setActionSheet(null);setStaffEditing(null);setStaffDate(date);}
 
   function nowTime() {
     const d = new Date();
@@ -919,6 +895,7 @@ function DesktopSchedulePage() {
   }
 
   function openEditModal(slot: any) {
+    if(["staff_work","staff_off"].includes(slot.event_type)){setStaffEditing(slot);setStaffDate(String(slot.event_date).slice(0,10));return;}
     if(slot.status==='holding'){setHoldingInfo({...slot,member_name:memberName(slot.member_id)});return;}
     setF({
       id: slot.id,
@@ -1887,6 +1864,7 @@ function DesktopSchedulePage() {
               <Clock className="w-3.5 h-3.5" /> 일간
             </button>
           </div>
+          <div className="calendar-teacher-tabs" role="group" aria-label="선생님별 시간표 필터"><button aria-pressed={!teacherFilter} onClick={()=>setTeacherFilter('')}>👤 전체보기</button>{staff.map((t:any)=><button key={t.id} aria-pressed={teacherFilter===t.id} onClick={()=>setTeacherFilter(t.id)}>{t.name}</button>)}</div>
           <button onClick={() => openNewModal(selectedDate)}
             className="bg-aqu-600 hover:bg-aqu-700 text-white px-3 py-1.5 rounded-lg text-xs md:text-sm flex items-center gap-1">
             <Plus className="w-4 h-4" /> 예약
@@ -2000,7 +1978,7 @@ function DesktopSchedulePage() {
                 const dayRevenue = dayPaymentsSum; // 캘린더 표시용 통일 (할인 반영 실매출)
 
                 return (
-                  <div key={idx}
+                  <div key={idx} data-calendar-date={cellStr}
                     onClick={() => {
                       setSelectedDate(cellStr);
                       if (isOtherMonth) return;
@@ -2090,16 +2068,16 @@ function DesktopSchedulePage() {
                         const isDone = s.status === "done" || s.status === "completed" || s.status === "present";
                         const isScheduled = !s.status || s.status === "scheduled";
                         // 출석전(scheduled)에는 opacity 0.7로 연하게, 출석후(done)에는 opacity 1 + 진한 강조
-                        const attendanceOpacity = isDone ? 1 : (isScheduled ? 0.72 : 1);
+                        const attendanceOpacity = 1;
                         return (
                           <div key={s.id}
                             draggable
                             onDragStart={(e) => handleDragStart(s, e)}
                             onClick={(e) => { e.stopPropagation(); openQuickAction(s); }}
                             style={s.status==='holding'?{backgroundColor:'#FFF7ED',color:'#9A3412',border:0}:{ ...staffTint, opacity: attendanceOpacity }}
-                            className={`text-[9px] md:text-[10px] px-1 py-0.5 rounded border ${(isGrayState || isStaffEvent || staffP?.color) ? "" : meta.color} hover:shadow-sm cursor-move flex flex-col gap-0 ${isDone ? "ring-1 ring-green-400" : ""}`}
+                            className={`${calendarSlotClass(s)} text-[9px] md:text-[10px] px-1 py-0.5 rounded border ${(isGrayState || isStaffEvent || staffP?.color) ? "" : meta.color} hover:shadow-sm cursor-move flex flex-col gap-0 `}
                             title={`${s.time_slot} ${memNameStr || s.lesson_name || s.note || ""}${msLabel ? " · " + msLabel : ""}${staffP ? " · " + staffP.name : ""} · ${meta.label || ""}`}>
-                            {(s.event_type==='trial'||s.status==='holding')?<CompactTrialSlot slot={s} memberName={memNameStr} staffName={staffP?.name}/>:<><BookingBadges slot={{...s,member_name:memNameStr}}/>
+                            <CompletedSlotBadge slot={s}/>{(s.event_type==='trial'||s.status==='holding')?<CompactTrialSlot slot={s} memberName={memNameStr} staffName={staffP?.name}/>:<><BookingBadges slot={{...s,member_name:memNameStr}}/>
                             {/* 상단: 시간 + 회원명 */}
                             <div className="flex items-center gap-0.5 truncate">
                               <span className="font-mono opacity-70">{s.time_slot?.slice(0,5)}</span>
@@ -2116,7 +2094,7 @@ function DesktopSchedulePage() {
                                 })()}
                               </span>
                               {s.recurring_id && <Repeat className="w-2.5 h-2.5 opacity-60" />}
-                              {isDone && <span className="ml-auto text-green-700 font-bold text-[9px]">✓</span>}
+                              
                             </div>
                             {/* 하단: 회원권 · 강사 (회원 예약일 때만) */}
                             {memNameStr && msLabel && (
@@ -2203,7 +2181,7 @@ function DesktopSchedulePage() {
         </div>
       ) : view === "week" ? (
         <WeekView
-          slots={slots}
+          slots={visibleCalendarSlots}
           members={members}
           staff={staff}
           onCellClick={(date, time) => openDateActionSheet(date, time)}
@@ -2216,9 +2194,9 @@ function DesktopSchedulePage() {
         <DayView
           date={selectedDate}
           setDate={setSelectedDate}
-          slots={slots}
+          slots={visibleCalendarSlots}
           members={members}
-          staff={staff}
+          staff={visibleCalendarStaff}
           onCellClick={(date, time) => openDateActionSheet(date, time)}
           onCellDoubleClick={(date, time) => openNewModal(date, time)}
           onEdit={openEditModal}
@@ -2231,6 +2209,8 @@ function DesktopSchedulePage() {
       <StatsSummary stats={monthStats} year={year} month0={month0} />
 
       {/* ═══ 날짜 액션 시트 ═══ */}
+      {paymentDate&&<CalendarPaymentModal date={paymentDate} track={trackTab} onClose={()=>setPaymentDate(null)} onSaved={loadAll}/>}
+      {staffDate&&<StaffScheduleModal date={staffDate} initialSlot={staffEditing} onClose={()=>setStaffDate(null)} onSaved={loadAll}/>}
       {trialDate&&<NewTrialModal date={trialDate.date} time={trialDate.time} onClose={()=>setTrialDate(null)} onSaved={loadAll}/>}
       {holdingInfo&&<HoldingSlotInfo slot={holdingInfo} onClose={()=>setHoldingInfo(null)}/>}
       {actionSheet && (
@@ -2885,7 +2865,7 @@ function BigStat({ label, val, sub, color }: any) {
 /* ═════ 주간 뷰 ═════ */
 function WeekView({ slots, members, staff, onCellClick, onCellDoubleClick, onEdit, memberName, timeSlotOptions }: any) {
   // ✅ v3.20.18: 지점 정책의 timeSlotOptions 사용 (fallback: TIMES)
-  const times = (timeSlotOptions && timeSlotOptions.length > 0) ? timeSlotOptions : TIMES;
+  const times = Array.from(new Set<string>([...((timeSlotOptions&&timeSlotOptions.length)?timeSlotOptions:TIMES),...slots.filter((s:any)=>!['staff_work','staff_off'].includes(s.event_type)).map((s:any)=>String(s.time_slot||'').slice(0,5)).filter(Boolean)])).sort();
   const staffMap = useMemo(() => {
     const m: Record<string, any> = {};
     (staff || []).forEach((s: any) => m[s.id] = s);
@@ -2915,7 +2895,7 @@ function WeekView({ slots, members, staff, onCellClick, onCellDoubleClick, onEdi
       const ed = typeof s.event_date === "string"
         ? s.event_date.substring(0, 10)
         : new Date(s.event_date).toISOString().substring(0, 10);
-      return ed === date && s.time_slot === time;
+      return ed === date && String(s.time_slot).slice(0,5) === time && !['staff_work','staff_off'].includes(s.event_type);
     });
   }
 
@@ -2960,6 +2940,7 @@ function WeekView({ slots, members, staff, onCellClick, onCellDoubleClick, onEdi
         </div>
       </div>
 
+      <CalendarStaffBand slots={slots} staff={staff} dates={weekDates.map((d:Date)=>ymd(d))} onEdit={onEdit}/>
       <div className="overflow-x-auto">
         <table className="w-full text-xs md:text-sm">
           <thead>
@@ -3001,8 +2982,8 @@ function WeekView({ slots, members, staff, onCellClick, onCellDoubleClick, onEdi
                             <div key={s.id}
                               onClick={() => onEdit(s)}
                               style={s.status==='holding'?{backgroundColor:'#FFF7ED',color:'#9A3412',border:0}:forcedStyle}
-                              className={`text-[10px] p-1 rounded border ${(isGrayStatus || isStaffEvent || borderColor) ? "" : meta.color} cursor-pointer hover:shadow-sm`}>
-                              {(s.event_type==='trial'||s.status==='holding')?<CompactTrialSlot slot={s} memberName={mem?.name} staffName={staffP?.name}/>:<><BookingBadges slot={{...s,member_name:mem?.name}}/><div className="font-medium truncate">
+                              className={`${calendarSlotClass(s)} text-[10px] p-1 rounded border ${(isGrayStatus || isStaffEvent || borderColor) ? "" : meta.color} cursor-pointer hover:shadow-sm`}>
+                              <CompletedSlotBadge slot={s}/>{(s.event_type==='trial'||s.status==='holding')?<CompactTrialSlot slot={s} memberName={mem?.name} staffName={staffP?.name}/>:<><BookingBadges slot={{...s,member_name:mem?.name}}/><div className="font-medium truncate">
                                 {mem?.name || s.lesson_name || (
                                   s.event_type === "staff_work" ? `👥 ${staffP?.name || "직원"}${s.note ? " · " + s.note : ""}` :
                                   s.event_type === "staff_off" ? `🏖️ ${staffP?.name || "직원"}${s.note ? " · " + s.note : " 휴무"}` :
@@ -3046,7 +3027,7 @@ function WeekView({ slots, members, staff, onCellClick, onCellDoubleClick, onEdi
 /* ═════ 일간 뷰 (강사별 컬럼) ═════ */
 function DayView({ date, setDate, slots, members, staff, onCellClick, onCellDoubleClick, onEdit, memberName, timeSlotOptions }: any) {
   // ✅ v3.20.18: 지점 정책의 timeSlotOptions 사용 (fallback: TIMES)
-  const times = (timeSlotOptions && timeSlotOptions.length > 0) ? timeSlotOptions : TIMES;
+  const times = Array.from(new Set<string>([...((timeSlotOptions&&timeSlotOptions.length)?timeSlotOptions:TIMES),...slots.filter((s:any)=>!['staff_work','staff_off'].includes(s.event_type)).map((s:any)=>String(s.time_slot||'').slice(0,5)).filter(Boolean)])).sort();
   const dayDate = new Date(date);
   // 해당 날짜에 재직 중인 직원만 표시 (퇴사일 이후엔 숨김)
   const workingStaff = (staff || []).filter((s: any) => {
@@ -3069,7 +3050,7 @@ function DayView({ date, setDate, slots, members, staff, onCellClick, onCellDoub
         ? s.event_date.substring(0, 10)
         : new Date(s.event_date).toISOString().substring(0, 10);
       return ed === date &&
-        s.time_slot === time &&
+        String(s.time_slot).slice(0,5) === time && !['staff_work','staff_off'].includes(s.event_type) &&
         (staffId ? s.staff_id === staffId : !s.staff_id);
     });
   }
@@ -3100,6 +3081,7 @@ function DayView({ date, setDate, slots, members, staff, onCellClick, onCellDoub
       </div>
 
       {/* 강사별 컬럼 */}
+      <CalendarStaffBand slots={slots} staff={staff} dates={[date]} onEdit={onEdit}/>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
@@ -3142,8 +3124,8 @@ function DayView({ date, setDate, slots, members, staff, onCellClick, onCellDoub
                             <div key={s.id}
                               onClick={() => onEdit(s)}
                               style={s.status==='holding'?{backgroundColor:'#FFF7ED',color:'#9A3412',border:0}:forcedStyle}
-                              className={`text-[10px] p-1.5 rounded cursor-pointer hover:shadow-sm`}>
-                              {(s.event_type==='trial'||s.status==='holding')?<CompactTrialSlot slot={s} memberName={mem?.name} staffName={st.name}/>:<><BookingBadges slot={{...s,member_name:mem?.name}}/><div className="font-medium truncate">
+                              className={`${calendarSlotClass(s)} text-[10px] p-1.5 rounded cursor-pointer hover:shadow-sm`}>
+                              <CompletedSlotBadge slot={s}/>{(s.event_type==='trial'||s.status==='holding')?<CompactTrialSlot slot={s} memberName={mem?.name} staffName={st.name}/>:<><BookingBadges slot={{...s,member_name:mem?.name}}/><div className="font-medium truncate">
                                 {mem?.name || s.lesson_name || (
                                   s.event_type === "staff_work" ? `👥 ${st.name}${s.note ? " · " + s.note : " 근무"}` :
                                   s.event_type === "staff_off" ? `🏖️ ${st.name}${s.note ? " · " + s.note : " 휴무"}` :

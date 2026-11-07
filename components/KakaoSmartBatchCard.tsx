@@ -314,8 +314,7 @@ export default function KakaoSmartBatchCard({ memberId, memberName, onSaved }: P
             <button
               onClick={saveAll}
               type="button"
-              disabled={saving || inFlightRef.current}
-              disabled={saving || totalValid === 0}
+              disabled={saving || inFlightRef.current || totalValid === 0}
               className="text-xs px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg font-bold shadow-sm flex items-center gap-1.5">
               {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
               자동 태그 분석 및 세션 저장

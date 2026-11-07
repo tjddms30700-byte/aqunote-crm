@@ -5,6 +5,7 @@ import { saveActualAttendance } from "@/lib/actualMembershipUsage";
 import { remainingOf, totalOf } from "@/lib/membershipFifo";
 import { signatureMembershipDecision } from "@/lib/signatureMembership";
 import { loadMemberMemberships } from "@/lib/memberMembershipQuery";
+import MembershipBalanceSummary from "@/components/MembershipBalanceSummary";
 import { X, RotateCcw, Save, Trash2 } from "lucide-react";
 
 /**
@@ -34,6 +35,7 @@ export default function SignatureAttendanceModal({
   const [existingRow, setExistingRow] = useState<any | null>(null);
   // ✅ v3.20.16: 회원권 자동 조회
   const [membership, setMembership] = useState<any | null>(null);
+  const [allMemberships,setAllMemberships]=useState<any[]>([]),[membershipLoading,setMembershipLoading]=useState(true),[membershipError,setMembershipError]=useState("");
   const [membershipMessage, setMembershipMessage] = useState("");
   const [membershipReload,setMembershipReload]=useState(0);
 
@@ -41,11 +43,12 @@ export default function SignatureAttendanceModal({
     if(!member?.id)return;
     let stopped=false;
     const refresh=async()=>{
+      setMembershipLoading(true);setMembershipError("");
       try {
         const data=await loadMemberMemberships(member.id);if(stopped)return;
         const resolution=signatureMembershipDecision({...slot,member_id:member.id,event_date:date},data,existingRow);
-        setMembership(resolution.activeMs || null);setMembershipMessage(resolution.message || "");
-      }catch(error:any){if(stopped)return;setMembership(null);setMembershipMessage(error?.message || "회원권 조회 실패. 다시 조회해주세요.");}
+        setAllMemberships(data);setMembershipLoading(false);setMembership(resolution.activeMs || null);setMembershipMessage(resolution.message || "");
+      }catch(error:any){if(stopped)return;setAllMemberships([]);setMembershipLoading(false);setMembershipError(error?.message||"회원권 조회 실패");setMembership(null);setMembershipMessage(error?.message || "회원권 조회 실패. 다시 조회해주세요.");}
     };
     void refresh();
     const visible=()=>{if(!document.hidden)void refresh();};
@@ -144,7 +147,7 @@ export default function SignatureAttendanceModal({
 
   return (
     <div className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-3" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[94dvh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="px-5 py-3 border-b border-gray-100 bg-gradient-to-r from-purple-50 to-pink-50 flex items-center justify-between">
           <div>
             <div className="text-lg font-bold text-slate-900">✍️ 사인 출결</div>
@@ -157,41 +160,7 @@ export default function SignatureAttendanceModal({
 
         <div className="p-4">
           {/* ✅ v3.20.16: 회원권 정보 (몇회권 중 몇회수업 · 남은 회수) */}
-          {membership ? (() => {
-            const total = totalOf(membership);
-            const used  = membership.used_sessions || 0;
-            const remaining = remainingOf(membership);
-            const currentSessionNo = used + 1; // 본 수업이 바로 몇 회수업인지
-            const lowStock = remaining <= 2;
-            return (
-              <div className={`mb-3 p-3 rounded-lg border-2 ${lowStock ? "bg-red-50 border-red-300" : "bg-aqu-50 border-aqu-200"}`}>
-                <div className="flex items-center justify-between mb-1">
-                  <div className="text-sm font-bold text-slate-900">🎯 {membership.plan_name || "회원권"}</div>
-                  <div className="text-[11px] text-gray-600">{membership.start_date} ~ {membership.end_date}</div>
-                </div>
-                <div className="text-[13px] text-gray-800">
-                  전체 <b className="text-aqu-700">{total}회권</b> 중
-                  <b className="text-purple-700 mx-1">{status === "present" ? currentSessionNo : used}회 수업</b>
-                  · 남은 회수 <b className={lowStock ? "text-red-600" : "text-emerald-700"}>{status === "present" ? remaining - 1 : remaining}회</b>
-                </div>
-                {lowStock && (
-                  <div className="mt-2 p-2 bg-red-100 border border-red-400 rounded text-[12px] font-bold text-red-800 flex items-center gap-1">
-                    ⚠️ 남은 회수가 {remaining}회입니다! 결제 안내가 필요합니다.
-                  </div>
-                )}
-                {remaining === 0 && (
-                  <div className="mt-2 p-2 bg-red-200 border-2 border-red-500 rounded text-[12px] font-bold text-red-900">
-                    🚨 회원권 소진! 지금 결제 안내해 주세요.
-                  </div>
-                )}
-                {membership.end_date && String(membership.end_date).slice(0,10)<date && <div className="mt-1 text-xs text-amber-700">기간 만료 · 잔여 사용 가능 (출석 시 1회 차감)</div>}
-              </div>
-            );
-          })() : (
-            <div className="mb-3 p-2 bg-yellow-50 border border-yellow-300 rounded text-[11px] text-yellow-800">
-              {membershipMessage || "수업에 맞는 사용 회원권을 확인해주세요. 서명은 저장하고 차감은 관리자 확인 후 처리합니다."}
-            </div>
-          )}
+          <MembershipBalanceSummary rows={allMemberships} current={membership} memberId={member.id} loading={membershipLoading} error={membershipError} message={membershipMessage}/>
 
           <button type="button" onClick={()=>setMembershipReload(x=>x+1)} className="text-[11px] text-slate-600 underline mb-2">회원권 다시 조회</button>
 

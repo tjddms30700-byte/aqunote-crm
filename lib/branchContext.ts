@@ -181,7 +181,7 @@ export function switchActiveBranch(branchId: string) {
 export function useBranchContext() {
   const [ctx, setCtx] = useState<BranchContext>({
     accountId: null, loginId: null, ownBranchId: null,
-    isMaster: false, activeBranchId: null, branches: [],
+    isMaster: false, isCenterManager: false, canManageBranch: false, activeBranchId: null, branches: [],
   });
   const [loading, setLoading] = useState(true);
 

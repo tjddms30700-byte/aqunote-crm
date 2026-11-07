@@ -6,6 +6,7 @@ import HomeButton from "@/components/HomeButton";
 import { supabase } from "@/lib/supabase";
 import { saveActualAttendance } from "@/lib/actualMembershipUsage";
 import { remainingOf, totalOf } from "@/lib/membershipFifo";
+import MembershipBalanceSummary from "@/components/MembershipBalanceSummary";
 import { signatureMembershipDecision } from "@/lib/signatureMembership";
 import { loadMemberMemberships } from "@/lib/memberMembershipQuery";
 import { tabletSignTargets, attendanceForSignTarget } from "@/lib/tabletSignTargets";
@@ -1028,7 +1029,7 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
   const [saving, setSaving] = useState(false);
   // ✨ v3.32.2: 회원권 잔여 + 최근 결석(보강필요) 상태
   const [memberInfo, setMemberInfo] = useState<{
-    activeMs: any | null;
+    allMs?: any[]; activeMs: any | null;
     remain: number;
     total: number;
     loading: boolean; message?: string; reason?: string; error?: string;
@@ -1047,7 +1048,7 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
         const context={...(scheduleSlot || {}),member_id:member.id,event_date:date};
         const resolution=signatureMembershipDecision(context,allMs,existingAttendance);
         const activeMs=resolution.activeMs;
-        setMemberInfo({activeMs,remain:remainingOf(activeMs),total:totalOf(activeMs),loading:false,message:resolution.message,reason:resolution.reason});
+        setMemberInfo({allMs,activeMs,remain:remainingOf(activeMs),total:totalOf(activeMs),loading:false,message:resolution.message,reason:resolution.reason});
       } catch(error:any){
         if(stopped)return;
         setMemberInfo({activeMs:null,remain:0,total:0,loading:false,error:error?.message || "회원권 조회 실패. 다시 조회해주세요.",reason:"query_error"});
@@ -1181,52 +1182,7 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
           {!memberInfo.loading && (
             <div className="grid grid-cols-1 gap-3">
               {/* 회원권 잔여 */}
-              <div className={`aqu-card border-2 p-3 rounded-2xl ${
-                memberInfo.remain === 0 ? "bg-gradient-to-br from-rose-50 to-red-50 border-rose-300" :
-                memberInfo.remain <= 2 ? "bg-gradient-to-br from-amber-50 to-orange-50 border-amber-300" :
-                "bg-gradient-to-br from-emerald-50 to-teal-50 border-emerald-300"
-              }`}>
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="text-lg">🎫</span>
-                  <span className="text-xs font-bold text-slate-700">회원권 잔여</span>
-                </div>
-                {memberInfo.error ? <div className="text-sm text-rose-700">{memberInfo.error}</div> : memberInfo.activeMs ? (
-                  <>
-                    <div className="text-[11px] text-slate-600 font-medium mb-1 truncate flex items-center gap-1.5">
-                      {memberInfo.activeMs.plan_name || "회원권"}
-                      {/* ✅ v3.57.2: 기한은 지났지만 잔여 있음 (폴백 사용 중) 배지 */}
-                      {memberInfo.activeMs.end_date && memberInfo.activeMs.end_date < date && (
-                        <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 border border-amber-300 rounded text-[9px] font-bold whitespace-nowrap">
-                          ⚠️ 기간 만료 · 잔여 사용 가능 {memberInfo.activeMs.end_date.slice(5)}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-baseline gap-1">
-                      <span className={`text-2xl font-extrabold ${
-                        memberInfo.remain === 0 ? "text-rose-600" :
-                        memberInfo.remain <= 2 ? "text-amber-600" : "text-emerald-600"
-                      }`}>{memberInfo.remain}</span>
-                      <span className="text-sm text-slate-500 font-medium">/ {memberInfo.total}회</span>
-                    </div>
-                    {memberInfo.remain === 0 && (
-                      <div className="mt-1 text-[10px] font-bold text-rose-600 bg-white/70 px-2 py-0.5 rounded-full inline-block">
-                        {memberInfo.reason === "recorded" ? "이미 차감된 당일 수업 · 추가 차감 없음" : "이 수업 상품의 잔여 0회 — 회원권 확인 필요"}
-                      </div>
-                    )}
-                    {memberInfo.remain > 0 && memberInfo.remain <= 2 && (
-                      <div className="mt-1 text-[10px] font-bold text-amber-700 bg-white/70 px-2 py-0.5 rounded-full inline-block">
-                        ⚡ 만료 임박
-                      </div>
-                    )}
-                    {memberInfo.message && <div className="mt-1 text-[10px] text-slate-600">{memberInfo.message}</div>}
-                    {memberInfo.activeMs.end_date && (
-                      <div className="mt-1 text-[10px] text-slate-500">만료일: {memberInfo.activeMs.end_date}</div>
-                    )}
-                  </>
-                ) : (
-                  <div className="text-xs text-slate-500 italic">{memberInfo.message || "수업에 맞는 사용 회원권을 확인해주세요. 서명은 저장하고 차감은 관리자 확인 후 처리합니다."}</div>
-                )}
-              </div>
+              <MembershipBalanceSummary rows={memberInfo.allMs||[]} current={memberInfo.activeMs} memberId={member.id} error={memberInfo.error} message={memberInfo.message}/>
 
               <button type="button" disabled={memberInfo.loading} onClick={()=>setMembershipReload(x=>x+1)} className="text-[11px] text-slate-600 underline disabled:opacity-50">회원권 다시 조회</button>
               {/* v3.73.0: 보강 관리는 시간표 관리자 패널에서만 수행 */}
