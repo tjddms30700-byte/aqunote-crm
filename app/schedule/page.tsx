@@ -20,6 +20,7 @@
 import {DateBusinessActions as DateActionSheet,NewTrialModal,CompactTrialSlot,HoldingSlotInfo} from '@/components/ScheduleBusinessActions';
 import {CalendarPaymentModal,StaffScheduleModal} from '@/components/CalendarOperationsModals';
 import {CompletedSlotBadge,isCompletedSlot,calendarSlotClass,CalendarStaffBand} from '@/components/CalendarSlotStatus';
+import {visibleScheduleSlots} from '@/lib/scheduleVisibility';
 import {hydrateTrialStatuses,TRIALS_CHANGED} from '@/lib/trialStatus';
 import SlotModal,{PlanPicker} from '@/components/ScheduleSlotModal';
 import BookingWorkflowActions,{BookingBadges} from '@/components/BookingWorkflowActions';
@@ -341,14 +342,14 @@ function DesktopSchedulePage() {
       const attempts = [
         // 1) 날짜 범위 + branch_id 필터
         () => (branchId && branchId !== "ALL")
-          ? supabase.from("schedule_slots").select("*").or(`branch_id.eq.${branchId},branch_id.is.null`).gte("event_date", rangeStart).lte("event_date", rangeEnd).order("event_date").order("time_slot").range(0, 99999)
-          : supabase.from("schedule_slots").select("*").gte("event_date", rangeStart).lte("event_date", rangeEnd).order("event_date").order("time_slot").range(0, 99999),  // ✅ v3.48.7: ALL 모드
+          ? supabase.from("schedule_slots").select("*").is("deleted_at",null).or(`branch_id.eq.${branchId},branch_id.is.null`).gte("event_date", rangeStart).lte("event_date", rangeEnd).order("event_date").order("time_slot").range(0, 99999)
+          : supabase.from("schedule_slots").select("*").is("deleted_at",null).gte("event_date", rangeStart).lte("event_date", rangeEnd).order("event_date").order("time_slot").range(0, 99999),  // ✅ v3.48.7: ALL 모드
         // 2) branch_id 없이 날짜 범위만
-        () => supabase.from("schedule_slots").select("*").gte("event_date", rangeStart).lte("event_date", rangeEnd).order("event_date").order("time_slot").range(0, 99999),
+        () => supabase.from("schedule_slots").select("*").is("deleted_at",null).gte("event_date", rangeStart).lte("event_date", rangeEnd).order("event_date").order("time_slot").range(0, 99999),
         // 3) 날짜 범위만 (정렬 없이)
-        () => supabase.from("schedule_slots").select("*").gte("event_date", rangeStart).lte("event_date", rangeEnd).range(0, 99999),
+        () => supabase.from("schedule_slots").select("*").is("deleted_at",null).gte("event_date", rangeStart).lte("event_date", rangeEnd).range(0, 99999),
         // 4) 최종 fallback: 전체 (과거 히스토리 수식 모드)
-        () => supabase.from("schedule_slots").select("*").order("event_date", { ascending: false }).range(0, 99999),
+        () => supabase.from("schedule_slots").select("*").is("deleted_at",null).order("event_date", { ascending: false }).range(0, 99999),
       ];
       for (let i = 0; i < attempts.length; i++) {
         try {
@@ -382,7 +383,7 @@ function DesktopSchedulePage() {
       supabase.from("memberships").select("id, member_id, plan_name, total_sessions, used_sessions, adjustment, end_date, status"),
     ]);
     // ✅ v3.29.2: State 실시간 sync 강화 - 로그 + 단순 배열 교체 + 버전 마커
-    let rawSlots = Array.isArray(sRes?.data) ? sRes.data : [];
+    let rawSlots = visibleScheduleSlots(sRes?.data);
     console.log(`[v3.37.0] schedule_slots 로드 완료: ${rawSlots.length}건`);
 
     // ✅ v3.46.0: 방어 필터 수정 - 개별 status='cancel' 은 UI에 표시 (취소=노쇼 개념)
@@ -415,7 +416,7 @@ function DesktopSchedulePage() {
       console.log(`[v3.28.2] 샘플 row keys:`, Object.keys(rawSlots[0]));
     }
     // ✅ v3.28.2: 클라이언트 측 branch_id 2차 필터링 제거 → 서버에서 이미 필터 완료
-    try{rawSlots=await hydrateTrialStatuses(rawSlots);}catch(e:any){if(requestVersion===loadVersion.current)setTrialSyncError(e.message);}
+    try{rawSlots=visibleScheduleSlots(await hydrateTrialStatuses(rawSlots));}catch(e:any){if(requestVersion===loadVersion.current)setTrialSyncError(e.message);}
     if(requestVersion!==loadVersion.current)return;
     setSlots(rawSlots);
     setMembers(mRes.data || []);
@@ -1066,6 +1067,25 @@ function DesktopSchedulePage() {
   }
 
   async function saveSlot() {
+    if(saving)return;
+    // Front-end feedback only; DB trigger is the authoritative concurrency-safe check.
+    const clock=normalizeClockTime(f.time_slot);
+    if(f.member_id&&f.event_date&&clock&&['lesson','trial','makeup'].includes(f.event_type||'lesson')){
+      const duplicate=(slots||[]).some((s:any)=>s.id!==f.id&&!s.deleted_at&&s.member_id===f.member_id&&String(s.event_date).slice(0,10)===f.event_date&&normalizeClockTime(s.time_slot)===clock&&['lesson','trial','makeup'].includes(s.event_type||'lesson'));
+      if(duplicate){alert('이미 해당 시간에 등록된 회원입니다');return;}
+    }
+    if(!f.id&&f.double_time&&['lesson','makeup'].includes(f.event_type||'lesson')){
+      setSaving(true);
+      try{
+        if(!clock)throw new Error('시작 시간을 선택해주세요.');
+        if(f.recurring_enabled)throw new Error('연타임은 날짜별로 2개 일정을 함께 등록해주세요. 반복 예약을 해제해주세요.');
+        if(!f._double_request_id)f._double_request_id=crypto.randomUUID();
+        await deskRpc('desk_book_double',{p_request:f._double_request_id,p_payload:{...bookingPayload({...f,time_slot:clock},trackTab),duration_minutes:Number(f.duration_minutes||((f.track||trackTab)==='ground'?30:70))}});
+        setModal(null);await loadAll();
+      }catch(e:any){alert('연타임 등록 실패: '+e.message+'\n두 일정은 함께 저장되며 실패하면 모두 취소됩니다.');}
+      finally{setSaving(false);}
+      return;
+    }
     if(!f.id&&f.event_type==='trial'&&f.recurring_enabled){alert('체험은 예약금·익주 홀딩과 연결되므로 한 회씩 등록해주세요.');return;}
     if(!f.id && !f.recurring_enabled && ['scheduled','reserved'].includes(f.status||'scheduled') && (f.event_type==='trial'||f.allow_unpaid)){if(saving)return;setSaving(true);try{const t=normalizeClockTime(f.time_slot);if(!t)throw new Error('수업 시간을 선택해주세요.');const payload=bookingPayload({...f,time_slot:t},trackTab);if(!f._request_id)f._request_id=crypto.randomUUID();await deskRpc('desk_book',{p_request:f._request_id,p_payload:payload});setModal(null);await loadAll();}catch(e:any){alert('등록 실패: '+e.message);}finally{setSaving(false);}return;}
     if (!f.event_date) { alert("날짜가 필요합니다"); return; }
@@ -1280,161 +1300,26 @@ function DesktopSchedulePage() {
     }
   }
 
-  // ✅ v3.20.4: mode - 'single' | 'series_all' | 'series_after'
+  // v3.88.6: server-side atomic deletion. Never delete attendance in the browser first.
   async function deleteSlot(id: string, opts?: { mode?: "single" | "series_all" | "series_after", series?: boolean, recurring_id?: string, from_date?: string, hard?: boolean }) {
-    const recurringId = opts?.recurring_id;
-    // 하위 호환: series=true → series_all
-    const mode: "single" | "series_all" | "series_after" =
-      opts?.mode || (opts?.series ? "series_all" : "single");
-    // ✅ v3.28.4: 모든 삭제를 HARD DELETE로 전환 + 마스터 권한 체크
-    const isHardDelete = true;
-
-    // ✅ v3.28.4: 마스터 권한 체크 (permission.ts 연동)
-    try {
-      const { isMasterAccount } = await import("@/lib/permission");
-      const master = await isMasterAccount();
-      if (!master) {
-        alert("⚠️ 완전 삭제 권한이 없습니다.\n\n마스터(대표) 계정으로만 삭제할 수 있습니다.\n담당자에게 문의하세요.");
-        return;
-      }
-    } catch (e) {
-      console.warn("[v3.28.4] permission 체크 실패 (개발 모드):", e);
-    }
-
-    // ✅ v3.24.3: 시간표 삭제 시 연동된 attendance도 함께 소프트 삭제 (출결장 동기화 강화)
-    // slot_id 매칭 실패 대비 - member_id + event_date + time_slot 3중 매칭 병행
-    const softDeleteAttendance = async (slotIds: string[], slotsInfo: any[] = []) => {
-      if (!slotIds || slotIds.length === 0) return;
-      const nowIso = new Date().toISOString();
-
-      // 1) slot_id 기반 삭제 (기본)
-      try {
-        const r = await supabase.from("attendance")
-          .update({ deleted_at: nowIso })
-          .in("slot_id", slotIds);
-        if (r.error) {
-          await supabase.from("attendance").delete().in("slot_id", slotIds);
-        }
-      } catch {
-        try { await supabase.from("attendance").delete().in("slot_id", slotIds); } catch {}
-      }
-
-      // 2) slot_id가 NULL이거나 매칭 실패한 attendance는 member_id + 날짜 + time_slot으로 재삭제
-      for (const s of slotsInfo) {
-        if (!s.member_id || !s.event_date) continue;
-        const dateStr = typeof s.event_date === "string" ? s.event_date.substring(0, 10) : new Date(s.event_date).toISOString().substring(0, 10);
-        for (const dateCol of ["attend_date", "date", "attendance_date", "session_date"]) {
-          try {
-            let q = supabase.from("attendance")
-              .update({ deleted_at: nowIso })
-              .eq("member_id", s.member_id)
-              .eq(dateCol, dateStr)
-              .is("deleted_at", null);
-            if (s.time_slot) q = q.eq("time_slot", s.time_slot);
-            const r = await q;
-            if (!r.error) break;
-          } catch {}
-        }
-      }
-    };
-
-    if (mode === "series_all" && recurringId) {
-      // ✅ v3.25.0: 완전 삭제 강화 경고 팝업
-      if (!confirm("🚫 정말로 반복 시리즈 전체를 완전 삭제하시겠습니까? (복구 불가)\n\n⚠️ DB에서 반복 시리즈 전체 레코드 + 연결된 출결 기록이 완전 삭제됩니다.\n🔄 출석 체크가 되어 있던 건은 회원권 장여가 자동 복원됩니다.")) return;
-      // ✅ v3.24.3: 삭제할 slot 상세 정보 (member_id, event_date, time_slot) 함께 조회
-      const { data: targetSlots } = await supabase.from("schedule_slots")
-        .select("id, member_id, event_date, time_slot").eq("recurring_id", recurringId);
-      const slotIds = (targetSlots || []).map((s: any) => s.id);
-      // ✅ v3.25.0: HARD DELETE - attendance 다중 매칭 삭제 후 schedule_slots 완전 삭제
-      if (slotIds.length > 0) {
-        await supabase.from("attendance").delete().in("slot_id", slotIds);
-      }
-      for (const s of (targetSlots || [])) {
-        if (!s.member_id || !s.event_date) continue;
-        const ds = typeof s.event_date === "string" ? s.event_date.substring(0,10) : new Date(s.event_date).toISOString().substring(0,10);
-        for (const dc of ["attend_date","date","attendance_date","session_date"]) {
-          try {
-            let q = supabase.from("attendance").delete().eq("member_id", s.member_id).eq(dc, ds);
-            if (s.time_slot) q = q.eq("time_slot", s.time_slot);
-            const r = await q; if (!r.error) break;
-          } catch {}
-        }
-      }
-      await supabase.from("schedule_slots").delete().eq("recurring_id", recurringId);
-    } else if (mode === "series_after" && recurringId && opts?.from_date) {
-      // ✅ v3.25.0: 완전 삭제 강화 경고 팝업
-      if (!confirm(`🚫 정말로 ${opts.from_date} 이후 반복 예약을 완전 삭제하시겠습니까? (복구 불가)\n\n⚠️ DB에서 레코드 완전 DELETE\n• 이전 수업은 그대로 유지\n📝 연결된 출결 기록도 완전 삭제`)) return;
-      // ✅ v3.24.3: 삭제할 slot 상세 정보 함께 조회
-      const { data: targetSlots } = await supabase.from("schedule_slots")
-        .select("id, member_id, event_date, time_slot").eq("recurring_id", recurringId).gte("event_date", opts.from_date);
-      const slotIds = (targetSlots || []).map((s: any) => s.id);
-      // ✅ v3.25.0: HARD DELETE
-      if (slotIds.length > 0) {
-        await supabase.from("attendance").delete().in("slot_id", slotIds);
-      }
-      for (const s of (targetSlots || [])) {
-        if (!s.member_id || !s.event_date) continue;
-        const ds = typeof s.event_date === "string" ? s.event_date.substring(0,10) : new Date(s.event_date).toISOString().substring(0,10);
-        for (const dc of ["attend_date","date","attendance_date","session_date"]) {
-          try {
-            let q = supabase.from("attendance").delete().eq("member_id", s.member_id).eq(dc, ds);
-            if (s.time_slot) q = q.eq("time_slot", s.time_slot);
-            const r = await q; if (!r.error) break;
-          } catch {}
-        }
-      }
-      await supabase.from("schedule_slots").delete()
-        .eq("recurring_id", recurringId)
-        .gte("event_date", opts.from_date);
-    } else {
-      // ✅ v3.29.2: 완전 삭제 강화 경고 팝업 + 결과 검증 + State 즉시 동기화
-      if (!confirm("🚫 정말로 완전 삭제하시겠습니까? (복구 불가)\n\n⚠️ DB에서 이 일정과 연결된 모든 출결 기록이 완전히 삭제됩니다.\n🔄 출석 체크가 되어 있었다면 회원권 장여가 자동 복원됩니다.")) return;
-
-      console.log("[v3.29.2] deleteSlot single 시작:", id);
-
-      // 1) 삭제 전 slot 상세 정보 조회
-      const { data: slotInfo, error: infoErr } = await supabase.from("schedule_slots")
-        .select("id, member_id, event_date, time_slot").eq("id", id).maybeSingle();
-      if (infoErr) console.warn("[v3.29.2] slotInfo 조회 오류:", infoErr);
-      console.log("[v3.29.2] slotInfo:", slotInfo);
-
-      // 2) 연결된 attendance HARD DELETE (slot_id 기반)
-      const attR1 = await supabase.from("attendance").delete().eq("slot_id", id);
-      console.log("[v3.29.2] attendance slot_id 삭제 결과:", attR1.error?.message || "OK");
-
-      // 3) slot_id 누락된 attendance는 member_id + date + time_slot 3중 매칭으로도 삭제
-      if (slotInfo?.member_id && slotInfo?.event_date) {
-        const dateStr = typeof slotInfo.event_date === "string" ? slotInfo.event_date.substring(0, 10) : new Date(slotInfo.event_date).toISOString().substring(0, 10);
-        for (const dateCol of ["attend_date", "date", "attendance_date", "session_date"]) {
-          try {
-            let q = supabase.from("attendance").delete()
-              .eq("member_id", slotInfo.member_id).eq(dateCol, dateStr);
-            if (slotInfo.time_slot) q = q.eq("time_slot", slotInfo.time_slot);
-            const r = await q;
-            if (!r.error) { console.log("[v3.29.2] attendance fallback 삭제 성공 (" + dateCol + ")"); break; }
-          } catch {}
-        }
-      }
-
-      // 4) schedule_slots HARD DELETE + 결과 검증 (v3.29.2 핵심)
-      const delR = await supabase.from("schedule_slots").delete().eq("id", id).select();
-      console.log("[v3.29.2] schedule_slots 삭제 결과:", { deleted: delR.data?.length || 0, error: delR.error?.message });
-
-      if (delR.error) {
-        alert("❌ 삭제 실패: " + delR.error.message + "\n\nRLS 정책 잠김 가능성. AQUNOTE_V3292_CLEANUP.sql 실행 요청.");
-        return;
-      }
-      if (!delR.data || delR.data.length === 0) {
-        alert("⚠️ 0건 삭제됨. RLS DELETE 권한 확인 필요.\nID: " + id);
-        return;
-      }
-
-      // 5) State 즉시 동기화 (loadAll 이전에 먼저 UI에서 제거)
-      setSlots(prev => (prev || []).filter((s: any) => s && s.id !== id));
-      console.log("[v3.29.2] ✅ UI State 즉시 제거 완료");
-    }
-    await loadAll();
-    console.log("[v3.29.2] ✅ deleteSlot 완료 + loadAll 재조회 끝");
+    if(saving)return;
+    const mode=opts?.mode||(opts?.series?'series_all':'single');
+    const label=mode==='series_all'?'이 반복 일정 전체':mode==='series_after'?'이 날짜 이후의 반복 일정':'이 일정 1건';
+    if(!confirm(`${label}을 삭제할까요?\n실제로 차감된 회차만 해당 회원권으로 복원합니다. 결제·일지 이력은 보존합니다.`))return;
+    setSaving(true);
+    try{
+      const r=await deskRpc('desk_delete_schedule',{p_slot:id,p_mode:mode});
+      if(!r?.ok)throw new Error('삭제 결과를 확인하지 못했습니다. 새로고침 후 확인해주세요.');
+      const removed=new Set<string>(r.slot_ids||[]);
+      setSlots(prev=>(prev||[]).filter((s:any)=>!removed.has(s.id)));
+      setModal(null);
+      window.dispatchEvent(new Event(TRIALS_CHANGED));
+      window.dispatchEvent(new Event('aqunote-mobile-work-changed'));
+      window.dispatchEvent(new Event('aqunote-payments-changed'));
+      await loadAll();
+      alert(`일정 ${r.deleted_count||0}건 삭제 · 실제 차감 ${r.restored_count||0}회 복원${r.already?' (이미 처리된 요청)':''}`);
+    }catch(e:any){alert('삭제하지 못했습니다: '+(e?.message||String(e))+'\n삭제와 회차 복원은 함께 처리되며, 실패 시 모두 취소됩니다.');}
+    finally{setSaving(false);}
   }
 
   /* ─── v3.29.2: 상태 변경 통합 로직 (드롭다운 즉시 적용) ─── */
@@ -2243,7 +2128,7 @@ function DesktopSchedulePage() {
           makeupPending={makeupNeededList}
           onClose={() => setModal(null)}
           onSave={saveSlot}
-          onDelete={f.id ? (opts?: any) => { deleteSlot(f.id, opts); setModal(null); } : undefined}
+          onDelete={f.id ? (opts?: any) => { void deleteSlot(f.id, opts); } : undefined}
           saving={saving}
         />
       )}
@@ -2767,7 +2652,7 @@ function SelectedDayPanel({ date, slots, members, staff, staffName, onAdd, onEdi
                   </button>
                   <button onClick={() => onDelete(s.id, { hard: true })}
                     className="text-[10px] px-2 py-1 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200"
-                    title="완전 삭제 (복구불가)">
+                    title="일정 삭제 · 실제 차감 회차 복원">
                     🗑️
                   </button>
                 </div>
@@ -3754,7 +3639,7 @@ function DayListModal({ date, slots, members, staff, memberships, onClose, onQui
                       {/* 삭제 */}
                       <button onClick={(e) => { e.stopPropagation(); onDelete(s); }}
                         className="flex-shrink-0 p-2 text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-full border-2 border-rose-200 transition-colors"
-                        title="완전 삭제 (마스터 권한)">
+                        title="일정 삭제 · 실제 차감 회차 복원">
                         🗑️
                       </button>
                     </div>
