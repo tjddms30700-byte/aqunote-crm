@@ -1,0 +1,2 @@
+/** All calendar views share the same visibility rule. Never hide absence/cancellation history by status alone. */
+export function visibleScheduleSlots(rows:unknown):any[]{if(!Array.isArray(rows))return [];return rows.filter(s=>{if(!s||s.deleted_at)return false;const holding=s.status==='holding'||s.workflow_kind==='trial_hold';return !(holding&&(s.trial_hold_deleted===true||['cancelled','ended','regular'].includes(s.trial_memo_decision)));});}

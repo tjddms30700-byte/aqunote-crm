@@ -1028,7 +1028,6 @@ function ContractsPage() {
       staff_birth: fd.staff_birth || fd.birth || fd.birth_date || "",
       address: fd.address || "",
       start_date: editingObj?.start_date || fd.start_date || fd.hire_date || "",
-      end_date: editingObj?.end_date || fd.end_date || "",
       hire_date: fd.hire_date || editingObj?.start_date || fd.start_date || "",
       contract_date: editingObj?.contract_date || "",
       base_salary: fd.base_salary ? Number(fd.base_salary).toLocaleString() : "",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
 import KakaoMessageModal from "@/components/KakaoMessageModal";
@@ -11,97 +11,43 @@ import {
   MessageSquare, Filter, ChevronRight, Bell, DollarSign
 } from "lucide-react";
 
-type Filter = "auto_renew" | "expiring" | "remaining_low" | "all";
+import {koreanToday,renewalRows,renewalCounts,readBillingPages} from "@/lib/billingReadModels";
+
+type Filter = "auto_renew" | "expiring" | "remaining_low" | "all" | "history";
 
 export default function RenewalsPage() {
   const [memberships, setMemberships] = useState<any[]>([]);
   const [members, setMembers] = useState<any[]>([]);
   const [branch, setBranch] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<Filter>("auto_renew");
+  const [filter, setFilter] = useState<Filter>("expiring");
   const [msgTarget, setMsgTarget] = useState<{ member: any; membership: any } | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
-  const [recalcRunning, setRecalcRunning] = useState(false);  // ✅ v3.48.0
+  const loadVersion=useRef(0);
+  const [loadError,setLoadError]=useState("");
+  const [todayStr,setTodayStr]=useState(koreanToday);
+  useEffect(()=>{const timer=setInterval(()=>setTodayStr(koreanToday()),60000);return()=>clearInterval(timer);},[]);
 
   useEffect(() => { loadAll(); }, []);
   useBranchWatch(() => loadAll());
 
   async function loadAll() {
-    setLoading(true);
-    const branchId = getActiveBranchId();
-    // 지점 정보 (센터명/전화)
-    if (branchId) {
-      const { data: b } = await supabase.from("branches").select("*").eq("id", branchId).maybeSingle();
-      setBranch(b);
-    }
-
-    // 회원 (branch_id 필터)
-    const memberQuery = branchId
-      ? supabase.from("members").select("*").is("deleted_at", null).eq("branch_id", branchId)
-      : supabase.from("members").select("*").is("deleted_at", null);
-    let { data: ms, error: e1 } = await memberQuery;
-    if (e1 && (e1.code === "42703" || e1.message?.includes("branch_id"))) {
-      const fb = await supabase.from("members").select("*").is("deleted_at", null);
-      ms = fb.data;
-    }
-    setMembers(ms || []);
-
-    // 회원권 (cancelled 제외)
-    const { data: mships } = await supabase.from("memberships")
-      .select("*")
-      .neq("status", "cancelled")
-      .order("end_date", { ascending: true });
-    // 지점의 회원 ID 목록으로 필터
-    const memIds = new Set((ms || []).map((m: any) => m.id));
-    setMemberships((mships || []).filter((x: any) => memIds.has(x.member_id)));
-
-    setLoading(false);
+    const version=++loadVersion.current;setLoading(true);setLoadError("");setMembers([]);setMemberships([]);setBranch(null);
+    const branchId=getActiveBranchId();const selected=branchId&&branchId!=="ALL"?branchId:null;
+    try{
+      const ms=await readBillingPages((from,to)=>{let q=supabase.from('members').select('*').eq('status','active').is('deleted_at',null).order('id');if(selected)q=q.eq('branch_id',selected);return q.range(from,to);});
+      if(version!==loadVersion.current)return;
+      const all:any[]=[];
+      for(let i=0;i<ms.length;i+=300){const ids=ms.slice(i,i+300).map(m=>m.id);all.push(...await readBillingPages((from,to)=>supabase.from('memberships').select('*').in('member_id',ids).order('id').range(from,to)));}
+      if(version!==loadVersion.current)return;
+      if(selected){const r=await supabase.from('branches').select('*').eq('id',selected).maybeSingle();if(version!==loadVersion.current)return;setBranch(r.data);}
+      setMembers(ms);setMemberships(all);
+    }catch(e:any){if(version===loadVersion.current)setLoadError('갱신 목록 조회 실패: '+(e.message||String(e)));}
+    finally{if(version===loadVersion.current)setLoading(false);}
   }
-
-  const today = new Date();
-  const todayStr = today.toISOString().slice(0, 10);
-
-  const enrichedList = useMemo(() => {
-    return memberships.map((ms: any) => {
-      const memb = members.find(m => m.id === ms.member_id);
-      const remaining = Math.max(0, (ms.total_sessions || 0) - (ms.used_sessions || 0));
-      const carryover = ms.carryover_count || 0;
-      const daysToExpire = ms.end_date
-        ? Math.floor((new Date(ms.end_date).getTime() - today.getTime()) / 86400000)
-        : null;
-      return {
-        ...ms,
-        _member: memb,
-        _remaining: remaining,
-        _carryover: carryover,
-        _daysToExpire: daysToExpire,
-        _isExpired: daysToExpire !== null && daysToExpire < 0,
-        _isExpiringSoon: daysToExpire !== null && daysToExpire >= 0 && daysToExpire <= 7,
-        _isRemainingLow: remaining <= 3 && remaining > 0,
-      };
-    }).filter((x: any) => x._member); // 회원 없는 회원권 제외
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [memberships, members]);
-
-  const filtered = useMemo(() => {
-    switch (filter) {
-      case "auto_renew":
-        return enrichedList.filter((x: any) => x.auto_renew === true);
-      case "expiring":
-        return enrichedList.filter((x: any) => x._isExpiringSoon || x._isExpired);
-      case "remaining_low":
-        return enrichedList.filter((x: any) => x._isRemainingLow);
-      default:
-        return enrichedList;
-    }
-  }, [enrichedList, filter]);
-
-  const counts = useMemo(() => ({
-    auto_renew: enrichedList.filter((x: any) => x.auto_renew).length,
-    expiring: enrichedList.filter((x: any) => x._isExpiringSoon || x._isExpired).length,
-    remaining_low: enrichedList.filter((x: any) => x._isRemainingLow).length,
-    all: enrichedList.length,
-  }), [enrichedList]);
+  const enrichedList=useMemo(()=>renewalRows(memberships,members,todayStr),[memberships,members,todayStr]);
+  const counts=useMemo(()=>renewalCounts(enrichedList),[enrichedList]);
+  const filtered=useMemo(()=>enrichedList.filter(x=>filter==='history'?x._isExpired:filter==='expiring'?x._isExpiringSoon:filter==='remaining_low'?x._isRemainingLow:filter==='auto_renew'?x._isValidTicket&&x.auto_renew===true:x._isValidTicket),[enrichedList,filter]);
 
   async function toggleAutoRenew(ms: any) {
     setUpdatingId(ms.id);
@@ -127,15 +73,15 @@ export default function RenewalsPage() {
   }
 
   return (
-    <main className="max-w-6xl mx-auto px-3 md:px-6 py-6 md:py-10">
+    <main className="max-w-6xl mx-auto px-3 md:px-6 py-6 md:py-10 min-h-screen bg-slate-50">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 p-2.5 shadow">
+          <div className="w-11 h-11 rounded-2xl bg-sky-600 p-2.5 shadow">
             <RefreshCw className="w-full h-full text-white" />
           </div>
           <div>
             <h1 className="text-xl md:text-2xl font-bold text-slate-900">정기 결제 · 갱신 관리</h1>
-            <p className="text-xs text-gray-500">자동 갱신 · 만료 임박 · 잔여 소진</p>
+            <p className="text-xs text-gray-500">활동 회원의 정규 회원권만 · 체험권 및 종결·휴원 회원 제외</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -144,10 +90,11 @@ export default function RenewalsPage() {
         </div>
       </div>
 
+      {loadError&&<p role="alert" className="mb-4 rounded-2xl bg-rose-50 p-4 text-sm text-rose-700">{loadError}<button onClick={()=>void loadAll()} className="ml-3 underline">다시 조회</button></p>}
       {/* KPI 카드 */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
         <button onClick={() => setFilter("auto_renew")}
-          className={`p-4 rounded-2xl text-left transition ${filter === "auto_renew" ? "bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-md" : "bg-white border border-gray-100 hover:border-emerald-200"}`}>
+          className={`p-4 rounded-2xl text-left transition ${filter === "auto_renew" ? "bg-sky-600 text-white shadow-md" : "bg-white shadow-sm hover:bg-sky-50"}`}>
           <div className="flex items-center justify-between">
             <RefreshCw className="w-5 h-5" />
             <span className="text-2xl font-black">{counts.auto_renew}</span>
@@ -156,7 +103,7 @@ export default function RenewalsPage() {
           <div className="text-[10px] opacity-80 mt-0.5">정액권 매월 갱신</div>
         </button>
         <button onClick={() => setFilter("expiring")}
-          className={`p-4 rounded-2xl text-left transition ${filter === "expiring" ? "bg-gradient-to-br from-red-500 to-orange-500 text-white shadow-md" : "bg-white border border-gray-100 hover:border-red-200"}`}>
+          className={`p-4 rounded-2xl text-left transition ${filter === "expiring" ? "bg-sky-600 text-white shadow-md" : "bg-white shadow-sm hover:bg-sky-50"}`}>
           <div className="flex items-center justify-between">
             <AlertTriangle className="w-5 h-5" />
             <span className="text-2xl font-black">{counts.expiring}</span>
@@ -165,7 +112,7 @@ export default function RenewalsPage() {
           <div className="text-[10px] opacity-80 mt-0.5">D-7 이내</div>
         </button>
         <button onClick={() => setFilter("remaining_low")}
-          className={`p-4 rounded-2xl text-left transition ${filter === "remaining_low" ? "bg-gradient-to-br from-amber-500 to-orange-500 text-white shadow-md" : "bg-white border border-gray-100 hover:border-amber-200"}`}>
+          className={`p-4 rounded-2xl text-left transition ${filter === "remaining_low" ? "bg-sky-600 text-white shadow-md" : "bg-white shadow-sm hover:bg-sky-50"}`}>
           <div className="flex items-center justify-between">
             <Bell className="w-5 h-5" />
             <span className="text-2xl font-black">{counts.remaining_low}</span>
@@ -174,7 +121,7 @@ export default function RenewalsPage() {
           <div className="text-[10px] opacity-80 mt-0.5">재등록 유도</div>
         </button>
         <button onClick={() => setFilter("all")}
-          className={`p-4 rounded-2xl text-left transition ${filter === "all" ? "bg-gradient-to-br from-slate-600 to-gray-700 text-white shadow-md" : "bg-white border border-gray-100 hover:border-gray-300"}`}>
+          className={`p-4 rounded-2xl text-left transition ${filter === "all" ? "bg-sky-600 text-white shadow-md" : "bg-white shadow-sm hover:bg-sky-50"}`}>
           <div className="flex items-center justify-between">
             <Users className="w-5 h-5" />
             <span className="text-2xl font-black">{counts.all}</span>
@@ -182,8 +129,10 @@ export default function RenewalsPage() {
           <div className="text-sm font-bold mt-2">📋 전체</div>
           <div className="text-[10px] opacity-80 mt-0.5">활성 회원권</div>
         </button>
+        <button onClick={()=>setFilter('history')} className={`rounded-2xl p-4 text-left shadow-sm ${filter==='history'?'bg-sky-600 text-white':'bg-white text-slate-600'}`}><div className="text-2xl font-bold">{counts.history}</div><div className="mt-2 text-sm font-semibold">만료 완료(이력)</div><div className="mt-1 text-[10px] opacity-80">잔여 0회 또는 기간 만료</div></button>
       </div>
 
+      <p className="mb-4 text-xs leading-relaxed text-slate-500">한국 날짜 {todayStr} 기준 · 만료 임박은 오늘부터 D-7까지, 잔여가 있는 유효 회원권만 집계해요. 0회·기간 만료는 이력에서 확인해요. 단위는 회원권 건수예요.</p>
       {/* 리스트 */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         {loading ? (
@@ -238,13 +187,13 @@ export default function RenewalsPage() {
                       <div className="text-xs text-gray-600 mt-1">
                         📋 <b>{ms.plan_name || "회원권"}</b>
                         <span className="ml-2">
-                          {ms._remaining} / {ms.total_sessions || 0}회
+                          {ms._remaining} / {Number(ms.total_sessions || 0)+Number(ms.adjustment || 0)}회
                         </span>
                         {ms._carryover > 0 && (
                           <span className="ml-2 text-emerald-600">+이월 {ms._carryover}회</span>
                         )}
-                        {ms.end_date && (
-                          <span className="ml-2 text-gray-500">📅 ~{ms.end_date}</span>
+                        {(ms.expire_date||ms.end_date) && (
+                          <span className="ml-2 text-gray-500">📅 ~{String(ms.expire_date||ms.end_date).slice(0,10)}</span>
                         )}
                       </div>
                     </div>
@@ -255,7 +204,7 @@ export default function RenewalsPage() {
                       <div className="flex items-center gap-1 bg-slate-50 rounded-lg px-2 py-1">
                         <span className="text-[10px] text-gray-500">노쇼:</span>
                         <select value={ms.noshow_policy || "deduct"}
-                          disabled={updatingId === ms.id}
+                          disabled={updatingId === ms.id || ms._isExpired}
                           onChange={(e) => setNoshowPolicy(ms, e.target.value)}
                           className="text-xs bg-transparent border-none focus:outline-none cursor-pointer">
                           <option value="deduct">차감</option>
@@ -265,7 +214,7 @@ export default function RenewalsPage() {
                       </div>
                       {/* 자동 갱신 토글 */}
                       <button onClick={() => toggleAutoRenew(ms)}
-                        disabled={updatingId === ms.id}
+                        disabled={updatingId === ms.id || ms._isExpired}
                         className={`text-xs px-2.5 py-1.5 rounded-lg font-semibold transition ${
                           ms.auto_renew
                             ? "bg-emerald-500 text-white hover:bg-emerald-600"

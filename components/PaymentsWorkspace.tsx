@@ -1,6 +1,7 @@
 "use client";
 
 import { Children, cloneElement, isValidElement, useEffect, useState, useMemo, useRef, useId } from "react";
+import {TicketView,koreanToday,billingDay,ticketViewMatches,isBillingHistory,isCancelledRecord,paymentNet,readBillingPages} from "@/lib/billingReadModels";
 import { supabase } from "@/lib/supabase";
 import { remainingOf, totalOf } from "@/lib/membershipFifo";
 import { isPaymentCancelled, cancelMembershipRegistration } from "@/lib/paymentCancellation";
@@ -13,7 +14,7 @@ import MemberSearch from "@/components/MemberSearch";
 import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import {
   Waves, Plus, X, Save, CreditCard, Calendar, DollarSign, Home,
-  Banknote, Building2, HelpCircle, Ticket, Clock, Hash, Trash2, Receipt
+  Banknote, Building2, HelpCircle, Ticket, Clock, Hash, Trash2, Receipt, BarChart3, RefreshCw, Wallet
 } from "lucide-react";
 
 const METHODS = [
@@ -66,8 +67,10 @@ export default function PaymentsWorkspace({embedded=false,initialDate,initialTra
   const [focusedMembershipId, setFocusedMembershipId] = useState("");
   // ✨ v3.32.2: 취소된 결제 숨김 토글 (기본: 숨김)
   const [hideCancelled, setHideCancelled] = useState(true);
+  const [ticketView,setTicketView]=useState<TicketView>("all");
+  const loadVersion=useRef(0);
   // ✅ v3.16.0: 월별 필터 (기본값: 이번 달)
-  const [filterMonth, setFilterMonth] = useState<string>(new Date().toISOString().slice(0, 7));
+  const [filterMonth, setFilterMonth] = useState<string>(koreanToday().slice(0, 7));
   const [showModal, setShowModal]   = useState(embedded);
   const saveLock=useRef(false),savedOnce=useRef(false),[loadError,setLoadError]=useState("");
   const [saving, setSaving]         = useState(false);
@@ -157,64 +160,23 @@ export default function PaymentsWorkspace({embedded=false,initialDate,initialTra
   }, []);
 
   async function loadAll() {
-    setLoading(true);setLoadError("");
-    const branchId = getActiveBranchId();
-    // ✅ 지점 필터 적용 헬퍼 (branch_id 컴럼 미존재 시 폴백)
-    const bf = (q: any) => (branchId && branchId !== "ALL" ? q.eq("branch_id", branchId) : q);
-    const [p, m, mem, pl] = await Promise.all([
-      // 이중 조인 실패에 대비해 fallback 해봄
-      (async () => {
-        const first = await bf(supabase.from("payments").select("*, members(name, member_type), memberships(plan_name, total_sessions, used_sessions, adjustment, end_date)")).order("paid_at", { ascending: false });
-        if (first.error) {
-          // 조인 실패 → memberships 조인 제거하고 재시도
-          console.warn("payments 조인 실패, fallback", first.error);
-          const fb = await bf(supabase.from("payments").select("*, members(name, member_type)")).order("created_at", { ascending: false });
-          // branch_id 컴럼 미존재 시 폴백
-          if (fb.error && (fb.error.code === "42703" || fb.error.message?.includes("branch_id"))) {
-            return await supabase.from("payments").select("*, members(name, member_type)").order("created_at", { ascending: false });
-          }
-          return fb;
-        }
-        return first;
-      })(),
-      // memberships 조회 — order 실패 시 no-order로 fallback
-      (async () => {
-        // memberships는 members의 branch를 따른다 (직접 branch_id 없으므로 서버에서 모두 가져오고 프론트에서 필터)
-        const r1 = await supabase.from("memberships").select("*, members(name, member_type, branch_id)").order("created_at", { ascending: false });
-        if (r1.error) {
-          console.warn("memberships 조회 fallback:", r1.error);
-          return await supabase.from("memberships").select("*, members(name, member_type)");
-        }
-        // 프론트 필터링
-        if (branchId && branchId !== "ALL" && r1.data) {
-          r1.data = r1.data.filter((x: any) => !x.members?.branch_id || x.members.branch_id === branchId);
-        }
-        return r1;
-      })(),
-      (async () => {
-        const r = await bf(supabase.from("members").select("id, name, member_type, phone, status").is("deleted_at", null)).order("name");
-        if (r.error && (r.error.code === "42703" || r.error.message?.includes("branch_id"))) {
-          return await supabase.from("members").select("id, name, member_type, phone, status").is("deleted_at", null).order("name");
-        }
-        return r;
-      })(),
-      supabase.from("membership_plans").select("*").order("sort_order"),
-    ]);
-    // v3.73.0: Normalize legacy rows on read without modifying amounts or DB records.
-    const sourceErrors=[mem.error&&'회원 DB: '+mem.error.message,pl.error&&'회원권 상품: '+pl.error.message].filter(Boolean);setLoadError(sourceErrors.join(' / '));
-    const catalog = pl.data || [];
-    const normalizedMemberships = (m.data || []).map((row: any) => {
-      const relatedPayment = (p.data || []).find((pay: any) => pay.membership_id === row.id);
-      return { ...row, members: row.members || (mem.data || []).find((member: any) => member.id === row.member_id) || null, category: resolveBillingCategory(row, catalog, relatedPayment) };
-    });
-    const byMembershipId = new Map(normalizedMemberships.map((row: any) => [row.id, row]));
-    setPayments((p.data || []).map((row: any) => ({ ...row,
-      category: resolveBillingCategory(row, catalog, byMembershipId.get(row.membership_id)),
-    })));
-    setMemberships(normalizedMemberships);
-    setMembers(mem.data || []);
-    setPlans((pl.data || []).filter((plan: any) => plan.is_active !== false));
-    setLoading(false);
+    const version=++loadVersion.current;setLoading(true);setLoadError("");setPayments([]);setMemberships([]);setMembers([]);setPlans([]);
+    const branch=getActiveBranchId(),selected=branch&&branch!=="ALL"?branch:null;
+    const scope=(q:any,legacy=false)=>!selected?q:legacy?q.or(`branch_id.eq.${selected},branch_id.is.null`):q.eq('branch_id',selected);
+    try{
+      const [p,m,mem,pl]=await Promise.all([
+        readBillingPages((from,to)=>scope(supabase.from('payments').select('*'),true).order('id').range(from,to)),
+        readBillingPages((from,to)=>supabase.from('memberships').select('*').order('id').range(from,to)),
+        readBillingPages((from,to)=>scope(supabase.from('members').select('*')).order('id').range(from,to)),
+        readBillingPages((from,to)=>supabase.from('membership_plans').select('*').order('id').range(from,to))]);
+      if(version!==loadVersion.current)return;
+      const ids=new Set(mem.map(x=>x.id));const receipts=p.filter(x=>!selected||x.branch_id===selected||!x.branch_id&&ids.has(x.member_id));
+      const catalog=pl;const normalized=m.filter(x=>!selected||ids.has(x.member_id)).map(row=>({...row,members:mem.find(x=>x.id===row.member_id)||null,category:resolveBillingCategory(row,catalog,receipts.find(pay=>pay.membership_id===row.id))}));
+      const passes=new Map(normalized.map(row=>[row.id,row]));
+      setPayments(receipts.map(row=>({...row,members:mem.find(x=>x.id===row.member_id)||null,memberships:passes.get(row.membership_id)||null,category:resolveBillingCategory(row,catalog,passes.get(row.membership_id))})).sort((a,b)=>String(b.paid_at||b.created_at||'').localeCompare(String(a.paid_at||a.created_at||''))));
+      setMemberships(normalized);setMembers(mem.filter(x=>!x.deleted_at));setPlans(pl.filter(x=>x.is_active!==false&&!x.deleted_at));
+    }catch(e:any){if(version===loadVersion.current)setLoadError('결제·회원권 조회 실패: '+(e.message||String(e)));}
+    finally{if(version===loadVersion.current)setLoading(false);}
   }
 
   // ✅ 지점 전환 이벤트 감지
@@ -736,10 +698,10 @@ export default function PaymentsWorkspace({embedded=false,initialDate,initialTra
 
 
 // v3.23.2: 실제 매출 = amount - discount_amount - refunded_amount (할인·환불 차감)
-  const netAmount = (p: any) => Math.max(0, (p.amount || 0) - (p.discount_amount || 0) - (p.refunded_amount || 0));
-  const totalRevenue = payments.filter(p => !isPaymentCancelled(p, memberships)).reduce((sum, p) => sum + netAmount(p), 0);
+  const netAmount = paymentNet;
+  const totalRevenue = payments.filter(p => !isPaymentCancelled(p, memberships) && billingDay(p.paid_at||p.created_at)<=koreanToday()).reduce((sum, p) => sum + netAmount(p), 0);
   const thisMonthRevenue = payments
-    .filter((p) => !isPaymentCancelled(p, memberships) && (p.paid_at || "").startsWith(new Date().toISOString().slice(0, 7)))
+    .filter((p) => !isPaymentCancelled(p, memberships) && billingDay(p.paid_at||p.created_at).startsWith(koreanToday().slice(0, 7)) && billingDay(p.paid_at||p.created_at)<=koreanToday())
     .reduce((sum, p) => sum + netAmount(p), 0);
   // 활성 회원권: 취소되지 않고, end_date가 없거나 미래인 것 (end_date null이어도 확인 가능)
   // ✅ v3.38.4: 트랙 필터 적용 KPI
@@ -749,6 +711,14 @@ export default function PaymentsWorkspace({embedded=false,initialDate,initialTra
     return c === "aqua";
   };
   const activeMemberships = memberships.filter((m) => m.status !== "cancelled" && (!m.end_date || new Date(m.end_date) > new Date()) && trackMatch(m.category)).length;
+
+  const membershipHistory=(m:any)=>isBillingHistory(m)||payments.some(pay=>(pay.membership_id===m.id||m.payment_id&&pay.id===m.payment_id)&&isBillingHistory(pay));
+  const paymentHistory=(p:any)=>isPaymentCancelled(p,memberships)||isBillingHistory(p);
+  const ticketMatch=(row:any)=>ticketViewMatches(row,ticketView,row.membership_id?memberships.find(m=>m.id===row.membership_id):undefined);
+  const shownMemberships=memberships.filter(m=>(!focusedMembershipId||m.id===focusedMembershipId)&&trackMatch(m.category)&&ticketMatch(m)&&(!hideCancelled||!membershipHistory(m))&&(!nameSearch.trim()||(m.members?.name||'').toLowerCase().includes(nameSearch.trim().toLowerCase()))).slice().sort((a,b)=>{
+    const key=(m:any)=>payments.find(p=>p.membership_id===m.id)?.paid_at||m.start_date||m.created_at||'';return String(key(b)).localeCompare(String(key(a)));
+  });
+  const shownPayments=payments.filter(p=>trackMatch(p.category||p.memberships?.category)&&ticketMatch(p)&&(!hideCancelled||!paymentHistory(p))&&(!filterMonth||billingDay(p.paid_at||p.created_at).startsWith(filterMonth))&&(!nameSearch.trim()||(p.members?.name||'').toLowerCase().includes(nameSearch.trim().toLowerCase())));
 
   const registrationModal=(<>
       {/* ═══ Modal ═══ */}
@@ -1048,7 +1018,7 @@ export default function PaymentsWorkspace({embedded=false,initialDate,initialTra
   if(embedded)return registrationModal;
 
   return (
-    <main className="max-w-6xl mx-auto px-3 md:px-6 py-6 md:py-10 bg-gradient-to-br from-sky-50 via-white to-cyan-50 min-h-screen">
+    <main className="max-w-6xl mx-auto px-3 md:px-6 py-6 md:py-10 bg-[#F8FAFC] min-h-screen">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div className="flex items-center gap-2 md:gap-3">
@@ -1070,29 +1040,8 @@ export default function PaymentsWorkspace({embedded=false,initialDate,initialTra
         </div>
       </div>
 
-      {/* v3.31.5: 파스텔 라운드 카드 바로가기 */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        <Link href="/sales" className="aqu-card aqu-card-hover group">
-          <div className="text-xs text-rose-600 font-semibold flex items-center gap-1">📊 매출내역</div>
-          <div className="text-sm font-bold text-slate-800 mt-1">다중수단 상세</div>
-          <div className="text-xs text-slate-400 mt-1 group-hover:text-rose-600">보기 →</div>
-        </Link>
-        <Link href="/dashboard/revenue" className="aqu-card aqu-card-hover group">
-          <div className="text-xs text-emerald-600 font-semibold flex items-center gap-1">📈 매출 통계</div>
-          <div className="text-sm font-bold text-slate-800 mt-1">월별 · 주별 추이</div>
-          <div className="text-xs text-slate-400 mt-1 group-hover:text-emerald-600">보기 →</div>
-        </Link>
-        <Link href="/renewals" className="aqu-card aqu-card-hover group">
-          <div className="text-xs text-sky-600 font-semibold flex items-center gap-1">🔄 정기 결제</div>
-          <div className="text-sm font-bold text-slate-800 mt-1">자동갱신 · 만료임박</div>
-          <div className="text-xs text-slate-400 mt-1 group-hover:text-sky-600">보기 →</div>
-        </Link>
-        <Link href="/finance" className="aqu-card aqu-card-hover group">
-          <div className="text-xs text-indigo-600 font-semibold flex items-center gap-1">💼 재무 관리</div>
-          <div className="text-sm font-bold text-slate-800 mt-1">수입 · 지출 · 손익</div>
-          <div className="text-xs text-slate-400 mt-1 group-hover:text-indigo-600">보기 →</div>
-        </Link>
-      </div>
+      <nav aria-label="결제 관련 메뉴" className="mb-6 flex flex-wrap gap-2">{[{href:'/sales',label:'매출내역',icon:Receipt},{href:'/dashboard/revenue',label:'매출통계',icon:BarChart3},{href:'/renewals',label:'정기결제',icon:RefreshCw},{href:'/finance',label:'재무관리',icon:Wallet}].map(({href,label,icon:Icon})=><Link key={href} href={href} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-600 shadow-sm transition hover:bg-sky-50 hover:text-sky-700"><Icon className="h-4 w-4 text-[#0284C7]"/>{label}</Link>)}</nav>
+      {loadError&&<p role="alert" className="mb-4 rounded-2xl bg-rose-50 p-4 text-sm text-rose-700">{loadError}<button onClick={()=>void loadAll()} className="ml-3 underline">다시 조회</button></p>}
 
       {/* v3.31.5: KPI 파스텔 대형 라운드 카드 */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 mb-6">
@@ -1131,11 +1080,11 @@ export default function PaymentsWorkspace({embedded=false,initialDate,initialTra
       <div className="flex gap-2 mb-4 text-xs md:text-sm flex-wrap items-center">
         <button onClick={() => setTab("memberships")}
           className={`px-3 md:px-4 py-2 rounded-lg ${tab === "memberships" ? "bg-aqu-600 text-white" : "bg-white border border-aqu-200 text-aqu-700"}`}>
-          🎟️ 회원권 ({memberships.filter(m => trackMatch(m.category)).length})
+          🎟️ 회원권 ({shownMemberships.length})
         </button>
         <button onClick={() => setTab("payments")}
           className={`px-3 md:px-4 py-2 rounded-lg ${tab === "payments" ? "bg-aqu-600 text-white" : "bg-white border border-aqu-200 text-aqu-700"}`}>
-          💵 결제 이력 ({payments.filter(p => trackMatch(p.category || p.memberships?.category)).length})
+          💵 결제 이력 ({shownPayments.length})
         </button>
         <div className="flex-1 min-w-[180px] relative">
           <input type="text" value={nameSearch} onChange={e => { clearMembershipFocus(); setNameSearch(e.target.value); }}
@@ -1148,6 +1097,8 @@ export default function PaymentsWorkspace({embedded=false,initialDate,initialTra
         </div>
       </div>
 
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div role="tablist" aria-label="회원권 유형" className="inline-flex max-w-full flex-wrap gap-1 rounded-full bg-slate-100 p-1">{([['all','전체'],['regular','정규 회원권'],['trial','체험권']] as const).map(([value,label])=><button role="tab" aria-selected={ticketView===value} key={value} onClick={()=>setTicketView(value)} className={`min-h-10 rounded-full px-4 text-sm font-medium transition ${ticketView===value?'bg-white text-[#0284C7] shadow-sm':'text-slate-500'}`}>{label}</button>)}</div><label className="flex min-h-11 items-center gap-2 text-xs text-slate-500"><input type="checkbox" checked={!hideCancelled} onChange={e=>setHideCancelled(!e.target.checked)} className="accent-sky-600"/>취소/환불 내역 포함</label></div>
+
       {focusedMembershipId && (
         <div className="mb-3 p-3 border border-aqu-200 rounded-xl bg-aqu-50 text-sm flex items-center justify-between gap-2">
           <span>{!loading && !memberships.some((m: any) => m.id === focusedMembershipId) ? "이 지점에서 선택한 회원권을 찾을 수 없습니다. 지점과 권한을 확인해주세요." : "회원 상세에서 선택한 회원권만 표시 중입니다. 아래 행에서 후불 수납을 진행하세요."}</span>
@@ -1156,7 +1107,7 @@ export default function PaymentsWorkspace({embedded=false,initialDate,initialTra
       )}
 
       {/* Table */}
-      <div className="bg-white rounded-2xl shadow-md border border-aqu-100 overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
         {loading ? (
           <div className="text-center py-10 text-gray-500">로딩 중...</div>
         ) : tab === "memberships" ? (
@@ -1175,27 +1126,15 @@ export default function PaymentsWorkspace({embedded=false,initialDate,initialTra
               </thead>
               <tbody>
                 {/* v3.21.2: 회원권 결제일(paid_at) 순서 정렬 – 최신 결제건이 최상단 */}
-                {memberships
-                  .filter(m => !focusedMembershipId || m.id === focusedMembershipId)
-                  .filter(m => trackMatch(m.category))
-                  .filter(m => !nameSearch.trim() || (m.members?.name || "").toLowerCase().includes(nameSearch.trim().toLowerCase()))
-                  .slice()
-                  .sort((a: any, b: any) => {
-                    // 1) payments 연결 결제일 다른 처리 – members.payments → payments 배열에서 해당 membership_id로 조회
-                    const aPaid = (payments || []).find((p: any) => p.membership_id === a.id)?.paid_at;
-                    const bPaid = (payments || []).find((p: any) => p.membership_id === b.id)?.paid_at;
-                    // 2) 없으면 start_date → created_at 순으로 폴백
-                    const aKey = aPaid || a.start_date || a.created_at || "";
-                    const bKey = bPaid || b.start_date || b.created_at || "";
-                    return String(bKey).localeCompare(String(aKey));
-                  })
+                {shownMemberships
                   .map(m => {
                   const remaining = remainingOf(m);
                   const expired = m.end_date && new Date(m.end_date) < new Date();
-                  const isCancelled = m.status === "cancelled";
+                  const isCancelled = isCancelledRecord(m);
+                  const isHistory=membershipHistory(m);
                   const billing = readBillingMetadata(m);
                   return (
-                    <tr id={`membership-${m.id}`} key={m.id} className={`border-b border-gray-100 ${focusedMembershipId === m.id ? "bg-yellow-50 ring-2 ring-inset ring-yellow-300" : ""} ${isCancelled ? "bg-gray-50 opacity-60" : expired ? "opacity-50" : ""} hover:bg-aqu-50/30`}>
+                    <tr id={`membership-${m.id}`} key={m.id} className={`border-b border-gray-100 ${focusedMembershipId === m.id ? "bg-yellow-50 ring-2 ring-inset ring-yellow-300" : ""} ${isHistory ? "bg-slate-50 opacity-70 line-through decoration-slate-300" : expired ? "opacity-50" : ""} hover:bg-aqu-50/30`}>
                       <td className="p-2 md:p-3">
                         <Link href={`/members/${m.member_id}`} className="text-aqu-700 hover:underline font-medium">
                           {m.members?.name || "-"}
@@ -1216,7 +1155,7 @@ export default function PaymentsWorkspace({embedded=false,initialDate,initialTra
                         <div className="flex items-center justify-center gap-1">
                           <button onClick={() => adjustSessions(m, -1)}
                             className="w-6 h-6 rounded bg-red-50 text-red-600 hover:bg-red-100 flex items-center justify-center font-bold"
-                            disabled={billing?.mode === "free"} title="회차 차감">−</button>
+                            disabled={isCancelled || billing?.mode === "free"} title="회차 차감">−</button>
                           <span className={`font-bold min-w-[70px] ${remaining <= 2 ? "text-red-500" : "text-aqu-700"}`}>
                             {remaining}/{totalOf(m)}
                             {(m.adjustment || 0) !== 0 && (
@@ -1227,7 +1166,7 @@ export default function PaymentsWorkspace({embedded=false,initialDate,initialTra
                           </span>
                           <button onClick={() => adjustSessions(m, +1)}
                             className="w-6 h-6 rounded bg-green-50 text-green-600 hover:bg-green-100 flex items-center justify-center font-bold"
-                            disabled={billing?.mode === "free"} title="회차 추가">+</button>
+                            disabled={isCancelled || billing?.mode === "free"} title="회차 추가">+</button>
                         </div>
                       </td>
                       <td className="p-2 md:p-3 hidden md:table-cell text-gray-600 text-[11px] font-medium">
@@ -1290,29 +1229,15 @@ export default function PaymentsWorkspace({embedded=false,initialDate,initialTra
                 전체 보기
               </button>
               <button
-                onClick={() => setFilterMonth(new Date().toISOString().slice(0, 7))}
+                onClick={() => setFilterMonth(koreanToday().slice(0, 7))}
                 className="px-2 py-1 border border-aqu-200 rounded text-xs text-aqu-700 hover:bg-aqu-50">
                 이번 달
               </button>
               {(() => {
-                const filtered = payments
-                  .filter((p: any) => !filterMonth || (p.paid_at || "").startsWith(filterMonth))
-                  .filter((p: any) => !nameSearch.trim() || (p.members?.name || "").toLowerCase().includes(nameSearch.trim().toLowerCase()))
-                  .filter((p: any) => !hideCancelled || !isPaymentCancelled(p, memberships))
-                  // ✅ v3.38.4: 수중/지상 트랙 필터
-                  .filter((p: any) => {
-                    const cat = p.category || p.memberships?.category || "aqua";
-                    return trackMatch(cat);
-                  });
-                const revenue = filtered.filter((p: any) => !isPaymentCancelled(p, memberships)).reduce((s: number, p: any) => s + Math.max(0, (p.amount || 0) - (p.discount_amount || 0) - (p.refunded_amount || 0)), 0);
-                const cancelledCount = payments.filter((p: any) => (!filterMonth || (p.paid_at || "").startsWith(filterMonth)) && isPaymentCancelled(p, memberships)).length;
+                const filtered=shownPayments;
+                const revenue=filtered.filter(p=>!isPaymentCancelled(p,memberships)).reduce((sum,p)=>sum+paymentNet(p),0);
                 return (
                   <div className="flex-1 flex items-center justify-end gap-3 text-xs">
-                    {/* ✨ v3.32.2: 취소된 결제 숨김 토글 */}
-                    <button onClick={() => setHideCancelled(!hideCancelled)}
-                      className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border-2 transition ${hideCancelled ? "bg-white text-slate-600 border-slate-300 hover:border-slate-400" : "bg-rose-100 text-rose-700 border-rose-300"}`}>
-                      {hideCancelled ? `👁️‍🗨️ 취소된 ${cancelledCount}건 숨김` : `👁️ 취소된 ${cancelledCount}건 표시중`}
-                    </button>
                     <span className="text-gray-500">조회 결과: <b className="text-aqu-700">{filtered.length}건</b></span>
                     <span className="text-gray-500">합계: <b className="text-green-600">₩{revenue.toLocaleString()}</b></span>
                   </div>
@@ -1332,20 +1257,19 @@ export default function PaymentsWorkspace({embedded=false,initialDate,initialTra
                 </tr>
               </thead>
               <tbody>
-                {payments
-                  .filter((p: any) => !filterMonth || (p.paid_at || "").startsWith(filterMonth))
-                  .filter((p: any) => !nameSearch.trim() || (p.members?.name || "").toLowerCase().includes(nameSearch.trim().toLowerCase()))
-                  .filter((p: any) => !hideCancelled || !isPaymentCancelled(p, memberships)) /* ✨ v3.32.2 */
+                {shownPayments
                   .map(p => {
                   const isCancelled = isPaymentCancelled(p, memberships);
+                  const isHistory=paymentHistory(p);
                   return (
-                  <tr key={p.id} className={`border-b border-gray-100 ${isCancelled ? "bg-gray-50 opacity-70" : "hover:bg-aqu-50/30"}`}>
+                  <tr key={p.id} className={`border-b border-gray-100 ${isHistory ? "bg-slate-50 opacity-70 line-through decoration-slate-300" : "hover:bg-sky-50/30"}`}>
                     <td className="p-2 md:p-3 text-gray-600 text-[11px] whitespace-nowrap">
                       {p.paid_at}
                       {p.paid_time && <div className="text-gray-400">{p.paid_time}</div>}
                       {isCancelled && (
                         <div className="mt-1 inline-block px-1.5 py-0.5 bg-red-500 text-white text-[9px] rounded font-bold">❌ 취소됨</div>
                       )}
+                      {isHistory&&!isCancelled&&<span className="block text-[10px] text-orange-600">부분 환불 이력</span>}
                       {p.replaced_by && (
                         <div className="mt-1 inline-block px-1.5 py-0.5 bg-blue-500 text-white text-[9px] rounded font-bold">🔄 재결제됨</div>
                       )}
@@ -1393,7 +1317,7 @@ export default function PaymentsWorkspace({embedded=false,initialDate,initialTra
                     </td>
                     <td className={`p-2 md:p-3 text-right font-bold ${isCancelled ? "text-gray-400 line-through" : "text-aqu-900"}`}>
                       {/* v3.23.2: 실제매출 = amount - discount - refunded */}
-                      ₩{Math.max(0, (p.amount || 0) - (p.discount_amount || 0) - (p.refunded_amount || 0)).toLocaleString()}
+                      ₩{paymentNet(p).toLocaleString()}
                       {(p.discount_amount || 0) > 0 && (
                         <div className="text-[10px] text-gray-400 font-normal line-through">₩{(p.amount || 0).toLocaleString()}</div>
                       )}

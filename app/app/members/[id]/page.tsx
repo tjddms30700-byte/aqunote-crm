@@ -405,7 +405,6 @@ export default function MemberDetail() {
           source: lead.source || rp.source || "신규유입",
           memo: lead.memo || rp.memo || null,
           wish_days: lead.wish_days || rp.wish_days || null,
-          wish_time_slots: lead.wish_time_slots || rp.wish_time_slots || null,
           service_track: lead.service_track || rp.service_track || "aqua",
           pain_areas: lead.pain_areas || rp.pain_areas || [],
           nrs_score: lead.nrs_score || rp.nrs_score,
