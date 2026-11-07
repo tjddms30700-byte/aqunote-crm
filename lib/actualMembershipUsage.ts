@@ -28,6 +28,7 @@ export function usageDecision(previous: any, slot: any, nextStatus: string | nul
 export const isTrialMembership = (m: any): boolean => /체험|trial/i.test(String(m?.plan_name || "")) && !/무료/.test(String(m?.plan_name || ""));
 export function lessonBillingKind(slot: any): "free" | "trial" | "regular" {
   const label = String(slot?.lesson_name || "").replace(/\s/g, "");
+  if(slot?.workflow_kind==='trial_memo'||slot?.metadata?.billing_kind==='trial_memo')return 'free';
   if (label === "무료체험" || slot?.metadata?.billing_kind === "free_trial") return "free";
   return slot?.event_type === "trial" || /체험|trial/i.test(label) ? "trial" : "regular";
 }
@@ -85,7 +86,6 @@ export async function saveActualAttendance(options: SaveOptions): Promise<{
     time = time || slot?.time_slot || null;
   }
   if(slot?.status==='holding')throw new Error('체험 홀딩은 실제 수업이 아닙니다. 체험 결과에서 정규 전환/미등록 종료를 처리해주세요.');
-  if(slot?.workflow_kind==='trial_split'&&!slot.trial_balance_paid&&['present','done','completed'].includes(status))throw new Error('시간표의 잔금 35,000원 결제 및 출석 완료 버튼을 이용해주세요.');
   if(slot?.is_unpaid){
     const action=['present','done','completed'].includes(status)?'present':status==='sick'?'sick':status==='personal'?'carry':null;
     if(!action)throw new Error('결제예정 수업은 시간표에서 출석/병결/이월로 처리해주세요. 기존 소급 차감으로 처리하지 않습니다.');

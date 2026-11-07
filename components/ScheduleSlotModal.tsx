@@ -137,7 +137,7 @@ export default function SlotModal({ f, setF, modal, members, staff, plans, timeS
             <label className="mt-2 block text-xs">수업 시간(분)<input aria-label="수업 시간 분" type="number" min={10} max={180} step={5} className="min-h-12 w-full rounded border p-2" value={f.duration_minutes||40} onChange={e=>setF({...f,duration_minutes:e.target.value})}/></label>
             <div className="mt-2">
               <Field label="유형">
-                <select aria-label="예약 유형" value={f.event_type} onChange={e => setF({ ...f, event_type: e.target.value,lesson_name:e.target.value==='trial'?'체험 1회권':e.target.value==='lesson'?'':f.lesson_name,membership_id:null,deposit_paid:false })}
+                <select aria-label="예약 유형" value={f.event_type} onChange={e => setF({ ...f, event_type: e.target.value,lesson_name:e.target.value==='trial'?'체험 1회권':e.target.value==='lesson'?'':f.lesson_name,membership_id:null,deposit_confirmed:false })}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-aqu-400 focus:outline-none bg-white">
                   {/* ✅ v3.20.3: 직원 근무·휴무 옵션 복원 (회원 수업↔직원 일정 통합 등록) */}
                   <optgroup label="📚 회원 수업">
@@ -219,10 +219,10 @@ export default function SlotModal({ f, setF, modal, members, staff, plans, timeS
             </div>
           )}
 
-          {f.event_type==='trial'&&!f.id&&<section className="space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-3"><b>체험 1회권 · 총 70,000원</b><p className="text-xs">예약금 35,000원 + 체험 당일 잔금 35,000원. 등록과 동시에 익주 같은 시간의 자리를 홀딩합니다.</p><label className="flex min-h-12 items-center gap-2"><input type="checkbox" checked={!!f.deposit_paid} onChange={e=>setF({...f,deposit_paid:e.target.checked})}/>예약금 35,000원 실제 수납 완료</label><select aria-label="예약금 결제 수단" className="min-h-12 w-full rounded border p-2" value={f.deposit_method||'transfer'} onChange={e=>setF({...f,deposit_method:e.target.value})}><option value="transfer">계좌이체</option><option value="card">카드</option></select><label className="block text-xs">예약금 실제 수납일<input type="date" className="min-h-12 w-full rounded border p-2" value={f.deposit_date||localDay()} max={localDay()} onChange={e=>setF({...f,deposit_date:e.target.value})}/></label></section>}
+          {f.event_type==='trial'&&!f.id&&<section className="space-y-2 rounded-xl bg-slate-50 p-3"><b>체험 예약 메모</b><label className="flex min-h-11 items-center gap-2"><input aria-label="일반 예약 예약금 입금 완료" type="checkbox" checked={!!f.deposit_confirmed} onChange={e=>setF({...f,deposit_confirmed:e.target.checked})}/>예약금 입금 완료</label>{f.deposit_confirmed&&<label className="block text-xs">입금 확인일<input aria-label="일반 예약 입금 확인일" type="date" className="min-h-11 w-full rounded-xl p-2" value={f.deposit_date||localDay()} onChange={e=>setF({...f,deposit_date:e.target.value})}/></label>}<p className="text-xs text-slate-500">입금일 메모만 저장합니다. 결제·매출·회원권은 자동 생성하지 않습니다.</p></section>}
           {['lesson','makeup'].includes(f.event_type)&&!f.id&&<label className="flex min-h-12 items-center gap-2 rounded-xl bg-amber-50 p-3 text-sm"><input type="checkbox" checked={!!f.allow_unpaid} onChange={e=>setF({...f,allow_unpaid:e.target.checked,membership_id:null,lesson_name:''})}/>잔여 0회·회원권 없음: 미래 일정 결제예정으로 등록 (예약 시 차감 없음)</label>}
           {/* ═══ 섹션 3: ✅ v3.16.0 회원 보유 회원권 자동 표시 ═══ */}
-          {(f.event_type === "lesson" || (f.event_type === "trial" && !!f.id) || f.event_type === "makeup") && f.member_id && (
+          {(f.event_type === "lesson" || f.event_type === "makeup") && f.member_id && (
             <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3">
               <div className="flex items-center justify-between mb-2">
                 <div className="text-xs font-bold text-emerald-700">🎫 보유 회원권</div>

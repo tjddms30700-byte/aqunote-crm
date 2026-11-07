@@ -3,6 +3,7 @@ import { remainingOf } from "@/lib/membershipFifo";
 import { resolveBillingCategory } from "@/lib/billingCategory";
 import { matchesLessonProduct } from "@/lib/lessonProduct";
 export function isFreeReservation(slot: any): boolean {
+  if(slot?.workflow_kind==='trial_memo'||slot?.metadata?.billing_kind==='trial_memo')return true;
   return String(slot?.lesson_name || "").replace(/\s/g, "") === "무료체험" || slot?.metadata?.billing_kind === "free_trial";
 }
 export function availableReservationMemberships(slot: any, memberships: any[]): any[] {

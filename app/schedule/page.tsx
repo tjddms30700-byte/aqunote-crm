@@ -1878,7 +1878,7 @@ function DesktopSchedulePage() {
         </div>
       </div>
 
-      {trialSyncError&&<p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">체험 결제 상태 동기화 확인: {trialSyncError}</p>}
+      {trialSyncError&&<p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">체험 메모 조회 확인: {trialSyncError}</p>}
       {/* ✅ v3.20.10: 통합 탭바 – 시간표에서도 회원DB·출결장·사인이력 바로 이동 */}
       <div className="flex items-center gap-2 mb-4 border-b border-gray-200 pb-2 flex-wrap">
         <Link href="/members"

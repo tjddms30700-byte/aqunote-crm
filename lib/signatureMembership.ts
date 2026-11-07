@@ -3,6 +3,7 @@ import { reservationMembershipDecision, availableReservationMemberships, isFreeR
 import { lessonProductFamily, lessonDurationMinutes, matchesLessonProduct } from "@/lib/lessonProduct";
 import { remainingOf } from "@/lib/membershipFifo";
 export function signatureMembershipDecision(slot: any, memberships: any[], existing?: any): any {
+  if(slot?.workflow_kind==='trial_memo'||slot?.metadata?.billing_kind==='trial_memo')return {id:null,activeMs:null,choices:[],reason:'memo',message:'체험 예약 메모 · 자동 회원권 차감 없음. 수납은 결제 화면에서 별도 관리합니다.'};
   if (isFreeReservation(slot)) return { id:null,activeMs:null,choices:[],reason:"free",message:"무료체험 · 회원권 차감 없음" };
   const recorded=existing?.membership_id && (existing.deduction_mode === "auto" || existing.deduction_mode === "manual_link" || existing.deducted_at);
   if (recorded) {
