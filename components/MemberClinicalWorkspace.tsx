@@ -3,7 +3,22 @@ import {useCallback,useEffect,useState,useRef} from 'react';
 import AiJournalButton from './AiJournalButton';
 import {supabase} from '@/lib/supabase';
 import {CLINICAL_METRICS,clinicalDay,clinicalTags,clinicalSummaryLine} from '@/lib/journalClinical';
-async function readClinical(name:string,args:any){const {data,error}=await supabase.rpc(name,args);if(error)throw new Error(['PGRST202','42883','42P01'].includes(error.code)?'회원 임상 화면 DB 설치가 필요합니다. v3.90.0 SQL을 실행해주세요.':error.message);return data;}
+async function readClinical(name:string,args:any){
+ const {data:auth,error:sessionError}=await supabase.auth.getSession();
+ if(sessionError)throw new Error('로그인 상태를 확인하지 못했습니다. 다시 로그인한 뒤 조회해주세요.');
+ const token=auth?.session?.access_token;
+ if(!token)throw new Error('로그인 세션이 없습니다. 직원 계정으로 다시 로그인해주세요.');
+ // The shared legacy client has a fixed anon Authorization header.
+ // Override it per request; never grant anonymous access to clinical records.
+ const {data,error}=await supabase.rpc(name,args).setHeader('Authorization',`Bearer ${token}`);
+ if(error){
+  if(['PGRST202','42883','42P01'].includes(error.code))throw new Error('회원 임상 화면 DB 설치가 필요합니다. v3.90.0 SQL을 실행해주세요.');
+  if(error.code==='42501'&&String(error.message||'').includes('permission denied for function'))throw new Error('로그인한 직원의 임상 조회 함수 실행 권한을 확인해주세요. v3.90.1 권한 확인 SQL을 실행하거나 관리자에게 확인해주세요.');
+  throw new Error(error.message);
+ }
+ return data;
+}
+
 export function MemberClinicalSummary({memberId}:{memberId:string}){
  const request=useRef(0);const [data,setData]=useState<any>(null),[error,setError]=useState('');const load=useCallback(async()=>{const token=++request.current;try{const d=await readClinical('member_clinical_summary_3900',{p_member:memberId});if(token!==request.current)return;setData(d);setError('');}catch(e:any){if(token===request.current){setData(null);setError(e.message);}}},[memberId]);
  useEffect(()=>{let live=true;setData(null);void load();const refresh=()=>{if(live)void load();};window.addEventListener('aqunote-clinical-changed',refresh);window.addEventListener('aqunote-payments-changed',refresh);window.addEventListener('focus',refresh);const timer=setInterval(refresh,60000);return()=>{live=false;request.current++;clearInterval(timer);window.removeEventListener('aqunote-clinical-changed',refresh);window.removeEventListener('aqunote-payments-changed',refresh);window.removeEventListener('focus',refresh);};},[load]);
