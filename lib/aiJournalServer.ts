@@ -1,4 +1,5 @@
 import {NextRequest,NextResponse} from 'next/server';
+import {clinicalMetrics,formatClinicalMetrics} from './journalClinical';
 import {fetchJournalProvider,JOURNAL_TRANSIENT_HTTP} from './aiProviderRetry';
 import {createClient} from '@supabase/supabase-js';
 import {JOURNAL_GENERATION_SCHEMA,journalPrompt,parseGeneratedJournalResponse,JournalFormatError,finalizeParentMessage,messageThemeCount} from './aiJournal';
@@ -6,7 +7,7 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 const reply=(body:unknown,status=200)=>NextResponse.json(body,{status,headers:{'Cache-Control':'no-store, private'}});
 export async function handleAiJournal(req:NextRequest){
  let phase='auth',providerName='unknown';
- const fail=(code:string,message:string,status=502)=>{console.warn('[ai-journal]',JSON.stringify({code,phase,provider:providerName,version:'3.89.3'}));return reply({error:`${message} [${code}]`,code,version:'3.89.3'},status);};
+ const fail=(code:string,message:string,status=502)=>{console.warn('[ai-journal]',JSON.stringify({code,phase,provider:providerName,version:'3.90.0'}));return reply({error:`${message} [${code}]`,code,version:'3.90.0'},status);};
  try{
   const token=req.headers.get('authorization')?.match(/^Bearer (.+)$/i)?.[1];
   if(!token)return reply({error:'로그인 후 다시 이용해주세요.'},401);
@@ -18,6 +19,7 @@ export async function handleAiJournal(req:NextRequest){
   const raw=await req.text();if(raw.length>16000)return reply({error:'입력 크기를 줄여주세요.'},413);
   let b:any;try{b=JSON.parse(raw);}catch{return reply({error:'요청 형식을 확인해주세요.'},400);}
   if(!UUID.test(b.member_id||'')||(b.slot_id&&!UUID.test(b.slot_id))||!['A','B'].includes(b.style)||typeof b.memo!=='string'||!b.memo.trim()||b.memo.length>4000||b.consent!==true||!/^\d{4}-\d{2}-\d{2}$/.test(b.date||'')||!/^([01]\d|2[0-3]):[0-5]\d$/.test(b.time||''))return reply({error:'회원·수업일·시간·문체·메모와 외부 AI 처리 확인을 점검해주세요.'},400);
+  let metrics:Record<string,number|null>={};try{if(b.metrics!=null){if(typeof b.metrics!=='object'||Array.isArray(b.metrics))throw new Error('정밀 수치 형식을 확인해주세요.');metrics=clinicalMetrics(b.metrics);}}catch(e:any){return reply({error:e.message},400);}
   const provider=(process.env.AI_JOURNAL_PROVIDER||'openai').trim().toLowerCase();providerName=provider;
   if(!['openai','gemini'].includes(provider))return reply({error:'AI_JOURNAL_PROVIDER는 openai 또는 gemini로 설정해주세요.'},503);
   const apiKey=(provider==='gemini'?process.env.GEMINI_API_KEY:process.env.OPENAI_API_KEY)?.trim();
@@ -26,7 +28,7 @@ export async function handleAiJournal(req:NextRequest){
   if(ctxError)return reply({error:['PGRST202','42883','42P01'].includes(ctxError.code)?'AI 일지 DB 설치가 필요합니다. v3.80.0 SQL을 실행해주세요.':'담당 회원 또는 수업 조회 권한을 확인해주세요.'},403);
   const {error:quotaError}=await db.rpc('ai_journal_claim',{p_member:b.member_id});if(quotaError)return reply({error:'생성 요청이 많습니다. 잠시 후 다시 시도해주세요.'},429);
   const realName=String(ctx.member_name||''),redact=(s:string)=>{let text=realName?s.split(realName).join('회원이름'):s;return text.replace(/01[016789][-\s]?\d{3,4}[-\s]?\d{4}/g,'[연락처 제외]').replace(/\b\d{6}[-\s]?[1-8]\d{6}\b/g,'[주민번호 제외]');};
-  const input={member_name:'회원이름',memo:redact(b.memo.trim()),style:b.style,history:b.include_history===false?[]:(Array.isArray(ctx?.history)?ctx.history:[]).map((h:any)=>({date:h.date,memo:redact(String(h.memo||'')),activities:h.activities}))};
+  const input={member_name:'회원이름',memo:redact(b.memo.trim())+(Object.keys(metrics).length?'\n\n[치료사가 직접 입력한 측정값]\n'+formatClinicalMetrics(metrics):''),style:b.style,history:b.include_history===false?[]:(Array.isArray(ctx?.history)?ctx.history:[]).map((h:any)=>({date:h.date,memo:redact(String(h.memo||'')),activities:h.activities}))};
   const system=journalPrompt(b.style,ctx.track,ctx.member_type==='child');
   const controller=new AbortController(),deadline=Date.now()+45000,timer=setTimeout(()=>controller.abort(),45000);phase='network';let response:Response;let data:any;
   try{if(provider==='openai'){
@@ -67,7 +69,7 @@ export async function handleAiJournal(req:NextRequest){
   }
   phase='parse_validate';
   const result=parseGeneratedJournalResponse(text);result.parent_message=finalizeParentMessage(result.parent_message,realName,b.style,ctx.member_type==='child');result.clinical_record=result.clinical_record.split('회원이름').join(realName);
-  const chars=Array.from(result.parent_message).length,themes=messageThemeCount(result.parent_message);const warnings:string[]=[];if(chars<800||chars>1200)warnings.push(`현재 카톡문은 ${chars}자입니다. 분량은 권장 기준이며 복사는 가능합니다. 내용이 적절한지 검토해주세요.`);if(themes<2)warnings.push('현재 메모와 연결 가능한 전문 테마가 두 개 미만입니다. 실제 관찰과 설명을 검토해주세요. 이 안내는 복사를 막지 않습니다.');return reply({...result,provider,version:'3.89.3',quality:{characters:chars,themes,warnings}});
+  const chars=Array.from(result.parent_message).length,themes=messageThemeCount(result.parent_message);const warnings:string[]=[];if(chars<800||chars>1200)warnings.push(`현재 카톡문은 ${chars}자입니다. 분량은 권장 기준이며 복사는 가능합니다. 내용이 적절한지 검토해주세요.`);if(themes<2)warnings.push('현재 메모와 연결 가능한 전문 테마가 두 개 미만입니다. 실제 관찰과 설명을 검토해주세요. 이 안내는 복사를 막지 않습니다.');return reply({...result,provider,version:'3.90.0',quality:{characters:chars,themes,warnings}});
  }catch(e:any){
   if(e?.name==='AbortError')return fail('AI_TIMEOUT','AI 응답 대기시간이 초과되었습니다. 메모는 유지됩니다.',504);
   if(e instanceof JournalFormatError)return fail(e.code,e.message);
