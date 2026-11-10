@@ -29,6 +29,8 @@ import {ResponsiveWork} from "@/components/MobileWorkView";
 
 import { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
+import {usePathname} from "next/navigation";
+import {lessonTrack} from '@/lib/lessonTrack';
 import HomeButton from "@/components/HomeButton";
 import MemberSearch from "@/components/MemberSearch";
 import SignatureAttendanceModal from "@/components/SignatureAttendanceModal";
@@ -140,12 +142,12 @@ function monthGrid(year: number, month0: number) {
 }
 
 /* ═════ 메인 컴포넌트 ═════ */
-export default function SchedulePage(){return <ResponsiveWork view="sessions"><DesktopSchedulePage /></ResponsiveWork>;}
+export default function SchedulePage(){const forcedTrack=usePathname()==='/schedule/ground'?'ground':undefined;return <ResponsiveWork view="sessions" forcedTrack={forcedTrack}><DesktopSchedulePage key={forcedTrack||'all'} forcedTrack={forcedTrack}/></ResponsiveWork>;}
 
-function DesktopSchedulePage() {
+function DesktopSchedulePage({forcedTrack}:{forcedTrack?:'aqua'|'ground'}) {
   const [view, setView] = useState<"month" | "week" | "day" | "agenda">("month");
   // ✅ v3.38.0: 수중/지상 시간표 토글 (aqua = 수중재활, ground = 지상재활)
-  const [trackTab, setTrackTab] = useState<"aqua" | "ground">("aqua");
+  const [trackTab, setTrackTab] = useState<"aqua" | "ground">(forcedTrack||"aqua");
   // ✅ v3.65.0: 회원 이름 검색 필터 - 전체 시간표에서 해당 회원 수업만 표시
   const [memberSearchQ, setMemberSearchQ] = useState("");
   // ✅ v3.69.0: 공휴일(빨간날) 수동 등록 - 등록된 날짜는 달력에 빨간 표시 + 회원 수업 예약 차단
@@ -772,7 +774,7 @@ function DesktopSchedulePage() {
     // ✅ v3.38.0: 트랙 필터 적용 - 수중/지상 분리 렌더링
     const trackFilteredSlots = slots.filter((s: any) => {
       if (!s) return false;
-      const slotTrack = s.track || "aqua"; // 기본값 수중재활
+      const slotTrack = lessonTrack(s.track); // 기본값 수중재활
       return (slotTrack === trackTab || ['staff_work','staff_off'].includes(s.event_type)) && (!teacherFilter || s.staff_id===teacherFilter || (['staff_work','staff_off'].includes(s.event_type)&&!s.staff_id));
     });
     // ✅ v3.65.0: 회원 이름 검색 필터 - 이름 입력 시 해당 회원의 수업만 시간표에 표시
@@ -827,7 +829,7 @@ function DesktopSchedulePage() {
       if (!ed) return false;
       const key = typeof ed === "string" ? ed.substring(0, 10) : new Date(ed).toISOString().substring(0, 10);
       if (!key.startsWith(prefix)) return false;
-      const slotTrack = s.track || "aqua";
+      const slotTrack = lessonTrack(s.track);
       return slotTrack === trackTab;
     });
     const byStatus: Record<string, number> = {};
@@ -893,7 +895,7 @@ function DesktopSchedulePage() {
       note: "",
       amount: 0,
       // ✅ v3.57.1: 현재 탭의 트랙 자동 세팅
-      track: trackTab,
+      track: trackTab,_lockedTrack:trackTab,duration_minutes:trackTab==='ground'?30:70,
       // 반복예약 관련
       recurring_enabled: false,
       recurring_weeks: 4,
@@ -1071,7 +1073,7 @@ function DesktopSchedulePage() {
     // Front-end feedback only; DB trigger is the authoritative concurrency-safe check.
     const clock=normalizeClockTime(f.time_slot);
     if(f.member_id&&f.event_date&&clock&&['lesson','trial','makeup'].includes(f.event_type||'lesson')){
-      const duplicate=(slots||[]).some((s:any)=>s.id!==f.id&&!s.deleted_at&&s.member_id===f.member_id&&String(s.event_date).slice(0,10)===f.event_date&&normalizeClockTime(s.time_slot)===clock&&['lesson','trial','makeup'].includes(s.event_type||'lesson'));
+      const duplicate=(slots||[]).some((s:any)=>s.id!==f.id&&!s.deleted_at&&s.member_id===f.member_id&&lessonTrack(s.track)===lessonTrack(f.track||trackTab)&&String(s.event_date).slice(0,10)===f.event_date&&normalizeClockTime(s.time_slot)===clock&&['lesson','trial','makeup'].includes(s.event_type||'lesson'));
       if(duplicate){alert('이미 해당 시간에 등록된 회원입니다');return;}
     }
     if(!f.id&&f.double_time&&['lesson','makeup'].includes(f.event_type||'lesson')){
@@ -1706,11 +1708,11 @@ function DesktopSchedulePage() {
         <div className="flex items-center gap-2 flex-wrap">
           {/* ✅ v3.38.0: 수중/지상 시간표 토글 */}
           <div className="flex bg-white border border-slate-200 rounded-lg p-1 text-xs shadow-sm">
-            <button onClick={() => setTrackTab("aqua")}
+            <button disabled={!!forcedTrack} onClick={() => setTrackTab("aqua")}
               className={`px-3 py-1.5 rounded flex items-center gap-1 font-semibold transition ${trackTab === "aqua" ? "bg-sky-500 text-white" : "text-slate-600"}`}>
               🏊‍♂️ 수중 시간표
             </button>
-            <button onClick={() => setTrackTab("ground")}
+            <button disabled={!!forcedTrack} onClick={() => setTrackTab("ground")}
               className={`px-3 py-1.5 rounded flex items-center gap-1 font-semibold transition ${trackTab === "ground" ? "bg-emerald-500 text-white" : "text-slate-600"}`}>
               🏋️‍♂️ 지상 시간표
             </button>
@@ -2103,7 +2105,7 @@ function DesktopSchedulePage() {
       {/* ═══ 날짜 액션 시트 ═══ */}
       {paymentDate&&<CalendarPaymentModal date={paymentDate} track={trackTab} onClose={()=>setPaymentDate(null)} onSaved={loadAll}/>}
       {staffDate&&<StaffScheduleModal date={staffDate} initialSlot={staffEditing} onClose={()=>setStaffDate(null)} onSaved={loadAll}/>}
-      {trialDate&&<NewTrialModal date={trialDate.date} time={trialDate.time} onClose={()=>setTrialDate(null)} onSaved={loadAll}/>}
+      {trialDate&&<NewTrialModal track={trackTab} date={trialDate.date} time={trialDate.time} onClose={()=>setTrialDate(null)} onSaved={loadAll}/>}
       {holdingInfo&&<HoldingSlotInfo slot={holdingInfo} onSaved={loadAll} onClose={()=>setHoldingInfo(null)}/>}
       {actionSheet && (
         <DateActionSheet

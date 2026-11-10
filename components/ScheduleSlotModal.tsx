@@ -123,7 +123,7 @@ export default function SlotModal({ f, setF, modal, members, staff, plans, timeS
             <div className="text-xs font-bold text-aqu-800 mb-3 flex items-center gap-1.5">
               <Clock className="w-3.5 h-3.5" /> 기본 정보
             </div>
-            <div className="mb-3"><label className="text-xs font-semibold">수업 트랙</label><select aria-label="수업 트랙" className="min-h-12 w-full rounded border p-2" disabled={!!f.id} value={activeTrack} onChange={e=>{setF({...f,track:e.target.value,time_slot:'',membership_id:null,lesson_name:''});setDirectTime(false);}}><option value="aqua">수중</option><option value="ground">지상</option></select></div>
+            <div className="mb-3"><label className="text-xs font-semibold">수업 트랙</label><select aria-label="수업 트랙" className="min-h-12 w-full rounded border p-2" disabled={!!f.id||!!f._lockedTrack} value={activeTrack} onChange={e=>{setF({...f,track:e.target.value,time_slot:'',membership_id:null,lesson_name:''});setDirectTime(false);}}><option value="aqua">수중</option><option value="ground">지상</option></select></div>
             {/* 날짜 */}
             <Field label="날짜 *">
               <input aria-label="등록 수업일" type="date" value={f.event_date}
