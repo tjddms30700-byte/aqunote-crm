@@ -12,3 +12,5 @@ export function formatClinicalMetrics(values:Record<string,any>):string{return C
 export function clinicalTags(row:any):string[]{const source=Array.isArray(row?.activities)?row.activities:Array.isArray(row?.labels)?row.labels:Array.isArray(row?.tags)?row.tags:[];return [...new Set<string>(source.filter((v:any)=>typeof v==='string'&&!v.startsWith('status:')))];}
 export function clinicalDay(row:any):string{return String(row?.session_date||row?.date||'').slice(0,10);}
 export function clinicalSummaryLine(row:any):string{return String(row?.notes_short||row?.ai_source_memo||row?.memo||row?.notes||row?.kakao_draft||'요약 미기록').replace(/\s+/g,' ').trim();}
+
+export function clinicalSoapText(s:any){if((s?.ai_journal_key||s?.journal_mode)&&typeof s?.memo==='string'&&s.memo.trim())return s.memo;return String(s?.soap_note||s?.clinical_record||s?.memo||s?.notes||'');}
