@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, Suspense } from "react";
 import dynamic from "next/dynamic";
+import {normalizeSelectedStatus} from '@/lib/growthReport';
 import MemberSearchSelect from "@/components/MemberSearchSelect";  // ✅ v3.46.3
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -104,6 +105,7 @@ function ReportsPage() {
   const [reportHtml, setReportHtml] = useState<string>("");
   // v3.20.21: 상단 탭 (보고서 / 양식)
   const searchParams = useSearchParams();
+  const selectedStatus=normalizeSelectedStatus(searchParams?.get("selected_status"));
   const [topTab, setTopTab] = useState<"report" | "forms">("report");
   const [formsCat, setFormsCat] = useState<"staff" | "member">("staff");
   // v3.21.4: 직원 하위 탭 (재직 / 퇴사)
