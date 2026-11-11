@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import OfficeCareActions from "./OfficeCareActions";
 import { supabase } from "@/lib/supabase";
 import { saveActualAttendance } from "@/lib/actualMembershipUsage";
 import { remainingOf, totalOf } from "@/lib/membershipFifo";
@@ -164,6 +165,7 @@ export default function SignatureAttendanceModal({
 
           <button type="button" onClick={()=>setMembershipReload(x=>x+1)} className="text-[11px] text-slate-600 underline mb-2">회원권 다시 조회</button>
 
+          <OfficeCareActions key={slot?.id} slotId={slot?.id} purpose="signature"/>
           {/* 동의문 */}
           <div className="mb-3 p-2.5 bg-purple-50 border border-purple-200 rounded-lg text-[11px] text-purple-800">
             📝 <b>본 서명으로 당일 출석이 저장되고, 사용 회원권이 지정된 경우에만 차감 처리</b>되며, 서명 정보는 출석 증빙 목적으로 보관됩니다.

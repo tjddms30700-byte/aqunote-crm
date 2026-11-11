@@ -11,6 +11,7 @@ import {
   Target, AlertTriangle, Clock, FileCheck, MessageSquare,
   Waves, Wallet, UserCog, PieChart, Inbox, RefreshCw, Database, KeyRound, Car
 } from "lucide-react";
+import OfficeNavLink from "@/components/OfficeNavLink";
 import Logo from "@/components/Logo";
 import BranchSwitcher from "@/components/BranchSwitcher";
 import GlobalQuickSearch from "@/components/GlobalQuickSearch";
@@ -220,6 +221,7 @@ function DesktopHome() {
         </div>
         {user ? (
           <div className="flex items-center gap-3">
+            <OfficeNavLink />
             <div className="text-sm text-gray-600 flex items-center gap-1">
               <UserIcon className="w-4 h-4" />
               <span className="hidden sm:inline">{user.email}</span>

@@ -1,5 +1,6 @@
 "use client";
 
+import OfficeCareActions from '@/components/OfficeCareActions';
 import { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
@@ -1230,6 +1231,7 @@ function SignaturePadModal({ member, date, orgId, existingAttendance, scheduleSl
             </div>
           </div>
 
+          <OfficeCareActions key={scheduleSlot?.id||existingAttendance?.slot_id||'unlinked'} slotId={scheduleSlot?.id||existingAttendance?.slot_id} purpose="signature"/>
           {/* 사인 캠버스 */}
           <div>
             <div className="flex items-center justify-between mb-1">

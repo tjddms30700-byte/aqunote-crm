@@ -1,6 +1,6 @@
 {
   "name": "aqunote",
-  "version": "3.90.9",
+  "version": "3.91.1",
   "private": true,
   "scripts": {
     "dev": "next dev",

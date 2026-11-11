@@ -11,7 +11,7 @@ export default function GlobalHeaderWrapper() {
   const pathname = usePathname();
 
   // 홈, 로그인, 신청폼(고객용) 페이지에서는 헤더 숨김
-  const hiddenPaths = ["/", "/login", "/apply-adult", "/apply-child", "/signup"];
+  const hiddenPaths = ["/office-confirm", "/office", "/", "/login", "/apply-adult", "/apply-child", "/signup"];
   if (hiddenPaths.some(p => pathname === p || pathname.startsWith(p + "/"))) {
     return null;
   }
