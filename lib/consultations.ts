@@ -1,0 +1,29 @@
+import {supabase} from './supabase';
+export const CONSULT_STAGES=[['new','신규 접수'],['waiting','상담/대기중'],['trial_scheduled','체험 예정'],['trial_done','체험 완료 · 정규 전환 대기']] as const;
+export type ConsultLead={id:string;member_id?:string;name:string;phone?:string;birth?:string;member_type:string;track:'aqua'|'ground';request_kind:'new'|'time_change';stage:string;wish_days:any[];wish_times:any[];summary?:string;created_at:string;first_contact_at?:string;version:number;logs:any[]};
+export async function consultRpc(name:string,args:any){const {data:{session}}=await supabase.auth.getSession();if(!session)throw Error('직원 계정으로 로그인해주세요.');const r=await supabase.rpc(name,args).setHeader('Authorization',`Bearer ${session.access_token}`);if(r.error)throw Error(['PGRST202','42P01','42883'].includes(r.error.code)?'상담·매칭 v3.92.0 SQL을 먼저 설치해주세요.':r.error.message);return r.data;}
+export async function consultCopy(text:string){if(navigator.clipboard?.writeText){try{await navigator.clipboard.writeText(text);return;}catch{}}const el=document.createElement('textarea');el.value=text;el.style.position='fixed';el.style.top='0';document.body.appendChild(el);el.focus();el.select();const ok=document.execCommand('copy');el.remove();if(!ok)throw Error('복사 권한이 없어 문구를 복사하지 못했습니다. 브라우저 권한을 확인해주세요.');}
+export function localDay(){return new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul'}).format(new Date());}
+export function monday(date:string){const d=new Date(date+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-(d.getUTCDay()+6)%7);return d.toISOString().slice(0,10);}
+export function plusDay(day:string,n:number){const d=new Date(day+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);}
+export function minutes(t:string){const m=t.match(/(\d{1,2}):(\d{2})/);return m?Number(m[1])*60+Number(m[2]):-1;}
+const days=['일','월','화','수','목','금','토'];
+export function matchPreference(lead:ConsultLead,date:string,time:string){const day=days[new Date(date+'T12:00:00Z').getUTCDay()],text=(lead.wish_times||[]).join(' '),wish=(lead.wish_days||[]).join(' ');const dayMatch=!!wish&&(wish.includes(day)||/평일|매일|상관없|모두/.test(wish));let timeMatch=false;for(const value of lead.wish_times||[]){const s=String(value),pairs=[...s.matchAll(/(\d{1,2}):(\d{2})/g)].map(m=>Number(m[1])*60+Number(m[2])),n=minutes(time);if(pairs.length>=2){if(n>=pairs[0]&&n<pairs[1])timeMatch=true;}else if(pairs.length===1){if(/이후|부터/.test(s)?n>=pairs[0]:/이전|까지/.test(s)?n<=pairs[0]:n===pairs[0])timeMatch=true;}else if(/오전/.test(s)&&n<720||/오후/.test(s)&&n>=720||/저녁/.test(s)&&n>=1080||/상관없|모두|종일/.test(s))timeMatch=true;}
+ return {dayMatch,timeMatch,score:dayMatch&&timeMatch?3:dayMatch?2:timeMatch?1:0,hasPreference:!!(wish||text)};}
+export function receivedAgo(created:string,now=Date.now()){const n=Math.max(0,Math.floor((now-Date.parse(created))/60000));return n<60?`${n}분 전`:n<1440?`${Math.floor(n/60)}시간 전`:`${Math.floor(n/1440)}일 전`;}
+export function ageLabel(birth?:string,now=localDay()){if(!birth||!/^\d{4}-\d{2}-\d{2}/.test(birth))return '연령 미등록';const year=Number(now.slice(0,4))-Number(birth.slice(0,4))-(now.slice(5)<birth.slice(5,10)?1:0);return year>=0&&year<120?`${year}세`:'연령 확인';}
+export function firstGuide(lead:ConsultLead,origin:string){const kind=lead.track==='ground'?'지상 케어':lead.member_type==='adult'?'성인 수중운동':'아동 수중재활',path=lead.track==='ground'?'/consultation/ground':lead.member_type==='adult'?'/apply-adult':'/apply-child';return `안녕하세요. 아쿠노트 상담 담당자입니다.\n${lead.name}님의 ${kind} 문의가 접수되어 안내드려요.\n희망 요일과 시간, 현재 필요하신 도움을 아래 신청폼에 남겨주시면 확인 후 가능한 일정과 체험 절차를 안내드리겠습니다.\n${origin}${path}\n문의하실 내용은 편하게 남겨주세요. 감사합니다.`;}
+export type ConsultCell={date:string;time:string;track:'aqua'|'ground';state:'open'|'occupied'|'closed'|'unconfirmed'|'past';label:string;count:number};
+export function vacancyCell(snapshot:any,date:string,time:string,track:'aqua'|'ground',today=localDay()):ConsultCell{
+ const cfg=snapshot.config,duration=track==='ground'?30:70,n=minutes(time),weekday=new Date(date+'T12:00:00Z').getUTCDay();
+ const base={date,time,track,count:0};if(!cfg?.confirmed)return {...base,state:'unconfirmed',label:'운영 시간 확인 필요'};if((snapshot.closed_dates||[]).includes(date))return {...base,state:'closed',label:'센터 휴무'};
+ const legacy=(snapshot.legacy_matrix||[]).find((x:any)=>Number(x.day_of_week)===weekday&&(x.track||'aqua')===track&&['fixed','closed'].includes(x.status)&&minutes(x.time_slot)<n+duration&&n<minutes(x.time_slot)+(track==='ground'?30:70));
+ if(legacy)return {...base,state:legacy.status==='closed'?'closed':'occupied',label:legacy.status==='closed'?'마감':legacy.fixed_name||'고정 배정'};
+ // Repeated assignments are materialized in schedule_slots. Audit-only fixed_slots must not
+ // block cancelled/deleted dates again or override the configured multi-bed ground capacity.
+ const slots=(snapshot.slots||[]).filter((x:any)=>x.event_date===date&&(x.track==='ground'||x.track==='device'?'ground':'aqua')===track&&['lesson','trial','makeup'].includes(x.event_type||'lesson')&&!['cancel','cancelled','sick','personal','absent','noshow'].includes(x.status)&&minutes(x.time_slot)<n+duration&&n<minutes(x.time_slot)+Number(x.duration_minutes||duration));
+ const capacity=track==='ground'?Number(cfg.ground_capacity||1):1;
+ if(slots.length>=capacity)return {...base,count:slots.length,state:'occupied',label:slots.map((x:any)=>x.member_name||x.lesson_name||'예약').join(' · ')||'고정 배정'};
+ if(date<today)return {...base,state:'past',label:'지난 날짜'};
+ return {...base,state:'open',label:track==='ground'&&slots.length?`빈자리 ${capacity-slots.length}칸`:'빈자리 · 매칭 가능',count:slots.length};
+}

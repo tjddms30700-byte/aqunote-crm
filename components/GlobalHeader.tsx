@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import OfficeNavLink from "./OfficeNavLink";
+import ApplicationLinks from "./ApplicationLinks";
 import { Home, Search } from "lucide-react";
 import GlobalQuickSearch from "./GlobalQuickSearch";
 import BranchSwitcher from "./BranchSwitcher";
@@ -27,7 +27,8 @@ export default function GlobalHeader({ title, subtitle }: { title?: string; subt
 
         {/* 우측: 브랜치 · 검색 · 홈 (알약형 pill 스타일) */}
         <div className="flex items-center gap-2 shrink-0">
-          <OfficeNavLink />
+          {title!=='상담 · 매칭 관리'&&<ApplicationLinks/>}
+
           <div className="hidden md:block">
             <BranchSwitcher />
           </div>

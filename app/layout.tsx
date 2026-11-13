@@ -2,6 +2,8 @@ import "./globals.css";
 import "./mobile-premium.css";
 import "./growth-report.css";
 import "./schedule-business.css";
+import "./aqu-design-system.css";
+import "./consultations-workspace.css";
 import PwaRegister from "@/components/PwaRegister";
 import MobileAppShell from "@/components/MobileAppShell";
 import NativeAppBridge from "@/components/NativeAppBridge";
@@ -39,7 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="shortcut icon" href="/logo-whale.png" type="image/png" />
         <link rel="apple-touch-icon" href="/logo-whale.png" />
       </head>
-      <body className="bg-gradient-to-br from-sky-50 via-white to-cyan-50 min-h-screen" suppressHydrationWarning>
+      <body className="aqu-ui min-h-screen" suppressHydrationWarning>
         {/* v3.30.0: 전 페이지 공용 글로벌 헤더 (홈 버튼 우측 상단 고정) */}
         <GlobalHeaderWrapper />
         {children}
