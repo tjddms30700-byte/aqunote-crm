@@ -10,7 +10,7 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 const reply=(body:unknown,status=200)=>NextResponse.json(body,{status,headers:{'Cache-Control':'no-store, private'}});
 export async function handleAiJournal(req:NextRequest){
  let phase='auth',providerName='unknown';
- const fail=(code:string,message:string,status=502)=>{console.warn('[ai-journal]',JSON.stringify({code,phase,provider:providerName,version:'3.92.3'}));return reply({error:`${message} [${code}]`,code,version:'3.92.3'},status);};
+ const fail=(code:string,message:string,status=502)=>{console.warn('[ai-journal]',JSON.stringify({code,phase,provider:providerName,version:'3.92.4'}));return reply({error:`${message} [${code}]`,code,version:'3.92.4'},status);};
  try{
   const token=req.headers.get('authorization')?.match(/^Bearer (.+)$/i)?.[1];
   if(!token)return reply({error:'로그인 후 다시 이용해주세요.'},401);
@@ -40,10 +40,10 @@ export async function handleAiJournal(req:NextRequest){
   Object.assign(input,{session_structure:{...structure,oral_evidence:structure.oral_evidence.map(redact),aquatic_evidence:structure.aquatic_evidence.map(redact)}});
   const controller=new AbortController(),deadline=Date.now()+45000,timer=setTimeout(()=>controller.abort(),45000);phase='network';let response:Response;let data:any;
   try{if(provider==='openai'){
-   response=await fetchJournalProvider(()=>fetch('https://api.openai.com/v1/chat/completions',{method:'POST',signal:controller.signal,headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:process.env.OPENAI_JOURNAL_MODEL||'gpt-4.1-mini',store:false,messages:[{role:'system',content:system},{role:'user',content:JSON.stringify(input)}],response_format:{type:'json_schema',json_schema:{name:'aqunote_dual_journal',strict:true,schema:ORDERED_JOURNAL_SCHEMA}},max_completion_tokens:9000})}),{signal:controller.signal,deadline});
+   response=await fetchJournalProvider(()=>fetch('https://api.openai.com/v1/chat/completions',{method:'POST',signal:controller.signal,headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:process.env.OPENAI_JOURNAL_MODEL||'gpt-4.1-mini',store:false,messages:[{role:'system',content:system},{role:'user',content:JSON.stringify(input)}],response_format:{type:'json_schema',json_schema:{name:'aqunote_dual_journal',strict:true,schema:ORDERED_JOURNAL_SCHEMA}},max_completion_tokens:12000})}),{signal:controller.signal,deadline});
   }else{
    const model=(process.env.GEMINI_JOURNAL_MODEL||'gemini-2.5-flash').trim();if(!/^[a-zA-Z0-9_.-]+$/.test(model))return reply({error:'Gemini 모델 설정을 확인해주세요.'},503);
-   response=await fetchJournalProvider(()=>fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',signal:controller.signal,headers:{'x-goog-api-key':apiKey,'Content-Type':'application/json'},body:JSON.stringify({systemInstruction:{parts:[{text:system}]},contents:[{role:'user',parts:[{text:JSON.stringify(input)}]}],generationConfig:{responseMimeType:'application/json',responseJsonSchema:ORDERED_JOURNAL_SCHEMA,maxOutputTokens:8192,...(model.startsWith('gemini-2.5-flash')?{thinkingConfig:{thinkingBudget:0}}:{})}})}),{signal:controller.signal,deadline});
+   response=await fetchJournalProvider(()=>fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',signal:controller.signal,headers:{'x-goog-api-key':apiKey,'Content-Type':'application/json'},body:JSON.stringify({systemInstruction:{parts:[{text:system}]},contents:[{role:'user',parts:[{text:JSON.stringify(input)}]}],generationConfig:{responseMimeType:'application/json',responseJsonSchema:ORDERED_JOURNAL_SCHEMA,maxOutputTokens:12000,...(model.startsWith('gemini-2.5-flash')?{thinkingConfig:{thinkingBudget:0}}:{})}})}),{signal:controller.signal,deadline});
   }
   phase='response_body';
   if(!response.ok){
@@ -78,7 +78,7 @@ export async function handleAiJournal(req:NextRequest){
   phase='parse_validate';
   let result=parseOrderedJournal(text,units);result.parent_message=finalizeParentMessage(result.parent_message,realName,b.style,ctx.member_type==='child');result.clinical_record=result.clinical_record.split('회원이름').join(realName);
   if(structure.combined){try{result={...result,...finalizeCombined(result,structure)};}catch{return fail('AI_COMBINED_SECTIONS','구강·연하와 수중 활동 두 영역을 확인하지 못했어요. 메모는 유지됩니다. 다시 생성해주세요.');}}
-  const chars=Array.from(result.parent_message).length,themes=messageThemeCount(result.parent_message);const warnings:string[]=[];if(result.source_coverage.restored_paragraphs)warnings.push('AI가 바꾼 문단은 원문 기준으로 복원해 활동·발화·수치를 보존했어요.');if(chars>1200)warnings.push('알림장이 길어요. 실제 관찰 중심으로 검토해주세요.');return reply({...result,session_components:structure.combined?[{kind:'oral_swallow',duration_minutes:structure.oral_minutes},{kind:'aqua',duration_minutes:structure.aquatic_minutes}]:[],provider,version:'3.92.3',quality:{characters:chars,themes,warnings}});
+  const chars=Array.from(result.parent_message).length,themes=messageThemeCount(result.parent_message);const warnings:string[]=[...result.expansion_warnings];return reply({...result,session_components:structure.combined?[{kind:'oral_swallow',duration_minutes:structure.oral_minutes},{kind:'aqua',duration_minutes:structure.aquatic_minutes}]:[],provider,version:'3.92.4',quality:{characters:chars,themes,warnings}});
  }catch(e:any){
   if(e?.name==='AbortError')return fail('AI_TIMEOUT','AI 응답 대기시간이 초과되었습니다. 메모는 유지됩니다.',504);
   if(e instanceof JournalFormatError)return fail(e.code,e.message);
