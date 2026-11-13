@@ -30,6 +30,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ko" suppressHydrationWarning>
       <head>
+        <link rel="preconnect" href="https://cdn.jsdelivr.net" crossOrigin="anonymous"/>
+        <link rel="preload" href="/fonts/PretendardVariable.woff2?v=3921" as="font" type="font/woff2" crossOrigin="anonymous"/>
         <link rel="apple-touch-icon" href="/pwa-icons/icon-192.png"/>
         <link rel="apple-touch-startup-image" href="/pwa-splash/1170x2532.png" media="(device-width:390px) and (device-height:844px) and (-webkit-device-pixel-ratio:3)"/>
         <link rel="apple-touch-startup-image" href="/pwa-splash/750x1334.png" media="(device-width:375px) and (device-height:667px) and (-webkit-device-pixel-ratio:2)"/>

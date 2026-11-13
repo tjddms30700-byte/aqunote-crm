@@ -1,31 +1,15 @@
-@font-face{font-family:Pretendard;src:url('/fonts/PretendardVariable.woff2') format('woff2');font-weight:100 900;font-display:swap}
 :root{--aqu-bg:#F8FAFC;--aqu-card:#fff;--aqu-border:#E2E8F0;--aqu-primary:#0284C7;--aqu-primary-hover:#0369A1;--aqu-text:#334155;--aqu-heading:#0F172A;--aqu-muted:#64748B;--aqu-radius:12px;--aqu-shadow:0 1px 3px #0f172a0a}
-body.aqu-ui{background:var(--aqu-bg)!important;color:var(--aqu-text);font-family:Pretendard,Inter,system-ui,sans-serif;font-variant-numeric:tabular-nums}
-.aqu-ui input,.aqu-ui select,.aqu-ui textarea,.aqu-ui button,.aqu-ui table{font:inherit;font-variant-numeric:tabular-nums}
+body.aqu-ui{background:var(--aqu-bg)!important;color:var(--aqu-text);font-family:"Pretendard",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif!important;font-variant-numeric:tabular-nums}
+.aqu-ui input,.aqu-ui select,.aqu-ui textarea,.aqu-ui button,.aqu-ui table{font-family:inherit;font-variant-numeric:tabular-nums}
 .aqu-ui h1,.aqu-ui h2,.aqu-ui h3{color:var(--aqu-heading)}
-.aqu-ui [class*="bg-gradient-"],.aqu-ui [style*="linear-gradient"],.aqu-ui [style*="radial-gradient"]{background-image:none!important}
-.aqu-ui :is(main,section,article,aside,header,footer,div)[class*="bg-"]:not([class*="bg-black"]):not([class*="bg-slate-900"]):not([class*="bg-gray-900"]):not([class*="backdrop"]):not([class*="overlay"]){background-color:var(--aqu-card)!important}
-.aqu-ui :is(main)[class*="bg-"]{background-color:var(--aqu-bg)!important}
-.aqu-ui :is(.card,.panel,.modal,.business-action-dialog,.growth-report-toolbar,.report-editor,.report-card,.aqu-panel){background:#fff!important;border:1px solid var(--aqu-border)!important;border-radius:12px!important;box-shadow:var(--aqu-shadow)!important}
-.aqu-ui :is([class*="rounded-2xl"],[class*="rounded-3xl"]){border-radius:12px!important}
-.aqu-ui :is([class*="border-2"],[class*="border-4"]){border-width:1px!important;border-color:var(--aqu-border)!important}
-.aqu-ui :is([class*="shadow-md"],[class*="shadow-lg"],[class*="shadow-xl"],[class*="shadow-2xl"]){box-shadow:var(--aqu-shadow)!important}
-.aqu-ui input:not([type=checkbox]):not([type=radio]),.aqu-ui textarea,.aqu-ui select{color:var(--aqu-text);background:#fff!important;border:1px solid var(--aqu-border);border-radius:10px;outline-offset:2px;accent-color:var(--aqu-primary)}
-.aqu-ui input[type=checkbox],.aqu-ui input[type=radio]{accent-color:var(--aqu-primary)}
-.aqu-ui button{border-radius:10px;cursor:pointer}
-.aqu-ui button:disabled{cursor:not-allowed}
-.aqu-ui :is(button,a)[class*="bg-"],.aqu-ui .pill-tab{border:1px solid var(--aqu-border);box-shadow:none;background:#fff!important;color:#334155}
-.aqu-ui :is(div,section,article,aside,header,footer)[class*="border-"]{border-color:var(--aqu-border)!important}
-.aqu-ui :is(button,a)[class*="bg-gradient"],.aqu-ui :is(button,a)[class*="bg-sky-6"],.aqu-ui :is(button,a)[class*="bg-blue-6"],.aqu-ui :is(button,a)[class*="bg-aqu-6"],.aqu-ui :is(button,a)[class*="bg-teal-"],.aqu-ui :is(button,a)[class*="bg-cyan-5"],.aqu-ui :is(button,a)[class*="bg-pink-6"],.aqu-ui .pill-tab-active,.aqu-ui .aqu-primary{background:var(--aqu-primary)!important;color:#fff!important;border-color:var(--aqu-primary)!important;box-shadow:none!important}
-.aqu-ui .aqu-primary:hover,.aqu-ui :is(button,a)[class*="bg-gradient"]:hover{background:var(--aqu-primary-hover)!important}
-.aqu-ui :is(button,a)[class*="bg-red-"],.aqu-ui :is(button,a)[class*="bg-rose-"]{background:#FFF1F2!important;color:#BE123C!important;border:1px solid #FECDD3!important}
-.aqu-ui :is(span,small)[class*="bg-"]{background:#F1F5F9!important;color:#64748B!important;border:1px solid #E2E8F0;border-radius:99px}
-.aqu-ui :is(span,small)[class*="bg-emerald"],.aqu-ui :is(span,small)[class*="bg-green"]{background:#ECFDF5!important;color:#047857!important;border-color:#A7F3D0!important}
-.aqu-ui :is(span,small)[class*="bg-amber"],.aqu-ui :is(span,small)[class*="bg-yellow"]{background:#FFFBEB!important;color:#B45309!important;border-color:#FDE68A!important}
-.aqu-ui :is(span,small)[class*="bg-rose"],.aqu-ui :is(span,small)[class*="bg-red"]{background:#FFF1F2!important;color:#BE123C!important;border-color:#FECDD3!important}
-.aqu-ui table{background:#fff;border-collapse:separate;border-spacing:0}
-.aqu-ui th,.aqu-ui td{border-color:var(--aqu-border)!important;background-color:#fff}
-.aqu-ui .aqu-status{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid #E2E8F0;border-radius:999px;background:#F1F5F9!important;color:#64748B!important;font-size:11px;line-height:1.5;font-weight:600}
+/* Scoped components only. Do not rewrite Tailwind utility colors, gradients, clipping,
+   font sizes or semantic icons across the application. */
+.aqu-ui .aqu-panel{background:#fff;border:1px solid var(--aqu-border);border-radius:12px;box-shadow:var(--aqu-shadow)}
+.aqu-ui .aqu-primary{background:#0284C7!important;color:#fff!important;border:1px solid #0284C7;border-radius:10px}
+.aqu-ui .aqu-primary:hover{background:#0369A1!important}
+.aqu-ui .aqu-primary-outline{color:#0369A1;background:#fff;border:1px solid #0284C7;border-radius:10px}
+.aqu-ui .pill-tab{color:#1E293B}.aqu-ui .pill-tab-active{color:#0369A1}
+.aqu-ui .aqu-status{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid #E2E8F0;border-radius:999px;background:#F1F5F9!important;color:#1E293B!important;font-size:11px;line-height:1.5;font-weight:600}
 .aqu-ui .aqu-status.is-open{background:#ECFDF5!important;color:#047857!important;border-color:#A7F3D0!important}
 .aqu-ui .aqu-status.is-waiting{background:#FFFBEB!important;color:#B45309!important;border-color:#FDE68A!important}
 .aqu-ui .aqu-status.is-danger{background:#FFF1F2!important;color:#BE123C!important;border-color:#FECDD3!important}

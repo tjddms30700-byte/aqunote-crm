@@ -211,7 +211,7 @@ function DesktopHome() {
   }
 
   return (
-    <main className="max-w-7xl mx-auto px-4 md:px-6 py-6 md:py-10">
+    <main className="aqu-home max-w-7xl mx-auto px-4 md:px-6 py-6 md:py-10">
       {/* Top nav */}
       <div className="flex items-center justify-between mb-6 gap-2">
         {/* ✅ v3.18.0: 글로벌 퀵 서치 (좌측) */}
@@ -244,10 +244,10 @@ function DesktopHome() {
       </div>
 
       {/* Hero */}
-      <div className="text-center mb-10 md:mb-14">
+      <div className="aqu-home-hero text-center mb-10 md:mb-14">
         <div className="flex flex-col items-center gap-3 mb-3">
           <Logo size="xl" />
-          <h1 className="text-4xl md:text-6xl font-bold bg-gradient-to-r from-aqu-600 to-aqu-900 bg-clip-text text-transparent">
+          <h1 className="aqu-home-title text-4xl md:text-6xl font-bold text-slate-900">
             AQUNOTE
           </h1>
         </div>
@@ -281,7 +281,7 @@ function DesktopHome() {
                 onClick={() => setExpandedGroup(isExpanded ? null : group.key)}
                 className="w-full p-5 md:p-6 flex items-center gap-4 hover:bg-gray-50 transition text-left">
                 {/* Big icon */}
-                <div className={`w-14 h-14 md:w-16 md:h-16 rounded-2xl bg-gradient-to-br ${group.from} ${group.to} p-3 md:p-4 shadow-md shrink-0`}>
+                <div className={`aqu-home-icon w-14 h-14 md:w-16 md:h-16 rounded-2xl bg-gradient-to-br ${group.from} ${group.to} p-3 md:p-4 shadow-md shrink-0`}>
                   <GroupIcon className="w-full h-full text-white" />
                 </div>
                 {/* Title */}
@@ -292,7 +292,7 @@ function DesktopHome() {
                       {group.items.length}개
                     </span>
                   </h2>
-                  <p className="text-xs md:text-sm text-gray-500 mt-0.5">{group.subtitle}</p>
+                  <p className="aqu-home-subtitle text-xs md:text-sm text-slate-600 mt-0.5">{group.subtitle}</p>
                 </div>
                 {/* Expand indicator */}
                 <div className={`w-8 h-8 rounded-full ${group.bg} flex items-center justify-center shrink-0 transition-transform ${isExpanded ? "rotate-180" : ""}`}>
@@ -310,10 +310,10 @@ function DesktopHome() {
                       const ItemIcon = item.icon;
                       return (
                         <Link key={item.href} href={item.href}
-                          className={`group relative overflow-hidden bg-white rounded-2xl shadow-sm hover:shadow-lg transition-all duration-200 border border-gray-100 hover:border-transparent hover:-translate-y-0.5`}>
+                          data-home-menu={item.href} className={`group relative overflow-hidden bg-white rounded-2xl shadow-sm hover:shadow-lg transition-all duration-200 border border-gray-100 hover:border-transparent hover:-translate-y-0.5`}>
                           <div className={`absolute inset-0 bg-gradient-to-br ${group.from} ${group.to} opacity-0 group-hover:opacity-100 transition-opacity duration-200`}></div>
                           <div className="relative p-3 md:p-4 flex flex-col justify-between min-h-[100px] md:min-h-[110px]">
-                            <div className={`w-9 h-9 md:w-10 md:h-10 rounded-xl bg-gradient-to-br ${group.from} ${group.to} p-2 md:p-2.5 shadow-sm shrink-0 relative`}>
+                            <div className={`aqu-home-icon w-9 h-9 md:w-10 md:h-10 rounded-xl bg-gradient-to-br ${group.from} ${group.to} p-2 md:p-2.5 shadow-sm shrink-0 relative`}>
                               <ItemIcon className="w-full h-full text-white" />
                               {(item as any).badgeKey && badges[(item as any).badgeKey] > 0 && (
                                 <span className="absolute -top-2 -right-2 min-w-[20px] h-5 px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center animate-pulse">
@@ -322,11 +322,11 @@ function DesktopHome() {
                               )}
                             </div>
                             <div className="mt-2">
-                              <div className="font-bold text-xs md:text-sm text-aqu-900 group-hover:text-white transition-colors">
-                                {item.title}
+                              <div className="aqu-home-item-title font-bold text-xs md:text-sm text-aqu-900 group-hover:text-white transition-colors">
+                                {item.title || (item.href === "/reports" ? "성장 종합보고서" : "메뉴 열기")}
                               </div>
-                              <div className="text-[10px] md:text-xs text-gray-500 group-hover:text-white/90 transition-colors mt-0.5">
-                                {item.desc}
+                              <div className="aqu-home-item-description text-[10px] md:text-xs text-slate-600 group-hover:text-white/90 transition-colors mt-0.5">
+                                {item.desc || (item.href === "/reports" ? "월간·연간 성장 분석 및 보고서 출력" : "상세 화면으로 이동")}
                               </div>
                             </div>
                           </div>
