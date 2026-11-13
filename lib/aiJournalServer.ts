@@ -9,7 +9,7 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 const reply=(body:unknown,status=200)=>NextResponse.json(body,{status,headers:{'Cache-Control':'no-store, private'}});
 export async function handleAiJournal(req:NextRequest){
  let phase='auth',providerName='unknown';
- const fail=(code:string,message:string,status=502)=>{console.warn('[ai-journal]',JSON.stringify({code,phase,provider:providerName,version:'3.90.8'}));return reply({error:`${message} [${code}]`,code,version:'3.90.8'},status);};
+ const fail=(code:string,message:string,status=502)=>{console.warn('[ai-journal]',JSON.stringify({code,phase,provider:providerName,version:'3.91.3'}));return reply({error:`${message} [${code}]`,code,version:'3.91.3'},status);};
  try{
   const token=req.headers.get('authorization')?.match(/^Bearer (.+)$/i)?.[1];
   if(!token)return reply({error:'로그인 후 다시 이용해주세요.'},401);
@@ -33,7 +33,8 @@ export async function handleAiJournal(req:NextRequest){
   const realName=String(ctx.member_name||''),redact=(s:string)=>{let text=realName?s.split(realName).join('회원이름'):s;return text.replace(/01[016789][-\s]?\d{3,4}[-\s]?\d{4}/g,'[연락처 제외]').replace(/\b\d{6}[-\s]?[1-8]\d{6}\b/g,'[주민번호 제외]');};
   const input={member_name:'회원이름',memo:redact(b.memo.trim())+(Object.keys(metrics).length?'\n\n[치료사가 직접 입력한 측정값]\n'+formatClinicalMetrics(metrics):''),style:b.style,history:b.include_history===false?[]:(Array.isArray(ctx?.history)?ctx.history:[]).map((h:any)=>({date:h.date,memo:redact(String(h.memo||'')),activities:Array.isArray(h.activities)?h.activities.map((x:any)=>redact(String(x))):[],parent_message:redact(String(h.parent_message||''))}))};
   const structure=sessionStructure('',false);
-  const system=journalPrompt(b.style,ctx.track,ctx.member_type==='child');
+  const nowKst=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date());const preSession=b.date+' '+b.time>nowKst.slice(0,16);
+  const system=journalPrompt(b.style,ctx.track,ctx.member_type==='child')+(preSession?'\n[사전작성] 예약 시간이 아직 남아 있습니다. 메모의 계획은 계획/예정으로 표시하고 수행·호전·출석 완료를 만들어내지 마세요. 메모에 명시된 실제 관찰과 예정 활동을 구분하세요. SOAP O/A에 실제 관찰 근거가 없다면 관찰 전/평가 보류를 명시하세요.':'');
   Object.assign(input,{session_structure:{...structure,oral_evidence:structure.oral_evidence.map(redact),aquatic_evidence:structure.aquatic_evidence.map(redact)}});
   const controller=new AbortController(),deadline=Date.now()+45000,timer=setTimeout(()=>controller.abort(),45000);phase='network';let response:Response;let data:any;
   try{if(provider==='openai'){
@@ -75,7 +76,7 @@ export async function handleAiJournal(req:NextRequest){
   phase='parse_validate';
   let result=parseGeneratedJournalResponse(text);result.parent_message=finalizeParentMessage(result.parent_message,realName,b.style,ctx.member_type==='child');result.clinical_record=result.clinical_record.split('회원이름').join(realName);
   if(structure.combined){try{result=finalizeCombined(result,structure);}catch{return fail('AI_COMBINED_SECTIONS','구강·연하와 수중 활동 두 영역을 확인하지 못했어요. 메모는 유지됩니다. 다시 생성해주세요.');}}
-  const chars=Array.from(result.parent_message).length,themes=messageThemeCount(result.parent_message);const warnings:string[]=[];if(chars>1200)warnings.push('알림장이 길어요. 실제 관찰 중심으로 검토해주세요.');return reply({...result,session_components:structure.combined?[{kind:'oral_swallow',duration_minutes:structure.oral_minutes},{kind:'aqua',duration_minutes:structure.aquatic_minutes}]:[],provider,version:'3.90.8',quality:{characters:chars,themes,warnings}});
+  const chars=Array.from(result.parent_message).length,themes=messageThemeCount(result.parent_message);const warnings:string[]=[];if(chars>1200)warnings.push('알림장이 길어요. 실제 관찰 중심으로 검토해주세요.');return reply({...result,session_components:structure.combined?[{kind:'oral_swallow',duration_minutes:structure.oral_minutes},{kind:'aqua',duration_minutes:structure.aquatic_minutes}]:[],provider,version:'3.91.3',quality:{characters:chars,themes,warnings}});
  }catch(e:any){
   if(e?.name==='AbortError')return fail('AI_TIMEOUT','AI 응답 대기시간이 초과되었습니다. 메모는 유지됩니다.',504);
   if(e instanceof JournalFormatError)return fail(e.code,e.message);
