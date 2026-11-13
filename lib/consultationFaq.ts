@@ -1,0 +1,5 @@
+export const FAQ_CATEGORIES=[{id:1,label:'1. 신규 문의·체험 안내'},{id:2,label:'2. 체험 확정·환불·준비물'},{id:3,label:'3. 공석·대기 1순위 안내'},{id:4,label:'4. 보강·재등록·결제·주차'}] as const;
+export type FaqScript={id:string;category:number;position:number;question:string;answer:string;version:number;source_kind:'seed'|'legacy'|'custom';source_key:string};
+export function faqCode(f:Pick<FaqScript,'category'|'position'>){return f.position>=10000?'기존 문구':`${f.category}-${f.position}`;}
+export function filterFaqs(rows:FaqScript[],category:number,query:string){const q=query.trim().toLocaleLowerCase('ko');return rows.filter(f=>(category===0||Number(f.category)===category)&&(!q||[faqCode(f),f.question,f.answer,FAQ_CATEGORIES.find(c=>c.id===f.category)?.label].join(' ').toLocaleLowerCase('ko').includes(q))).sort((a,b)=>Number(a.category)-Number(b.category)||Number(a.position)-Number(b.position)||a.id.localeCompare(b.id));}
+export function nextFaqPosition(rows:FaqScript[],category:number){return Math.max(0,...rows.filter(f=>f.category===category&&f.position<10000).map(f=>f.position))+1;}
