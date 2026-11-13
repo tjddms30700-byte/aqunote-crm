@@ -1,3 +1,4 @@
+import {modelName,requestBody,providerProblem,repairRequest,safeProviderLog} from './journalProviderContract';
 import {memoUnits,ORDERED_JOURNAL_SCHEMA,parseOrderedJournal} from './journalSource';
 import {NextRequest,NextResponse} from 'next/server';
 import {sessionStructure,combinedPrompt,finalizeCombined} from './journalSession';
@@ -9,8 +10,8 @@ import {JOURNAL_GENERATION_SCHEMA,journalPrompt,parseGeneratedJournalResponse,Jo
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const reply=(body:unknown,status=200)=>NextResponse.json(body,{status,headers:{'Cache-Control':'no-store, private'}});
 export async function handleAiJournal(req:NextRequest){
- let phase='auth',providerName='unknown';
- const fail=(code:string,message:string,status=502)=>{console.warn('[ai-journal]',JSON.stringify({code,phase,provider:providerName,version:'3.92.4'}));return reply({error:`${message} [${code}]`,code,version:'3.92.4'},status);};
+ let phase='auth',providerName='unknown',sourceSaved:any=null;
+ const fail=(code:string,message:string,status=502)=>{console.warn('[ai-journal]',JSON.stringify({code,phase,provider:providerName,version:'3.92.5'}));return reply({error:`${message} [${code}]`,code,version:'3.92.5',...(sourceSaved?{raw_saved:true,session_id:sourceSaved.session_id,review_required:true}:{})},status);};
  try{
   const token=req.headers.get('authorization')?.match(/^Bearer (.+)$/i)?.[1];
   if(!token)return reply({error:'로그인 후 다시 이용해주세요.'},401);
@@ -26,6 +27,8 @@ export async function handleAiJournal(req:NextRequest){
   phase='context';const {data:ctx,error:ctxError}=await db.rpc('ai_journal_context',{p_member:b.member_id,p_slot:b.slot_id||null,p_date:b.date,p_time:b.time});
   if(ctxError)return reply({error:['PGRST202','42883','42P01'].includes(ctxError.code)?'AI 일지 DB 설치가 필요합니다. v3.80.0 SQL을 실행해주세요.':'담당 회원 또는 수업 조회 권한을 확인해주세요.'},403);
   if(lessonTrack(ctx.track)==='ground'&&b.style!=='C')return reply({error:'지상재활은 AI로 가공하지 않습니다. 원문 저장을 이용해주세요.',code:'GROUND_RAW_ONLY'},409);
+  if(b.save_key&&!UUID.test(b.save_key))return reply({error:'저장 식별자를 확인해주세요.'},400);
+  if(b.save_key){const checkpoint=await db.rpc('journal_single_flow_3925',{p_key:b.save_key,p_member:b.member_id,p_slot:b.slot_id||null,p_date:b.date,p_time:b.time,p_style:b.style,p_source:b.memo,p_result:null});if(checkpoint.error)return fail('AI_SOURCE_SAVE','원문을 세션 DB에 저장하지 못해 AI 호출을 중단했습니다. 입력 메모는 유지됩니다.',503);sourceSaved=checkpoint.data;}
   const provider=(process.env.AI_JOURNAL_PROVIDER||'openai').trim().toLowerCase();providerName=provider;
   if(!['openai','gemini'].includes(provider))return reply({error:'AI_JOURNAL_PROVIDER는 openai 또는 gemini로 설정해주세요.'},503);
   const apiKey=(provider==='gemini'?process.env.GEMINI_API_KEY:process.env.OPENAI_API_KEY)?.trim();
@@ -39,12 +42,13 @@ export async function handleAiJournal(req:NextRequest){
   const system=journalPrompt(b.style,ctx.track,ctx.member_type==='child')+(preSession?'\n[사전작성] 예약 시간이 아직 남아 있습니다. 메모의 계획은 계획/예정으로 표시하고 수행·호전·출석 완료를 만들어내지 마세요. 메모에 명시된 실제 관찰과 예정 활동을 구분하세요. SOAP O/A에 실제 관찰 근거가 없다면 관찰 전/평가 보류를 명시하세요.':'');
   Object.assign(input,{session_structure:{...structure,oral_evidence:structure.oral_evidence.map(redact),aquatic_evidence:structure.aquatic_evidence.map(redact)}});
   const controller=new AbortController(),deadline=Date.now()+45000,timer=setTimeout(()=>controller.abort(),45000);phase='network';let response:Response;let data:any;
-  try{if(provider==='openai'){
-   response=await fetchJournalProvider(()=>fetch('https://api.openai.com/v1/chat/completions',{method:'POST',signal:controller.signal,headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:process.env.OPENAI_JOURNAL_MODEL||'gpt-4.1-mini',store:false,messages:[{role:'system',content:system},{role:'user',content:JSON.stringify(input)}],response_format:{type:'json_schema',json_schema:{name:'aqunote_dual_journal',strict:true,schema:ORDERED_JOURNAL_SCHEMA}},max_completion_tokens:12000})}),{signal:controller.signal,deadline});
-  }else{
-   const model=(process.env.GEMINI_JOURNAL_MODEL||'gemini-2.5-flash').trim();if(!/^[a-zA-Z0-9_.-]+$/.test(model))return reply({error:'Gemini 모델 설정을 확인해주세요.'},503);
-   response=await fetchJournalProvider(()=>fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',signal:controller.signal,headers:{'x-goog-api-key':apiKey,'Content-Type':'application/json'},body:JSON.stringify({systemInstruction:{parts:[{text:system}]},contents:[{role:'user',parts:[{text:JSON.stringify(input)}]}],generationConfig:{responseMimeType:'application/json',responseJsonSchema:ORDERED_JOURNAL_SCHEMA,maxOutputTokens:12000,...(model.startsWith('gemini-2.5-flash')?{thinkingConfig:{thinkingBudget:0}}:{})}})}),{signal:controller.signal,deadline});
-  }
+  try{
+   let model:string;try{model=modelName(provider as 'openai'|'gemini');}catch(e:any){return fail('AI_PROVIDER_CONFIG',e.message,503);}
+   let body:any=requestBody(provider as 'openai'|'gemini',model,system,input);
+   const endpoint=provider==='openai'?'https://api.openai.com/v1/chat/completions':`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+   const send=()=>fetch(endpoint,{method:'POST',signal:controller.signal,headers:provider==='openai'?{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'}:{'x-goog-api-key':apiKey,'Content-Type':'application/json'},body:JSON.stringify(body)});
+   response=await fetchJournalProvider(send,{signal:controller.signal,deadline,maxAttempts:2});
+   if(response.status===400){const problem=await providerProblem(response);safeProviderLog(problem,provider,model,[apiKey,realName,b.memo,...units.map(u=>u.text)]);const fixed=repairRequest(body,provider as 'openai'|'gemini',problem);if(fixed){body=fixed;response=await fetchJournalProvider(send,{signal:controller.signal,deadline,maxAttempts:1});}else return fail('AI_PROVIDER_REQUEST',`AI 요청이 거절되었습니다(HTTP 400${problem.param?', 항목: '+problem.param:''}). 모델/요청 설정을 확인해주세요. 진단 ID: ${problem.requestId||'Vercel 로그 참조'}`);}
   phase='response_body';
   if(!response.ok){
    // An upstream 503/5xx is not evidence of a bad API key. Non-JSON outage pages are classified too.
@@ -55,8 +59,8 @@ export async function handleAiJournal(req:NextRequest){
    if(response.status===429)return fail('AI_PROVIDER_QUOTA','AI 제공업체 사용 한도 또는 요청 한도에 도달했습니다. 선택한 API 프로젝트의 할당량을 확인해주세요.',429);
    if(response.status===401||response.status===403)return fail('AI_PROVIDER_AUTH','AI API 키의 권한 또는 사용 제한을 확인해주세요.',502);
    if(response.status===404)return fail('AI_PROVIDER_MODEL','설정한 AI 모델을 찾지 못했습니다. 모델 환경변수를 확인해주세요.',502);
-   try{data=await response.json();}catch{data=null;}
-   const invalidKey=Array.isArray(data?.error?.details)&&data.error.details.some((d:any)=>d?.reason==='API_KEY_INVALID');
+   const problem=await providerProblem(response);safeProviderLog(problem,provider,model,[apiKey,realName,b.memo,...units.map(u=>u.text)]);data={error:{details:[],code:problem.code}};
+   const invalidKey=data?.error?.code==='API_KEY_INVALID';
    if(invalidKey)return fail('AI_PROVIDER_AUTH','AI 제공업체가 API 키를 유효한 키로 확인하지 못했습니다. 등록한 키를 확인해주세요.',502);
    return fail('AI_PROVIDER_REQUEST',`AI 제공업체가 요청을 처리하지 못했습니다(HTTP ${response.status}). API 키 제한·모델·요청 설정을 확인해주세요.`);
   }
@@ -78,7 +82,8 @@ export async function handleAiJournal(req:NextRequest){
   phase='parse_validate';
   let result=parseOrderedJournal(text,units);result.parent_message=finalizeParentMessage(result.parent_message,realName,b.style,ctx.member_type==='child');result.clinical_record=result.clinical_record.split('회원이름').join(realName);
   if(structure.combined){try{result={...result,...finalizeCombined(result,structure)};}catch{return fail('AI_COMBINED_SECTIONS','구강·연하와 수중 활동 두 영역을 확인하지 못했어요. 메모는 유지됩니다. 다시 생성해주세요.');}}
-  const chars=Array.from(result.parent_message).length,themes=messageThemeCount(result.parent_message);const warnings:string[]=[...result.expansion_warnings];return reply({...result,session_components:structure.combined?[{kind:'oral_swallow',duration_minutes:structure.oral_minutes},{kind:'aqua',duration_minutes:structure.aquatic_minutes}]:[],provider,version:'3.92.4',quality:{characters:chars,themes,warnings}});
+  if(b.save_key){const stored=await db.rpc('journal_single_flow_3925',{p_key:b.save_key,p_member:b.member_id,p_slot:b.slot_id||null,p_date:b.date,p_time:b.time,p_style:b.style,p_source:b.memo,p_result:result});if(stored.error)return fail('AI_RESULT_SAVE','AI 생성은 완료됐지만 DB 저장 확인에 실패했습니다. 원문은 저장되어 있습니다. 저장된 원문 기록에서 다시 확인해주세요.',503);sourceSaved=stored.data;}
+  const chars=Array.from(result.parent_message).length,themes=messageThemeCount(result.parent_message);const warnings:string[]=[...result.expansion_warnings];return reply({...result,...(sourceSaved?{auto_saved:true,session_id:sourceSaved.session_id,review_required:true}:{}),session_components:structure.combined?[{kind:'oral_swallow',duration_minutes:structure.oral_minutes},{kind:'aqua',duration_minutes:structure.aquatic_minutes}]:[],provider,version:'3.92.5',quality:{characters:chars,themes,warnings}});
  }catch(e:any){
   if(e?.name==='AbortError')return fail('AI_TIMEOUT','AI 응답 대기시간이 초과되었습니다. 메모는 유지됩니다.',504);
   if(e instanceof JournalFormatError)return fail(e.code,e.message);
