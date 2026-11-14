@@ -12,7 +12,9 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    if(Number(req.headers.get("content-length")||0)>48000)return NextResponse.json({error:"신청 내용이 너무 큽니다."},{status:413});
+    const text=await req.text();if(Buffer.byteLength(text,"utf8")>48000)return NextResponse.json({error:"신청 내용이 너무 큽니다."},{status:413});
+    let body:any;try{body=JSON.parse(text);}catch{return NextResponse.json({error:"신청 형식을 확인해주세요."},{status:400});}
 
     // 필수 필드 검증
     const isChild = body.member_type === "child";
@@ -25,8 +27,7 @@ export async function POST(req: Request) {
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey =
-      process.env.SUPABASE_SERVICE_ROLE_KEY ||
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!supabaseUrl || !supabaseKey) {
       return NextResponse.json({ error: "서버 설정 오류" }, { status: 500 });
     }
@@ -67,133 +68,21 @@ export async function POST(req: Request) {
     if (body.wish_start_date) memoParts.push(`[희망 시작일] ${body.wish_start_date}`);
 
     memoParts.push("");
-    memoParts.push(`━━━━━ 개인정보/의료정보 동의: ✅ (${new Date().toLocaleString("ko-KR")}) ━━━━━`);
+    memoParts.push("━━━━━ 개인정보/의료정보 동의: ✅ ━━━━━");
 
     const memo = memoParts.join("\n");
 
     const phone = normalizePhone(body.phone);
-    const sourceRowId = `web_apply_${Date.now()}_${name}_${phone}`;
-
-    const payload = {
-      source_row_id: sourceRowId,
-      name,
-      phone,
-      member_type: body.member_type,
-      source: body.source || "웹신청",
-      memo,
-      wish_days: body.wish_days || null,
-      wish_time_slots: body.wish_time_slots || null,
-      wish_start_date: body.wish_start_date || null,
-      raw_payload: body,   // 원본 그대로 백업
-      // ✅ v3.57.6: processed=false 명시 — members INSERT 실패 시에도
-      //   상담관리 신규 탭에 미처리 리드로 표시되도록 보장 (고아 방지)
-      processed: false,
-      status: "new",
-    };
-
-    // v3.31.0: 종만감이 자동 승격 - leads_inbox 메이보다 members + consultations 직접 INSERT
-    // 이제 신청폼 제출 즉시 [NEW 신규] 컬럼으로 자동 생성 (수동 승격 절차 완전 제거)
-
-    // 1) leads_inbox에도 백업으로 저장 (오류 무시 - 테이블 없을 수 있음)
-    let leadId: string | null = null;
-    try {
-      const { data: leadData } = await supabase.from("leads_inbox").insert(payload).select().maybeSingle();
-      leadId = leadData?.id || null;
-    } catch (e) { console.warn("[v3.31.0] leads_inbox 저장 실패 (무시):", e); }
-
-    // 2) members 테이블에 직접 INSERT (status='new' - 파이프라인 [NEW 신규] 컬럼에 바로 표시)
-    const memberPayload: any = {
-      name,
-      phone,
-      member_type: body.member_type,
-      gender: body.gender || null,
-      birth: body.birth || null,
-      address: body.address || null,
-      guardian_name: isChild ? (body.guardian_name || null) : null,
-      guardian_relation: isChild ? (body.guardian_relation || null) : null,
-      school: isChild ? (body.institution || null) : null,
-      diagnosis: body.diagnosis || null,
-      status: "new", // 파이프라인 [NEW 신규] 컬럼 직행
-      source: body.source || "웹신청",
-      // ✅ v3.52.2: 수중 신청폼 자동승격 시 트랙 명시 (null 방지 — 회원 DB 필터 정합성)
-      service_track: body.service_track || "aqua",
-      service_tags: body.service_track === "ground" ? ["ground"] : ["aqua"],
-      memo,
-      wish_days: body.wish_days?.length > 0 ? body.wish_days : null,
-      wish_time_slots: body.wish_time_slots?.length > 0 ? body.wish_time_slots : null,
-      extra: {
-        height_weight: body.height_weight,
-        main_symptom: body.main_symptom,
-        surgery_history: body.surgery_history,
-        medication: body.medication,
-        treatment_history: body.treatment_history,
-        expected_change: body.expected_change,
-        wish_branch: body.wish_branch,
-        wish_start_date: body.wish_start_date,
-        source_lead_id: leadId,
-      },
-    };
-
-    // ✅ v3.49.5: 희망 지점(wish_branch) 텍스트 → branches.id 자동 매핑
-    //   기존 버그: memberPayload에 branch_id가 없어 지점 필터가 걸린 화면(상담/시간표)에서
-    //   신규 접수 회원이 보이지 않던 문제. 매칭 실패 시 첫 번째(본점) 지점으로 폴백.
-    try {
-      const { data: branchRows } = await supabase
-        .from("branches")
-        .select("id, name, branch_type")
-        .is("deleted_at", null)
-        .order("branch_type", { ascending: true })
-        .order("created_at");
-      if (branchRows && branchRows.length > 0) {
-        const wish = String(body.wish_branch || "").replace(/\s/g, "");
-        const matched =
-          branchRows.find((b: any) => wish && String(b.name || "").replace(/\s/g, "").includes(wish.replace(/점$/, "").replace(/본점$/, ""))) ||
-          branchRows.find((b: any) => wish && wish.includes(String(b.name || "").replace(/점$/, ""))) ||
-          // ✅ v3.57.6: 매칭 실패 시 branch_type='head'(본점/위례점) 우선 폴백
-          //   (기존: 목록 첫 번째 → 직영점(광주)으로 잘못 들어가 위례점 화면에서 안 보이던 버그)
-          branchRows.find((b: any) => b.branch_type === "head") ||
-          branchRows.find((b: any) => b.branch_type === "branch") ||
-          branchRows[0];
-        memberPayload.branch_id = matched.id;
-      }
-    } catch (e) { console.warn("[v3.49.5] branch 매핑 실패 (무시):", e); }
-
-    const { data: memberData, error: memberErr } = await supabase
-      .from("members")
-      .insert(memberPayload)
-      .select()
-      .single();
-
-    if (memberErr) {
-      console.error("[v3.31.0] members 자동 승격 실패:", memberErr);
-      // ✅ v3.57.5: members INSERT 가 실패해도 leads_inbox 백업(leadId)이 있으면 데이터 유실은 없음을 응답에 명시
-      //   데스크가 상담관리 신규 탭에서 재승격할 수 있으므로, 원본 보관 여부를 함께 반환
-      return NextResponse.json({
-        error: memberErr.message,
-        backed_up: !!leadId,
-        leadId,
-        hint: leadId ? "신청 원본은 접수함에 안전하게 저장되었습니다. 상담관리 > 신규 탭에서 다시 등록할 수 있습니다." : "접수함 백업도 실패했습니다. 신청자에게 재작성을 안내해주세요.",
-      }, { status: 500 });
-    }
-
-    // 3) consultations 테이블에도 기록 (상담 이력 추적용 - 있으면)
-    try {
-      await supabase.from("consultations").insert({
-        member_id: memberData.id,
-        status: "new",
-        source: body.source || "웹신청",
-        memo,
-        raw_payload: body,
-        created_at: new Date().toISOString(),
-      });
-    } catch (e) { console.warn("[v3.31.0] consultations 저장 실패 (무시):", e); }
-
-    console.log("[v3.31.0] ✅ 신규 상담 자동 승격 완료:", { memberId: memberData.id, name, phone });
-
-    return NextResponse.json({ success: true, id: memberData.id, leadId });
+    if(String(name).trim().length>80||!/^01[016789][0-9]{7,8}$/.test(phone.replace(/\D/g,'')))return NextResponse.json({error:'이름과 휴대전화 번호를 확인해주세요.'},{status:400});
+    const event=body.submission_id||crypto.randomUUID();
+    if(!/^[0-9a-f-]{36}$/i.test(event))return NextResponse.json({error:'신청 식별자를 확인해주세요.'},{status:400});
+    const {data,error}=await supabase.rpc('consultation_web_apply_3927',{p_event:event,p_payload:{...body,intake_memo:memo}});
+    if(error){console.warn('[web-apply]',JSON.stringify({code:error.code}));return NextResponse.json({error:['PGRST202','42883'].includes(error.code)?'신청 접수 DB 업데이트가 필요합니다. 센터에 문의해주세요.':'신청을 저장하지 못했습니다. 센터·연락처를 확인하고 다시 시도해주세요.'},{status:503});}
+    // No identity details or existing-record status are exposed to a public caller.
+    return NextResponse.json({success:true,submission_id:event});
   } catch (e: any) {
-    console.error("Apply POST error:", e);
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    console.warn("[web-apply] request failed");
+    return NextResponse.json({ error: "신청 처리 중 오류가 발생했습니다. 다시 시도해주세요." }, { status: 500 });
   }
 }
 

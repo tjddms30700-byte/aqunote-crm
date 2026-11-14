@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import Logo from "@/components/Logo";
 import { CheckCircle2, ChevronRight, ChevronLeft, Loader2, Phone, Clock, AlertCircle } from "lucide-react";
 
@@ -20,6 +20,7 @@ export default function ApplyAdultPage() {
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6 | 7 | 8>(1);
   const TOTAL = 8;
   const [submitting, setSubmitting] = useState(false);
+  const submissionRef=useRef({signature:"",id:""});
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
 
@@ -123,10 +124,11 @@ export default function ApplyAdultPage() {
     if (err) { setError(err); return; }
     setSubmitting(true);
     try {
+      const signature=JSON.stringify(form);if(submissionRef.current.signature!==signature)submissionRef.current={signature,id:crypto.randomUUID()};
       const res = await fetch("/api/apply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, member_type: "adult" }),
+        body: JSON.stringify({ ...form, submission_id:submissionRef.current.id, member_type: "adult" }),
       });
       const j = await res.json();
       if (j.success) setDone(true);
