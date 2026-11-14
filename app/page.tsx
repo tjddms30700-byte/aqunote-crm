@@ -14,6 +14,7 @@ import {
 import Logo from "@/components/Logo";
 import BranchSwitcher from "@/components/BranchSwitcher";
 import GlobalQuickSearch from "@/components/GlobalQuickSearch";
+import {useConsultationPendingBadge} from "@/lib/useConsultationPendingBadge";
 
 /* ═════ v3.20.0: 5대분류 (안전사고→회원·수업, 직원관리 단일화, 결제·설정 마스터/센터장 전용) ═════ */
 const GROUPS = [
@@ -107,7 +108,7 @@ function DesktopHome() {
   const [isDirector, setIsDirector] = useState(false);      // ✅ v3.49.0: 운영 그룹 표시 여부 (대표 또는 센터장)
   const [isMasterRole, setIsMasterRole] = useState(false);  // ✅ v3.49.0: 대표 전용 메뉴 표시 여부
   const [expandedGroup, setExpandedGroup] = useState<string | null>("members");
-  const [badges, setBadges] = useState<Record<string, number>>({});
+  const {count:pendingCount,error:badgeError}=useConsultationPendingBadge();
 
   useEffect(() => {
     (async () => {
@@ -128,69 +129,6 @@ function DesktopHome() {
         setIsDirector(master || centerMgr);  // 운영 그룹은 센터장까지 노출 (항목별로 masterOnly 분리)
       }
 
-      // ✅ v3.48.6: 홈 뱃지 전화번호 숫자-only 정규화 비교 (상담 페이지 신규 카운트와 100% 일치)
-      // ✅ v3.40.9: 홈 뱃지 로직 자체 정화형 재작성
-      //   기존 버그: processed=false 카운트만 봤기 때문에 members 로 이미 승격되었는데
-      //             leads_inbox 마감(processed=true) UPDATE 가 실패한 리드가
-      //             홈 뱃지에 계속 잡히는 문제 (백현 케이스)
-      //   해결: 아래 3가지 조건 중 하나라도 만족하면 뱃지에서 자동 제외
-      //     ① promoted_member_id 가 이미 세팅됨 (members 로 승격 완료)
-      //     ② status 가 new/inbox/pending 이외 (대기중/체험/취소 등)
-      //     ③ 같은 phone 을 가진 members 가 존재 (동일 인물이 회원 DB에 이미 있음)
-      //   덧붙여, 조회하면서 조건 만족 리드는 processed=true 로 자동 자기 정화 UPDATE
-      const { data: pendingRows } = await supabase
-        .from("leads_inbox")
-        .select("id, phone, status, promoted_member_id, member_id")
-        .eq("processed", false)
-        .limit(200);
-
-      let realPending = 0;
-      const autoClearIds: string[] = [];
-
-      if (pendingRows && pendingRows.length > 0) {
-        // ✅ v3.48.6: 전화번호 비교를 숫자-only 정규화로 통일 (상담 페이지와 동일 기준)
-        //   기존 버그: 하이픈 포함 원본 그대로 비교 → 포맷 차이 시 매칭 실패로 뱃지 오동작
-        const digits = (v: any) => String(v || "").replace(/\D/g, "");
-        const phones = pendingRows.map((r: any) => r.phone).filter(Boolean);
-        let existingPhones = new Set<string>();
-        if (phones.length > 0) {
-          // members 전체 전화번호를 가져와 숫자-only로 정규화 후 비교 (IN 절 포맷 불일치 방지)
-          const { data: memRows } = await supabase
-            .from("members")
-            .select("phone")
-            .is("deleted_at", null)
-            .limit(2000);
-          if (memRows) existingPhones = new Set(memRows.map((m: any) => digits(m.phone)).filter(Boolean));
-        }
-
-        for (const r of pendingRows as any[]) {
-          const alreadyPromoted = !!(r.promoted_member_id || r.member_id);
-          const statusMoved = r.status && !["new", "inbox", "pending", ""].includes(String(r.status).toLowerCase());
-          const pDigits = digits(r.phone);
-          const phoneExists = pDigits && existingPhones.has(pDigits);
-          if (alreadyPromoted || statusMoved || phoneExists) {
-            autoClearIds.push(r.id);
-          } else {
-            realPending += 1;
-          }
-        }
-
-        // 자동 자기 정화: 조건 만족 리드는 processed=true 로 백그라운드 UPDATE
-        if (autoClearIds.length > 0) {
-          console.log(`[v3.40.9] 홈 뱃지 자동 정화: ${autoClearIds.length}건 processed=true 마킹`);
-          supabase
-            .from("leads_inbox")
-            .update({ processed: true, processed_at: new Date().toISOString() })
-            .in("id", autoClearIds)
-            .then(({ error }) => {
-              if (error) console.warn("[v3.40.9] 자기 정화 UPDATE 실패:", error.message);
-            });
-        }
-      }
-
-      console.log(`[v3.40.9] 홈 뱃지 계산: 진짜 미처리 신규=${realPending}건 (자동 정화 ${autoClearIds.length}건)`);
-      // ✅ v3.24.2: 회원 DB 배지 제거 - 상담 리드 신규 유입 시에만 알림 표시
-      setBadges({ inbox_pending: realPending });
     })();
   }, []);
 
@@ -314,9 +252,9 @@ function DesktopHome() {
                           <div className="relative p-3 md:p-4 flex flex-col justify-between min-h-[100px] md:min-h-[110px]">
                             <div className={`aqu-home-icon w-9 h-9 md:w-10 md:h-10 rounded-xl bg-gradient-to-br ${group.from} ${group.to} p-2 md:p-2.5 shadow-sm shrink-0 relative`}>
                               <ItemIcon className="w-full h-full text-white" />
-                              {(item as any).badgeKey && badges[(item as any).badgeKey] > 0 && (
-                                <span className="absolute -top-2 -right-2 min-w-[20px] h-5 px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center animate-pulse">
-                                  {badges[(item as any).badgeKey]}
+                              {(item as any).badgeKey && (pendingCount===null||pendingCount>0) && (
+                                <span data-testid="home-consultation-badge" aria-label={pendingCount===null?(badgeError?'신규 문의 집계 조회 실패':'신규 문의 집계 조회 중'):`신규 문의(미응대) ${pendingCount}건`} title={badgeError||'상담·매칭 관리의 신규 문의(미응대)와 같은 집계'} className="absolute -top-2 -right-2 min-w-[20px] h-5 px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                                  {pendingCount===null?(badgeError?'!':'…'):pendingCount}
                                 </span>
                               )}
                             </div>
