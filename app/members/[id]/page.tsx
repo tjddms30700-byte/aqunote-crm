@@ -2,7 +2,9 @@
 import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import {MemberClinicalSummary,MemberClinicalSessions} from "@/components/MemberClinicalWorkspace";
-import { remainingOf } from "@/lib/membershipFifo";
+import { remainingOf, totalOf } from "@/lib/membershipFifo";
+import {displayRemaining} from "@/lib/membershipBalance";
+import MembershipAdjustmentButton from "@/components/MembershipAdjustmentButton";
 import { buildFormSections } from "@/lib/consultFormMapper";  // ✅ v3.58.1: 신청폼 원본 섹션 카드 렌더링
 import { recommendIepGoals, detectBehaviors } from "@/lib/sessionAnalyzer";
 import IepGoalLibraryBrowser from "@/components/IepGoalLibraryBrowser";
@@ -1962,9 +1964,9 @@ function MemberHistoryPanel({ memberId }: { memberId: string }) {
   const netPaid = totalPaid - totalRefunded;
 
   const activeMemberships = memberships.filter(m => m.status !== "cancelled");
-  const totalSessions = activeMemberships.reduce((s, m) => s + (m.total_sessions || 0) + (m.adjustment || 0), 0);
+  const totalSessions = activeMemberships.reduce((s, m) => s + totalOf(m), 0);
   const usedSessions = activeMemberships.reduce((s, m) => s + (m.used_sessions || 0), 0);
-  const remainingSessions = Math.max(0, totalSessions - usedSessions);  // ✅ v3.48.3: 음수 잔여 표시 방지 (예: -2회)
+  const remainingSessions = activeMemberships.reduce((s, m) => s + displayRemaining(m), 0);  // ✅ v3.48.3: 음수 잔여 표시 방지 (예: -2회)
 
   // ✅ v3.48.4: 완료 수업 중복 제거 (같은 날짜+시간대 1회만 카운트) - FIFO 재계산과 동일 기준
   const doneKeySet = new Set<string>();
@@ -2028,7 +2030,7 @@ function MemberHistoryPanel({ memberId }: { memberId: string }) {
           <div className="space-y-2">
             {memberships.map(m => {
               // ✅ v3.48.0: 음수 잔여 표시 방지 (예: -2/10 → 0/10)
-              const remaining = remainingOf(m);
+              const remaining = displayRemaining(m);
               const isCancelled = m.status === "cancelled";
               const isExpired = m.end_date && new Date(m.end_date) < new Date();
               return (
@@ -2045,30 +2047,12 @@ function MemberHistoryPanel({ memberId }: { memberId: string }) {
                       {!isCancelled && isExpired && <span className="text-[10px] px-2 py-0.5 bg-yellow-500 text-white rounded font-bold">⏰ 만료</span>}
                       {!isCancelled && !isExpired && <span className="text-[10px] px-2 py-0.5 bg-green-500 text-white rounded font-bold">✓ 활성</span>}
                       <div className={`text-lg font-black ${remaining <= 2 ? "text-red-500" : "text-purple-700"}`}>
-                        {remaining}/{(m.total_sessions || 0) + (m.adjustment || 0)}
+                        {remaining}/{totalOf(m)}
                       </div>
                       <Link href={`/payments?membership_id=${encodeURIComponent(m.id)}`} className="text-[11px] px-2 py-1 rounded border border-aqu-200 text-aqu-700 hover:bg-aqu-50">
                         결제/수납 보기 →
                       </Link>
-                      {/* ✅ v3.48.5: 수동 잔여 보정 - 외부 시스템(원장 원본 데이터) 기준으로 직접 맞추기 */}
-                      <button
-                        onClick={async () => {
-                          const cap = (m.total_sessions || 0) + (m.adjustment || 0);
-                          const input = prompt(`[${m.plan_name}] 잔여 횟수를 직접 입력하세요 (0~${cap})\n현재: ${remaining}회`, String(remaining));
-                          if (input === null) return;
-                          const newRemaining = parseInt(input, 10);
-                          if (isNaN(newRemaining) || newRemaining < 0 || newRemaining > cap) {
-                            alert(`0~${cap} 사이 숫자를 입력해 주세요`); return;
-                          }
-                          const newUsed = cap - newRemaining;
-                          const { error } = await supabase.from("memberships").update({ used_sessions: newUsed }).eq("id", m.id);
-                          if (error) { alert("보정 실패: " + error.message); return; }
-                          await loadAll();
-                        }}
-                        className="text-[10px] px-1.5 py-0.5 rounded border border-slate-300 text-slate-500 hover:bg-slate-100"
-                        title="외부 시스템 기준으로 잔여 횟수 수동 보정">
-                        ± 보정
-                      </button>
+                      <MembershipAdjustmentButton memberId={memberId} membership={m} onSaved={loadAll}/>
                     </div>
                   </div>
                   {(m.refund_status && m.refund_status !== "none") && (
