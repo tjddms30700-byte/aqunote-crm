@@ -29,8 +29,8 @@ const MEMBER_FORMS = [
 
 // ✅ v3.46.0: 4탭 → 2탭 통폐합 (성장 종합보고서)
 const REPORT_TYPES = [
-  { v: "monthly", label: "📅 월간 성장보고서", desc: "이번 달 세션·6축·PDF 자동 생성" },
-  { v: "yearly",  label: "📊 연간 성장보고서", desc: "올해 성장 추이·연간 요약·PDF" },
+  { v: "yearly", label: "📅 연간 성장보고서", desc: "선택 연도의 전체 일지·성장 흐름 종합 분석" },
+  { v: "closure", label: "🎓 종결 종합보고서", desc: "첫 등록부터 종결 또는 현재까지 전체 누적 분석" },
 ];
 
 // v3.20.36: 체험/상담 리드의 상세 데이터까지 URL로 전달해 계약서 변수 자동 치환
@@ -78,8 +78,8 @@ export default function ReportsPageWrapper() {
 function ReportsPage() {
   const [members, setMembers] = useState<any[]>([]);
   const [staffList, setStaffList] = useState<any[]>([]);
-  const [type, setType] = useState<string>("monthly");
-  // ✅ v3.46.4: type이 monthly/yearly로 바뀌면 자동으로 이번 달 / 올해로 기간 재설정
+  const [type, setType] = useState<string>("yearly");
+  // ✅ v3.46.4: 연간 보고서를 선택하면 한국 시간 기준 해당 연도 전체로 설정
   // (이 useEffect는 아래 selectedMember 선언 다음에 삽입되어야 하지만, 훅 순서 유지를 위해 이 위치는 정의만)
   const [selectedMember, setSelectedMember] = useState<string>("");
   const [startDate, setStartDate] = useState(weekAgoStr());
@@ -87,20 +87,7 @@ function ReportsPage() {
   const [endDate, setEndDate] = useState<string>("");
   useEffect(() => { setEndDate(todayStr()); }, []);
 
-  // ✅ v3.46.4: type이 monthly/yearly로 바뀌면 자동으로 기간 재설정 // v3.46.4-effect-type-change
-  useEffect(() => {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, "0");
-    if (type === "monthly") {
-      const lastDay = new Date(y, now.getMonth() + 1, 0).getDate();
-      setStartDate(`${y}-${m}-01`);
-      setEndDate(`${y}-${m}-${String(lastDay).padStart(2, "0")}`);
-    } else if (type === "yearly") {
-      setStartDate(`${y}-01-01`);
-      setEndDate(`${y}-12-31`);
-    }
-  }, [type]);
+  useEffect(()=>{if(type==='yearly'){const y=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul'}).format(new Date()).slice(0,4);setStartDate(y+'-01-01');setEndDate(y+'-12-31');}},[type]);
   const [generating, setGenerating] = useState(false);
   const [reportHtml, setReportHtml] = useState<string>("");
   // v3.20.21: 상단 탭 (보고서 / 양식)
@@ -606,75 +593,12 @@ function ReportsPage() {
               placeholder="이름/전화번호로 검색..."
             />
           </div>
-          {/* ✅ v3.46.4: 월간/연간 보고서 - 캘린더 대신 월/연도 드롭다운 */}
-          {(type === "monthly" || type === "yearly") ? (
-            <>
-              <div>
-                <label className="text-xs font-semibold text-slate-500 mb-1 block">연도</label>
-                <select
-                  value={startDate.slice(0, 4)}
-                  onChange={(e) => {
-                    const y = e.target.value;
-                    const m = type === "monthly" ? (startDate.slice(5, 7) || "08") : "01";
-                    if (type === "monthly") {
-                      const lastDay = new Date(Number(y), Number(m), 0).getDate();
-                      setStartDate(`${y}-${m}-01`);
-                      setEndDate(`${y}-${m}-${String(lastDay).padStart(2, "0")}`);
-                    } else {
-                      setStartDate(`${y}-01-01`);
-                      setEndDate(`${y}-12-31`);
-                    }
-                  }}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none">
-                  {[2024, 2025, 2026, 2027, 2028].map(y => (
-                    <option key={y} value={y}>{y}년</option>
-                  ))}
-                </select>
-              </div>
-              {type === "monthly" ? (
-                <div>
-                  <label className="text-xs font-semibold text-slate-500 mb-1 block">월</label>
-                  <select
-                    value={startDate.slice(5, 7)}
-                    onChange={(e) => {
-                      const y = startDate.slice(0, 4) || "2026";
-                      const m = e.target.value;
-                      const lastDay = new Date(Number(y), Number(m), 0).getDate();
-                      setStartDate(`${y}-${m}-01`);
-                      setEndDate(`${y}-${m}-${String(lastDay).padStart(2, "0")}`);
-                    }}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none">
-                    {["01","02","03","04","05","06","07","08","09","10","11","12"].map(m => (
-                      <option key={m} value={m}>{Number(m)}월</option>
-                    ))}
-                  </select>
-                </div>
-              ) : (
-                <div className="flex items-end">
-                  <div className="text-[11px] text-aqu-700 bg-aqu-50 border border-aqu-200 rounded-lg p-2 w-full text-center">
-                    📅 {startDate.slice(0, 4)}년 1월 1일 ~ 12월 31일 자동 조회
-                  </div>
-                </div>
-              )}
-            </>
-          ) : (
-            <>
-              <div>
-                <label className="text-xs font-semibold text-slate-500 mb-1 block">시작일</label>
-                <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-slate-500 mb-1 block">종료일</label>
-                <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-              </div>
-            </>
-          )}
+          {type==='yearly'?<><div><label className="text-xs font-semibold text-slate-500 mb-1 block">연도</label><select aria-label="연간 보고서 연도" value={startDate.slice(0,4)} onChange={e=>{setStartDate(e.target.value+'-01-01');setEndDate(e.target.value+'-12-31');}} className="w-full rounded-xl border border-slate-200 p-2">{Array.from({length:new Date().getFullYear()-1899},(_,i)=>new Date().getFullYear()-i).map(y=><option key={y} value={y}>{y}년</option>)}</select></div><div className="flex items-end text-xs text-slate-600">{startDate.slice(0,4)}년 1월 1일~12월 31일 전체 기록</div></>:<div className="md:col-span-2 rounded-xl border border-sky-100 bg-sky-50 p-3 text-xs text-slate-700">최초 등록·수업 기록부터 명시된 종결일(없으면 현재)까지 자동 조회합니다. 이전 연도도 모두 포함하며 기간은 보고서 상단에 표시됩니다.</div>}
+
         </div>
 
-        {/* ✅ v3.46.0: monthly/yearly 는 GrowthReportPanel 로 자동 렌더 (버튼 불필요) */}
-        {(type === "monthly" || type === "yearly") ? (
+        {/* ✅ v3.46.0: 연간/종결은 GrowthReportPanel로 자동 렌더 (버튼 불필요) */}
+        {(type === "yearly" || type === "closure") ? (
           <div className="text-[11px] text-indigo-700 bg-gradient-to-r from-sky-50 via-indigo-50/60 to-purple-50/40 border border-indigo-200/60 rounded-2xl p-3.5 text-center shadow-sm">
             💡 회원을 선택하면 아래에 <b>성장보고서</b>가 자동 생성됩니다.
             AI 코멘트 초안이 자동 작성되며, 치료사가 직접 편집 후 <b>PDF 다운로드</b>·<b>인쇄</b>가 가능합니다.
@@ -689,15 +613,15 @@ function ReportsPage() {
       </div>
       )}
 
-      {/* ✅ v3.46.0: 월간/연간 성장 종합보고서 자동 렌더 */}
-      {topTab === "report" && selectedMember && (type === "monthly" || type === "yearly") && (
+      {/* ✅ v3.46.0: 연간/종결 성장 종합보고서 자동 렌더 */}
+      {topTab === "report" && selectedMember && (type === "yearly" || type === "closure") && (
         <div className="mt-4">
           <GrowthReportPanel
             key={`${selectedMember}-${type}-${startDate}-${endDate}`}
             memberId={selectedMember}
             memberName={members.find(m => m.id === selectedMember)?.name || ""}
             memberLevel={(members.find(m => m.id === selectedMember) as any)?.computed_level || 2}
-            period={type === "monthly" ? "monthly" : "yearly"}
+            period={type === "closure" ? "closure" : "yearly"}
             startDate={startDate}
             endDate={endDate}
           />
