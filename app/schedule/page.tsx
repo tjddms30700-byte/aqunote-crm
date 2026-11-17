@@ -35,6 +35,7 @@ import HomeButton from "@/components/HomeButton";
 import MemberSearch from "@/components/MemberSearch";
 import SignatureAttendanceModal from "@/components/SignatureAttendanceModal";
 import { supabase } from "@/lib/supabase";
+import {readCalendarPages,calendarStaffColumns} from "@/lib/calendarReadModel";
 import { remainingOf, totalOf } from "@/lib/membershipFifo";
 import { isPaymentCancelled } from "@/lib/paymentCancellation";
 import { saveActualAttendance } from "@/lib/actualMembershipUsage";
@@ -173,9 +174,11 @@ function DesktopSchedulePage({forcedTrack}:{forcedTrack?:'aqua'|'ground'}) {
   const [slots, setSlots]     = useState<any[]>([]);
   const [members, setMembers] = useState<any[]>([]);
   const [staff, setStaff]     = useState<any[]>([]);
-  const [loading, setLoading] = useState(true),[trialSyncError,setTrialSyncError]=useState("");
+  const [loading, setLoading] = useState(true),[trialSyncError,setTrialSyncError]=useState(""),[calendarLoadError,setCalendarLoadError]=useState("");
   const loadVersion=useRef(0);
   useEffect(()=>{const refresh=()=>{void loadAll();};window.addEventListener(TRIALS_CHANGED,refresh);return()=>window.removeEventListener(TRIALS_CHANGED,refresh);},[year,month0]);
+
+  useEffect(()=>{const refresh=()=>{if(document.visibilityState==='visible')void loadAll();};const visible=()=>{if(document.visibilityState==='visible')void loadAll();};window.addEventListener('focus',refresh);window.addEventListener('aqunote-mobile-work-changed',refresh);document.addEventListener('visibilitychange',visible);const timer=setInterval(refresh,30000);return()=>{window.removeEventListener('focus',refresh);window.removeEventListener('aqunote-mobile-work-changed',refresh);document.removeEventListener('visibilitychange',visible);clearInterval(timer);};},[year,month0]);
 
   // Modal
   const [modal, setModal] = useState<{date: string, time?: string, editing?: any} | null>(null);
@@ -311,7 +314,7 @@ function DesktopSchedulePage({forcedTrack}:{forcedTrack?:'aqua'|'ground'}) {
   const [plans, setPlans] = useState<any[]>([]);
 
   async function loadAll() {
-    const requestVersion=++loadVersion.current;setTrialSyncError("");
+    const requestVersion=++loadVersion.current;setTrialSyncError("");setCalendarLoadError("");
     setLoading(true);
     const branchId = getActiveBranchId();
     console.log(`[v3.34.2] loadAll 시작 - branch_id=${branchId || "(없음)"} (build: v3.34.2 · SQL deleted_at 안전가드 + 대시보드 라이트모드 + 근무직원 퇴사자 제외)`);
@@ -341,29 +344,8 @@ function DesktopSchedulePage({forcedTrack}:{forcedTrack?:'aqua'|'ground'}) {
     console.log(`[v3.34.2] fetch range: ${rangeStart} ~ ${rangeEnd} (year=${startY}, month0=${startM0})`);
 
     const fetchSchedule = async () => {
-      const attempts = [
-        // 1) 날짜 범위 + branch_id 필터
-        () => (branchId && branchId !== "ALL")
-          ? supabase.from("schedule_slots").select("*").is("deleted_at",null).or(`branch_id.eq.${branchId},branch_id.is.null`).gte("event_date", rangeStart).lte("event_date", rangeEnd).order("event_date").order("time_slot").range(0, 99999)
-          : supabase.from("schedule_slots").select("*").is("deleted_at",null).gte("event_date", rangeStart).lte("event_date", rangeEnd).order("event_date").order("time_slot").range(0, 99999),  // ✅ v3.48.7: ALL 모드
-        // 2) branch_id 없이 날짜 범위만
-        () => supabase.from("schedule_slots").select("*").is("deleted_at",null).gte("event_date", rangeStart).lte("event_date", rangeEnd).order("event_date").order("time_slot").range(0, 99999),
-        // 3) 날짜 범위만 (정렬 없이)
-        () => supabase.from("schedule_slots").select("*").is("deleted_at",null).gte("event_date", rangeStart).lte("event_date", rangeEnd).range(0, 99999),
-        // 4) 최종 fallback: 전체 (과거 히스토리 수식 모드)
-        () => supabase.from("schedule_slots").select("*").is("deleted_at",null).order("event_date", { ascending: false }).range(0, 99999),
-      ];
-      for (let i = 0; i < attempts.length; i++) {
-        try {
-          const r = await attempts[i]();
-          if (!r.error) {
-            console.log(`[v3.28.3] fetchSchedule attempt ${i+1} 성공: ${r.data?.length || 0}건`);
-            return r;
-          }
-          console.warn(`[v3.28.3] attempt ${i+1} 실패:`, r.error.message);
-        } catch (e) { console.warn(`[v3.28.3] attempt ${i+1} exception:`, e); }
-      }
-      return { data: [], error: null };
+      try{return {data:await readCalendarPages((offset,end)=>{let q=supabase.from("schedule_slots").select("*").is("deleted_at",null).gte("event_date",rangeStart).lte("event_date",rangeEnd).order("event_date").order("time_slot").order("id");if(branchId&&branchId!=="ALL")q=q.or(`branch_id.eq.${branchId},branch_id.is.null`);return q.range(offset,end);}),error:null};}
+      catch(error:any){return {data:[],error};}
     };
     const [sRes, mRes, stRes, pRes, aRes, plRes, msRes] = await Promise.all([
       fetchSchedule(),
@@ -382,33 +364,13 @@ function DesktopSchedulePage({forcedTrack}:{forcedTrack?:'aqua'|'ground'}) {
       supabase.from("attendance").select("*"),
       supabase.from("membership_plans").select("*"),
       // ✅ v3.20.9: memberships 자동 로드 → 시간표 셀에 회원권 이름 + 잔여/총회수 자동 표시
-      supabase.from("memberships").select("id, member_id, plan_name, total_sessions, used_sessions, adjustment, end_date, status"),
+      supabase.from("memberships").select("*"),
     ]);
-    // ✅ v3.29.2: State 실시간 sync 강화 - 로그 + 단순 배열 교체 + 버전 마커
-    let rawSlots = visibleScheduleSlots(sRes?.data);
-    console.log(`[v3.37.0] schedule_slots 로드 완료: ${rawSlots.length}건`);
-
-    // ✅ v3.46.0: 방어 필터 수정 - 개별 status='cancel' 은 UI에 표시 (취소=노쇼 개념)
-    //   기존 v3.40.3 필터: 취소 슬롯을 화면에서 완전 제외 → 사용자가 "삭제된 것"으로 오인
-    //   변경: 취소된 회원권 소속 슬롯만 배제 (결제 취소된 미래 예약 방어)
-    //   개별 status='cancel' 슬롯은 취소선 배지로 UI에 남김 (v3.45.7 취소=노쇼 정책)
-    const cancelledMembershipIds = new Set(
-      ((msRes as any)?.data || [])
-        .filter((m: any) => (m?.status || "").toLowerCase() === "cancelled")
-        .map((m: any) => m.id)
-    );
-    const beforeCount = rawSlots.length;
-    rawSlots = rawSlots.filter((slot: any) => {
-      // ✅ v3.46.0: 개별 status='cancel' 은 표시 유지 (취소선 배지로 노쇼 이력 보존)
-      // 취소된 회원권과 연결된 슬롯은 배제 (결제 취소된 미래 예약 방어)
-      if (slot?.membership_id && cancelledMembershipIds.has(slot.membership_id)) return false;
-      return true;
-    });
-    const filteredOut = beforeCount - rawSlots.length;
-    if (filteredOut > 0) {
-      console.log(`[v3.40.3] 취소 회원권/슬롯 방어 필터: ${filteredOut}건 제외 (표시=${rawSlots.length}건)`);
-    }
-
+    if(requestVersion!==loadVersion.current)return;
+    if(sRes.error){setCalendarLoadError('시간표 전체 조회를 완료하지 못했습니다. 빈자리로 판단하거나 중복 등록하지 말고 다시 조회해주세요. '+String(sRes.error?.message||sRes.error));setLoading(false);return;}
+    // Do not hide a real reservation because its old membership was cancelled/refunded.
+    // The reservation remains visible; deduction eligibility is checked separately at attendance/save.
+    let rawSlots=visibleScheduleSlots(sRes.data);
       // 🚨 v3.37.1: 반복예약 자동 인스턴스 생성 로직 완전 비활성화
       // 이유: v3.37.0에서 사용자가 삭제한 슬롯을 매번 로드마다 다시 생성하는 부작용 발생
       // 반복예약은 등록 시점에 4주치 개별 INSERT되므로 자동 생성 불필요
@@ -422,16 +384,9 @@ function DesktopSchedulePage({forcedTrack}:{forcedTrack?:'aqua'|'ground'}) {
     if(requestVersion!==loadVersion.current)return;
     setSlots(rawSlots);
     setMembers(mRes.data || []);
-    // v3.21.2: 시간표·상담 매칭에서 퇴사자 자동 배제
-    const activeStaff = (stRes.data || []).filter((s: any) => {
-      const status = String(s.status || "").toLowerCase();
-      if (["resigned", "retired", "inactive", "terminated", "quit", "leave"].includes(status)) return false;
-      if (s.is_active === false) return false;
-      if (s.is_resigned === true) return false;
-      if (s.resign_date) return false;
-      return true;
-    });
-    setStaff(activeStaff);
+    // Keep the original staff attached to existing reservations. Availability for NEW bookings is separate.
+    const assignedStaff=new Set(rawSlots.map((s:any)=>s.staff_id).filter(Boolean));
+    setStaff((stRes.data||[]).filter((s:any)=>assignedStaff.has(s.id)||(!s.is_resigned&&s.is_active!==false&&!s.resign_date)));
     setPayments(pRes.data || []);
     setAttendance(aRes.data || []);
     setPlans(plRes.data || []);
@@ -1768,6 +1723,9 @@ function DesktopSchedulePage({forcedTrack}:{forcedTrack?:'aqua'|'ground'}) {
         </div>
       </div>
 
+      {slots.some((s:any)=>s.membership_id&&memberships.some((m:any)=>m.id===s.membership_id&&['cancelled','refunded','deleted'].includes(String(m.status||'').toLowerCase())))&&<p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">취소·환불된 이용권과 연결된 예약이 있습니다. 예약을 숨기거나 삭제하지 않았습니다. 출석·차감 전에 유효 이용권 연결을 확인해주세요.</p>}
+      {calendarLoadError&&<div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{calendarLoadError}<button type="button" onClick={()=>void loadAll()} className="ml-2 underline">시간표 다시 조회</button></div>}
+      {(teacherFilter||memberSearchQ)&&<p role="status" className="rounded-xl border border-sky-200 bg-white p-3 text-sm text-slate-700">현재 담당자·회원 검색 필터가 적용되어 일부 예약만 보입니다. <button type="button" className="underline" onClick={()=>{setTeacherFilter('');setMemberSearchQ('');}}>전체 예약 보기</button></p>}
       {trialSyncError&&<p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">체험 메모 조회 확인: {trialSyncError}</p>}
       {/* ✅ v3.20.10: 통합 탭바 – 시간표에서도 회원DB·출결장·사인이력 바로 이동 */}
       <div className="flex items-center gap-2 mb-4 border-b border-gray-200 pb-2 flex-wrap">
@@ -2926,12 +2884,7 @@ function DayView({ date, setDate, slots, members, staff, onCellClick, onCellDoub
   // ✅ v3.20.18: 지점 정책의 timeSlotOptions 사용 (fallback: TIMES)
   const times = Array.from(new Set<string>([...((timeSlotOptions&&timeSlotOptions.length)?timeSlotOptions:TIMES),...slots.filter((s:any)=>!['staff_work','staff_off'].includes(s.event_type)).map((s:any)=>String(s.time_slot||'').slice(0,5)).filter(Boolean)])).sort();
   const dayDate = new Date(date);
-  // 해당 날짜에 재직 중인 직원만 표시 (퇴사일 이후엔 숨김)
-  const workingStaff = (staff || []).filter((s: any) => {
-    if (s.is_resigned && s.resign_date && s.resign_date < date) return false;
-    return true;
-  });
-  const activeStaff = workingStaff.length > 0 ? workingStaff : [{ id: null, name: "미배정", color: "#94a3b8", role: "" }];
+  const activeStaff=calendarStaffColumns(staff||[],slots||[],date);
 
   function shift(delta: number) {
     const d = new Date(dayDate);

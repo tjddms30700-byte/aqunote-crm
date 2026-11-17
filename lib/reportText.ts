@@ -1,0 +1,1 @@
+export function textValue(x:any):string{if(typeof x==='string')return x.trim();if(x&&typeof x==='object'&&!Array.isArray(x)){if(['S','O','A','P'].some(k=>typeof x[k]==='string'))return ['S','O','A','P'].filter(k=>typeof x[k]==='string').map(k=>`${k}: ${x[k]}`).join('\n');}return '';}

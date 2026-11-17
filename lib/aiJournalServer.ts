@@ -12,7 +12,7 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 const reply=(body:unknown,status=200)=>NextResponse.json(body,{status,headers:{'Cache-Control':'no-store, private'}});
 export async function handleAiJournal(req:NextRequest){
  let phase='auth',providerName='unknown',sourceSaved:any=null;
- const fail=(code:string,message:string,status=502)=>{console.warn('[ai-journal]',JSON.stringify({code,phase,provider:providerName,version:'3.93.2'}));return reply({error:`${message} [${code}]`,code,version:'3.93.2',...(sourceSaved?{raw_saved:true,session_id:sourceSaved.session_id,review_required:true}:{})},status);};
+ const fail=(code:string,message:string,status=502)=>{console.warn('[ai-journal]',JSON.stringify({code,phase,provider:providerName,version:'3.93.3'}));return reply({error:`${message} [${code}]`,code,version:'3.93.3',...(sourceSaved?{raw_saved:true,session_id:sourceSaved.session_id,review_required:true}:{})},status);};
  try{
   const token=req.headers.get('authorization')?.match(/^Bearer (.+)$/i)?.[1];
   if(!token)return reply({error:'로그인 후 다시 이용해주세요.'},401);
@@ -84,7 +84,7 @@ export async function handleAiJournal(req:NextRequest){
   let result=parseOrderedJournal(text,units);result.parent_message=finalizeParentMessage(result.parent_message,realName,b.style,ctx.member_type==='child');result.clinical_record=result.clinical_record.split('회원이름').join(realName);
   if(structure.combined){try{result={...result,...finalizeCombined(result,structure)};}catch{return fail('AI_COMBINED_SECTIONS','구강·연하와 수중 활동 두 영역을 확인하지 못했어요. 메모는 유지됩니다. 다시 생성해주세요.');}}
   if(b.save_key){const stored=await db.rpc('journal_single_flow_3925',{p_key:b.save_key,p_member:b.member_id,p_slot:b.slot_id||null,p_date:b.date,p_time:b.time,p_style:b.style,p_source:b.memo,p_result:result});if(stored.error)return fail('AI_RESULT_SAVE','AI 생성은 완료됐지만 DB 저장 확인에 실패했습니다. 원문은 저장되어 있습니다. 저장된 원문 기록에서 다시 확인해주세요.',503);sourceSaved=stored.data;}
-  const chars=Array.from(result.parent_message).length,themes=messageThemeCount(result.parent_message);const warnings:string[]=[...result.expansion_warnings];return reply({...result,...(sourceSaved?{auto_saved:true,session_id:sourceSaved.session_id,review_required:true}:{}),session_components:structure.combined?[{kind:'oral_swallow',duration_minutes:structure.oral_minutes},{kind:'aqua',duration_minutes:structure.aquatic_minutes}]:[],provider,version:'3.93.2',quality:{characters:chars,themes,warnings,review_required:true}});
+  const chars=Array.from(result.parent_message).length,themes=messageThemeCount(result.parent_message);const warnings:string[]=[...result.expansion_warnings];return reply({...result,...(sourceSaved?{auto_saved:true,session_id:sourceSaved.session_id,review_required:true}:{}),session_components:structure.combined?[{kind:'oral_swallow',duration_minutes:structure.oral_minutes},{kind:'aqua',duration_minutes:structure.aquatic_minutes}]:[],provider,version:'3.93.3',quality:{characters:chars,themes,warnings,review_required:true}});
  }catch(e:any){
   if(e?.name==='AbortError')return fail('AI_TIMEOUT','AI 응답 대기시간이 초과되었습니다. 메모는 유지됩니다.',504);
   if(e instanceof JournalFormatError)return fail(e.code,e.message);
