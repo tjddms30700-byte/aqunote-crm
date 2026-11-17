@@ -2,7 +2,7 @@ import {textValue} from './reportText';
 export type ReportRecordKind='clinical'|'administrative'|'empty'|'review';
 /** Content categories are report evidence hints, never attendance decisions or record deletions. */
 export function reportRecordText(row:any):string{
- return ['notes','soap_note','clinical_record','memo','notes_short','raw_memo','ai_source_memo','kakao_draft','parent_message','comment','content','text','raw_text','raw','description','summary','soap'].map(k=>textValue(row?.[k])).filter((v,i,a)=>!!v&&a.indexOf(v)===i).join('\n');
+ return ['notes','soap_note','clinical_record','memo','notes_short','raw_memo','ai_source_memo','kakao_draft','parent_message','parentMessage','kakao','kakao_message','kakao_text','soapNote','rawMemo','raw_memo_text','source_memo','ai_parent_message','soap_text','original_memo','comment','content','text','raw_text','raw','description','summary','soap'].map(k=>textValue(row?.[k])).filter((v,i,a)=>!!v&&a.indexOf(v)===i).join('\n');
 }
 export function reportRecordKind(row:any):ReportRecordKind{
  const original=reportRecordText(row),text=original.replace(/\[자동 태그\][^\[]*/g,'').replace(/\[보호자 메시지\]/g,'').trim();
