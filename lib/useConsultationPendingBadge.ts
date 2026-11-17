@@ -12,7 +12,7 @@ export function useConsultationPendingBadge(){
   try{
    const branch=getActiveBranchId();
    if(branch==='ALL')throw new Error('센터를 선택하면 신규 문의(미응대)를 확인할 수 있어요.');
-   const data=await consultRpc('consultation_ops_3925',{p_branch:branch||null});
+   const data=await consultRpc('consultation_ops_3927',{p_branch:branch||null});
    const value=consultationPendingCount(data);
    if(live.current&&request===sequence.current){setCount(value);setError('');}
   }catch(e:any){if(live.current&&request===sequence.current){setCount(null);setError(e?.message||'신규 문의 집계를 불러오지 못했어요.');}}

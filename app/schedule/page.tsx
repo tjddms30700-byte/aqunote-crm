@@ -41,7 +41,7 @@ import { saveActualAttendance } from "@/lib/actualMembershipUsage";
 import { saveScheduleAttendance } from "@/lib/scheduleAttendanceSave";
 import { availableReservationMemberships, reservationMembershipDecision, isFreeReservation } from "@/lib/reservationMembership";
 import { planReservationLinks, applyReservationLinks } from "@/lib/reservationLinkMaintenance";
-import { lessonDurationMinutes } from "@/lib/lessonProduct";
+import {reservationMinutes} from "@/lib/reservationDuration";
 import MobileAgenda from "@/components/MobileAgenda";
 import {paymentDay,paymentInCalendarTrack,calendarPaymentNet,normalizeClockTime} from "@/lib/calendarPayments";
 import { resolveBillingCategory } from "@/lib/billingCategory";
@@ -285,14 +285,14 @@ function DesktopSchedulePage({forcedTrack}:{forcedTrack?:'aqua'|'ground'}) {
 
   // 지점 시간표 설정을 기반으로 생성된 타임 옵션
   const timeSlotOptions = useMemo(() => {
-    if (scheduleConfig.custom_slots && scheduleConfig.custom_slots.length > 0) return scheduleConfig.custom_slots;
+    if (trackTab!=='ground' && scheduleConfig.custom_slots && scheduleConfig.custom_slots.length > 0) return scheduleConfig.custom_slots;
     const out: string[] = [];
     const [oh, om] = (scheduleConfig.open_time || "10:00").split(":").map(Number);
     const [ch, cm] = (scheduleConfig.close_time || "22:00").split(":").map(Number);
     let cur = oh * 60 + om;
     const end = ch * 60 + cm;
-    const interval = Number(scheduleConfig.slot_interval || 10);
-    const dur = Number(scheduleConfig.slot_duration || 40);
+    const interval = trackTab==='ground'?30:Number(scheduleConfig.slot_interval || 10);
+    const dur = trackTab==='ground'?30:Number(scheduleConfig.slot_duration || 40);
     const lb = scheduleConfig.lunch_break;
     const ls = lb?.enabled ? (() => { const [h, m] = lb.start.split(":").map(Number); return h * 60 + m; })() : null;
     const le = lb?.enabled ? (() => { const [h, m] = lb.end.split(":").map(Number); return h * 60 + m; })() : null;
@@ -306,7 +306,7 @@ function DesktopSchedulePage({forcedTrack}:{forcedTrack?:'aqua'|'ground'}) {
       cur += interval;
     }
     return out;
-  }, [scheduleConfig]);
+  }, [scheduleConfig,trackTab]);
 
   const [plans, setPlans] = useState<any[]>([]);
 
@@ -923,7 +923,7 @@ function DesktopSchedulePage({forcedTrack}:{forcedTrack?:'aqua'|'ground'}) {
       recurring_enabled: false,
       recurring_weeks: 0,
       // ✅ v3.57.1: 기존 슬롯의 track/보강 연결 유지
-      track: slot.track || trackTab,
+      track: slot.track || trackTab,duration_minutes:reservationMinutes(slot,trackTab),_durationEdited:true,
       is_makeup_reservation: slot.is_makeup_reservation || false,
       original_absence_slot_id: slot.original_absence_slot_id || null,
       makeup_for_id: slot.makeup_for_id || null,
@@ -1076,6 +1076,9 @@ function DesktopSchedulePage({forcedTrack}:{forcedTrack?:'aqua'|'ground'}) {
       const duplicate=(slots||[]).some((s:any)=>s.id!==f.id&&!s.deleted_at&&s.member_id===f.member_id&&lessonTrack(s.track)===lessonTrack(f.track||trackTab)&&String(s.event_date).slice(0,10)===f.event_date&&normalizeClockTime(s.time_slot)===clock&&['lesson','trial','makeup'].includes(s.event_type||'lesson'));
       if(duplicate){alert('이미 해당 시간에 등록된 회원입니다');return;}
     }
+    if(!f.id&&!f.recurring_enabled&&isFreeReservation(f)&&['lesson','trial','makeup'].includes(f.event_type||'lesson')){
+      setSaving(true);try{if(!clock)throw new Error('수업 시간을 선택해주세요.');if(!f._request_id)f._request_id=crypto.randomUUID();await deskRpc('desk_book_free_3932',{p_request:f._request_id,p_payload:bookingPayload({...f,time_slot:clock},trackTab)});setModal(null);await loadAll();}catch(e:any){alert('무료체험 등록 실패: '+e.message);}finally{setSaving(false);}return;
+    }
     if(!f.id&&f.double_time&&['lesson','makeup'].includes(f.event_type||'lesson')){
       setSaving(true);
       try{
@@ -1131,8 +1134,8 @@ function DesktopSchedulePage({forcedTrack}:{forcedTrack?:'aqua'|'ground'}) {
       // ✅ v3.57.1: 지상/수중 트랙 저장 (누락 시 지상 등록이 수중으로 들어가는 버그 수정)
       track: f.track || trackTab || "aqua",
     };
-    const productMinutes = lessonDurationMinutes(f.lesson_name);
-    if (productMinutes) { basePayload.duration = productMinutes; basePayload.duration_minutes = productMinutes; }
+    const selectedMinutes = reservationMinutes(f,trackTab);
+    basePayload.duration = selectedMinutes; basePayload.duration_minutes = selectedMinutes;
     // ✅ v3.57.1: 보강 배정 연결 필드 저장
     if (f.is_makeup_reservation) basePayload.is_makeup_reservation = true;
     if (f.original_absence_slot_id) basePayload.original_absence_slot_id = f.original_absence_slot_id;

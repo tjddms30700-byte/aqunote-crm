@@ -7,6 +7,7 @@ import {availableReservationMemberships,reservationMembershipDecision,isFreeRese
 import {normalizeClockTime} from '@/lib/calendarPayments';
 import {AQUA_PRESETS,GROUND_PRESETS} from '@/lib/deskBooking';
 import {localDay} from '@/lib/mobileWork';
+import {reservationMinutes} from '@/lib/reservationDuration';
 import {X,Repeat,Clock,Trash2,Calendar,Plus,Check,User} from 'lucide-react';
 const DAYS_KR=['일','월','화','수','목','금','토'];
 const STATUS_OPTIONS = [
@@ -62,7 +63,7 @@ export default function SlotModal({ f, setF, modal, members, staff, plans, timeS
     if (oldCompleted || loadingMs || f.allow_unpaid || !f.member_id || !["lesson", "trial", "makeup"].includes(f.event_type)) return;
     const choice = reservationMembershipDecision({ ...f, track: f.track || track }, memberMemberships);
     if (f.membership_id !== choice.id && (choice.reason === "unique" || choice.reason === "free" || !choice.choices.some((m: any) => m.id === f.membership_id))) {
-      setF((prev: any) => ({ ...prev, membership_id: choice.id,lesson_name:prev.lesson_name||memberMemberships.find((m:any)=>m.id===choice.id)?.plan_name||'' }));
+      setF((prev: any) => {const name=prev.lesson_name||memberMemberships.find((m:any)=>m.id===choice.id)?.plan_name||'';return {...prev,membership_id:choice.id,lesson_name:name,duration_minutes:prev._durationEdited?prev.duration_minutes:reservationMinutes({track:prev.track||track,lesson_name:name})};});
     }
   }, [memberMemberships, loadingMs, f.member_id, f.membership_id, f.event_date, f.event_type, f.lesson_name, f.track, track, oldCompleted,f.allow_unpaid]);
 
@@ -123,7 +124,7 @@ export default function SlotModal({ f, setF, modal, members, staff, plans, timeS
             <div className="text-xs font-bold text-aqu-800 mb-3 flex items-center gap-1.5">
               <Clock className="w-3.5 h-3.5" /> 기본 정보
             </div>
-            <div className="mb-3"><label className="text-xs font-semibold">수업 트랙</label><select aria-label="수업 트랙" className="min-h-12 w-full rounded border p-2" disabled={!!f.id||!!f._lockedTrack} value={activeTrack} onChange={e=>{setF({...f,track:e.target.value,time_slot:'',membership_id:null,lesson_name:''});setDirectTime(false);}}><option value="aqua">수중</option><option value="ground">지상</option></select></div>
+            <div className="mb-3"><label className="text-xs font-semibold">수업 트랙</label><select aria-label="수업 트랙" className="min-h-12 w-full rounded border p-2" disabled={!!f.id||!!f._lockedTrack} value={activeTrack} onChange={e=>{setF({...f,track:e.target.value,time_slot:'',membership_id:null,lesson_name:'',duration_minutes:e.target.value==='ground'?30:70,_durationEdited:false});setDirectTime(false);}}><option value="aqua">수중</option><option value="ground">지상</option></select></div>
             {/* 날짜 */}
             <Field label="날짜 *">
               <input aria-label="등록 수업일" type="date" value={f.event_date}
@@ -134,11 +135,11 @@ export default function SlotModal({ f, setF, modal, members, staff, plans, timeS
             <div className="mt-3 space-y-2"><div className="flex items-center justify-between"><label className="text-xs font-semibold">수업 시작 시간</label><button type="button" onClick={()=>setDirectTime(!directTime)} className="min-h-12 rounded-lg border px-3 text-xs">{directTime?'정규 시간 선택':'직접 입력'}</button></div>
               {directTime?<input aria-label="수업 시작 시간 직접 입력" type="text" inputMode="numeric" maxLength={5} placeholder="15:25 또는 1525" value={f.time_slot||''} onChange={e=>setF({...f,time_slot:e.target.value})} onBlur={e=>{const t=normalizeClockTime(e.target.value);if(t)setF((prev:any)=>({...prev,time_slot:t}));}} className="min-h-12 w-full rounded-lg border p-3 text-lg"/>:activeTrack==='ground'?<select aria-label="지상 수업 시간 선택" className="min-h-12 w-full rounded-lg border p-3" value={f.time_slot||''} onChange={e=>setF({...f,time_slot:e.target.value})}><option value="">시간 선택</option>{GROUND_PRESETS.map(t=><option key={t} value={t}>{t}</option>)}</select>:<div className="grid grid-cols-3 gap-2">{AQUA_PRESETS.map(t=><button type="button" key={t} aria-pressed={f.time_slot===t} onClick={()=>setF({...f,time_slot:t})} className={`min-h-12 rounded-lg border text-sm ${f.time_slot===t?'bg-teal-800 text-white':'bg-white'}`}>{t}</button>)}</div>}
             </div>
-            {!isEditing&&['lesson','makeup'].includes(f.event_type||'lesson')&&<div className="mt-3 rounded-2xl bg-sky-50 p-3 text-sm text-slate-700">
+            {!isEditing&&!isFreeReservation(f)&&['lesson','makeup'].includes(f.event_type||'lesson')&&<div className="mt-3 rounded-2xl bg-sky-50 p-3 text-sm text-slate-700">
               <label className="flex min-h-11 items-center gap-2 font-semibold"><input type="checkbox" aria-label="2타임 연속(연타임) 진행" checked={!!f.double_time} onChange={e=>setF({...f,double_time:e.target.checked,recurring_enabled:e.target.checked?false:f.recurring_enabled,duration_minutes:e.target.checked?(activeTrack==='ground'?30:70):f.duration_minutes})}/>2타임 연속(연타임) 진행</label>
               {f.double_time&&<p className="mt-1 text-xs leading-relaxed">{(()=>{const t=normalizeClockTime(f.time_slot);if(!t)return '시작 시간을 선택해주세요.';const [h,m]=t.split(':').map(Number);const n=h*60+m+Number(f.duration_minutes||(activeTrack==='ground'?30:70));return n>=1440?'다음 타임이 다음 날로 넘어갑니다. 시작 시간을 바꿔주세요.':`${t} + ${String(Math.floor(n/60)).padStart(2,'0')}:${String(n%60).padStart(2,'0')} · 2개 일정을 함께 등록해요.`;})()}<br/>예약 시 차감하지 않으며 각 타임 출석·사인 완료 시 1회씩, 총 2회 차감해요. 한 타임 삭제 시 그 타임의 실제 차감만 1회 복원해요. 반복 예약·체험·결제예정은 연타임 옵션에 포함하지 않아요.</p>}
             </div>}
-            <label className="mt-2 block text-xs">수업 시간(분)<input aria-label="수업 시간 분" type="number" min={10} max={180} step={5} className="min-h-12 w-full rounded border p-2" value={f.duration_minutes||40} onChange={e=>setF({...f,duration_minutes:e.target.value})}/></label>
+            <label className="mt-2 block text-xs">수업 시간(분)<input aria-label="수업 시간 분" type="number" min={10} max={180} step={5} className="min-h-12 w-full rounded border p-2" value={reservationMinutes(f,activeTrack)} onChange={e=>setF({...f,duration_minutes:e.target.value,_durationEdited:true})}/></label>
             <div className="mt-2">
               <Field label="유형">
                 <select aria-label="예약 유형" value={f.event_type} onChange={e => setF({ ...f, event_type: e.target.value,lesson_name:e.target.value==='trial'?'체험 1회권':e.target.value==='lesson'?'':f.lesson_name,membership_id:null,deposit_confirmed:false })}
@@ -223,8 +224,9 @@ export default function SlotModal({ f, setF, modal, members, staff, plans, timeS
             </div>
           )}
 
+          {!f.id&&['lesson','trial','makeup'].includes(f.event_type)&&<label className="flex min-h-12 items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm"><input aria-label="무료체험 0원 차감 없음" type="checkbox" checked={isFreeReservation(f)} onChange={e=>setF({...f,event_type:'lesson',lesson_name:e.target.checked?'무료체험':'',duration_minutes:f._durationEdited?f.duration_minutes:reservationMinutes({track:activeTrack,lesson_name:e.target.checked?'무료체험':''}),membership_id:null,allow_unpaid:false,double_time:false,recurring_enabled:false,deposit_confirmed:false})}/>무료체험 · 0원 · 회원권 차감 없음</label>}
           {f.event_type==='trial'&&!f.id&&<section className="space-y-2 rounded-xl bg-slate-50 p-3"><b>체험 예약 메모</b><label className="flex min-h-11 items-center gap-2"><input aria-label="일반 예약 예약금 입금 완료" type="checkbox" checked={!!f.deposit_confirmed} onChange={e=>setF({...f,deposit_confirmed:e.target.checked})}/>예약금 입금 완료</label>{f.deposit_confirmed&&<label className="block text-xs">입금 확인일<input aria-label="일반 예약 입금 확인일" type="date" className="min-h-11 w-full rounded-xl p-2" value={f.deposit_date||localDay()} onChange={e=>setF({...f,deposit_date:e.target.value})}/></label>}<p className="text-xs text-slate-500">입금일 메모만 저장합니다. 결제·매출·회원권은 자동 생성하지 않습니다.</p></section>}
-          {['lesson','makeup'].includes(f.event_type)&&!f.id&&<label className="flex min-h-12 items-center gap-2 rounded-xl bg-amber-50 p-3 text-sm"><input type="checkbox" checked={!!f.allow_unpaid} onChange={e=>setF({...f,allow_unpaid:e.target.checked,membership_id:null,lesson_name:''})}/>잔여 0회·회원권 없음: 미래 일정 결제예정으로 등록 (예약 시 차감 없음)</label>}
+          {['lesson','makeup'].includes(f.event_type)&&!f.id&&!isFreeReservation(f)&&<label className="flex min-h-12 items-center gap-2 rounded-xl bg-amber-50 p-3 text-sm"><input type="checkbox" checked={!!f.allow_unpaid} onChange={e=>setF({...f,allow_unpaid:e.target.checked,membership_id:null,lesson_name:''})}/>잔여 0회·회원권 없음: 미래 일정 결제예정으로 등록 (예약 시 차감 없음)</label>}
           {/* ═══ 섹션 3: ✅ v3.16.0 회원 보유 회원권 자동 표시 ═══ */}
           {(f.event_type === "lesson" || f.event_type === "makeup") && f.member_id && (
             <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3">
@@ -255,7 +257,7 @@ export default function SlotModal({ f, setF, modal, members, staff, plans, timeS
                       <label key={m.id}
                         className={`flex items-center gap-2 p-2 rounded-lg border-2 cursor-pointer transition ${isActive ? "border-emerald-500 bg-emerald-50 ring-2 ring-emerald-200" : "border-gray-200 bg-white hover:border-emerald-300"}`}>
                         <input type="radio" name="ms" checked={isActive}
-                          onChange={() => setF({ ...f, membership_id: m.id, lesson_name: m.plan_name || f.lesson_name })} />
+                          onChange={() => setF({ ...f, membership_id: m.id, lesson_name: m.plan_name || f.lesson_name,duration_minutes:f._durationEdited?f.duration_minutes:reservationMinutes({track:activeTrack,lesson_name:m.plan_name||f.lesson_name}) })} />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="font-bold text-sm text-gray-800">{m.plan_name || "회원권"}</span>
@@ -292,7 +294,7 @@ export default function SlotModal({ f, setF, modal, members, staff, plans, timeS
           {/* ═══ 섹션 4: 수업명 (보강·기타 포함) ═══ */}
           {(!f.membership_id||f.allow_unpaid) && f.event_type!=="trial" && (["lesson", "makeup", "revenue", "other"].includes(f.event_type)) && (
             <Field label={f.event_type === "makeup" ? "보강 수업명" : (f.event_type === "other" ? "일정 명칭" : "수업명 (직접 입력)")}>
-              <PlanPicker plans={plans} value={f.lesson_name} onChange={(name: string) => setF({ ...f, lesson_name: name,membership_id:f.allow_unpaid?null:f.membership_id })} track={activeTrack} />
+              <PlanPicker plans={plans} value={f.lesson_name} onChange={(name: string) => setF({ ...f, lesson_name: name,duration_minutes:f._durationEdited?f.duration_minutes:reservationMinutes({track:activeTrack,lesson_name:name}),membership_id:isFreeReservation({...f,lesson_name:name})||f.allow_unpaid?null:f.membership_id,allow_unpaid:isFreeReservation({...f,lesson_name:name})?false:f.allow_unpaid })} track={activeTrack} />
             </Field>
           )}
 

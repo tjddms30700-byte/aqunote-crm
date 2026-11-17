@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import HomeButton from "@/components/HomeButton";
+import ConsultationPendingLink from "@/components/ConsultationPendingLink";
 import { getActiveBranchId, useBranchWatch } from "@/lib/branchContext";
 import {
   Search, Waves, ChevronRight, Plus, X, Save, UserPlus, MessageSquare, Copy, Trash2, AlertTriangle, CheckSquare, Square,
@@ -63,7 +64,6 @@ function DesktopMembersPage() {
 
   // 상태 드롭다운 열림 여부
   const [openStatusId, setOpenStatusId] = useState<string | null>(null);
-  const [inboxPending, setInboxPending] = useState(0);
 
   // ✅ v3.11: 지점 이관 상태
   const [selectedForTransfer, setSelectedForTransfer] = useState<Set<string>>(new Set());
@@ -80,9 +80,6 @@ function DesktopMembersPage() {
 
   useEffect(() => {
     loadMembers();
-    // 신규 유입 미처리 건수
-    supabase.from("leads_inbox").select("*", { count: "exact", head: true }).eq("processed", false)
-      .then(({ count }) => setInboxPending(count || 0));
     // ✅ 지점 목록 로드 (이관 대상)
     supabase.from("branches").select("*").is("deleted_at", null).order("branch_type").order("created_at")
       .then(({ data }) => setBranchList(data || []));
@@ -286,12 +283,7 @@ function DesktopMembersPage() {
           <h1 className="text-2xl md:text-3xl font-bold text-aqu-900">👥 회원 · 출결 관리</h1>
         </div>
         <div className="flex items-center gap-2">
-          {inboxPending > 0 && (
-            <Link href="/inbox"
-              className="px-3 py-1.5 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-lg text-sm flex items-center gap-1 hover:from-orange-600 hover:to-red-600 shadow-md animate-pulse">
-              📥 신규 유입 <span className="bg-white text-red-600 px-1.5 rounded font-bold">{inboxPending}</span>
-            </Link>
-          )}
+          <ConsultationPendingLink />
           {/* ✅ v3.48.8: 휴지통 (삭제된 회원 복구) */}
           <button onClick={() => { setShowTrash(!showTrash); if (!showTrash) loadTrash(); }}
             className={`px-3 py-1.5 rounded-lg text-sm flex items-center gap-1 shadow-sm ${showTrash ? "bg-rose-600 text-white" : "bg-white border border-rose-200 text-rose-600 hover:bg-rose-50"}`}
