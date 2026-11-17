@@ -1,3 +1,4 @@
+import {QUANTITY_REVIEW_RULES} from './journalOrderPrompt';
 import {modelName,requestBody,providerProblem,repairRequest,safeProviderLog} from './journalProviderContract';
 import {memoUnits,ORDERED_JOURNAL_SCHEMA,parseOrderedJournal} from './journalSource';
 import {NextRequest,NextResponse} from 'next/server';
@@ -11,7 +12,7 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 const reply=(body:unknown,status=200)=>NextResponse.json(body,{status,headers:{'Cache-Control':'no-store, private'}});
 export async function handleAiJournal(req:NextRequest){
  let phase='auth',providerName='unknown',sourceSaved:any=null;
- const fail=(code:string,message:string,status=502)=>{console.warn('[ai-journal]',JSON.stringify({code,phase,provider:providerName,version:'3.92.5'}));return reply({error:`${message} [${code}]`,code,version:'3.92.5',...(sourceSaved?{raw_saved:true,session_id:sourceSaved.session_id,review_required:true}:{})},status);};
+ const fail=(code:string,message:string,status=502)=>{console.warn('[ai-journal]',JSON.stringify({code,phase,provider:providerName,version:'3.93.1'}));return reply({error:`${message} [${code}]`,code,version:'3.93.1',...(sourceSaved?{raw_saved:true,session_id:sourceSaved.session_id,review_required:true}:{})},status);};
  try{
   const token=req.headers.get('authorization')?.match(/^Bearer (.+)$/i)?.[1];
   if(!token)return reply({error:'로그인 후 다시 이용해주세요.'},401);
@@ -39,7 +40,7 @@ export async function handleAiJournal(req:NextRequest){
   const units=memoUnits(redact(b.memo));Object.assign(input,{memo_units:units});
   const structure=sessionStructure('',false);
   const nowKst=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date());const preSession=b.date+' '+b.time>nowKst.slice(0,16);
-  const system=journalPrompt(b.style,ctx.track,ctx.member_type==='child')+(preSession?'\n[사전작성] 예약 시간이 아직 남아 있습니다. 메모의 계획은 계획/예정으로 표시하고 수행·호전·출석 완료를 만들어내지 마세요. 메모에 명시된 실제 관찰과 예정 활동을 구분하세요. SOAP O/A에 실제 관찰 근거가 없다면 관찰 전/평가 보류를 명시하세요.':'');
+  const system=journalPrompt(b.style,ctx.track,ctx.member_type==='child')+QUANTITY_REVIEW_RULES+(preSession?'\n[사전작성] 예약 시간이 아직 남아 있습니다. 메모의 계획은 계획/예정으로 표시하고 수행·호전·출석 완료를 만들어내지 마세요. 메모에 명시된 실제 관찰과 예정 활동을 구분하세요. SOAP O/A에 실제 관찰 근거가 없다면 관찰 전/평가 보류를 명시하세요.':'');
   Object.assign(input,{session_structure:{...structure,oral_evidence:structure.oral_evidence.map(redact),aquatic_evidence:structure.aquatic_evidence.map(redact)}});
   const controller=new AbortController(),deadline=Date.now()+45000,timer=setTimeout(()=>controller.abort(),45000);phase='network';let response:Response;let data:any;
   try{
@@ -83,7 +84,7 @@ export async function handleAiJournal(req:NextRequest){
   let result=parseOrderedJournal(text,units);result.parent_message=finalizeParentMessage(result.parent_message,realName,b.style,ctx.member_type==='child');result.clinical_record=result.clinical_record.split('회원이름').join(realName);
   if(structure.combined){try{result={...result,...finalizeCombined(result,structure)};}catch{return fail('AI_COMBINED_SECTIONS','구강·연하와 수중 활동 두 영역을 확인하지 못했어요. 메모는 유지됩니다. 다시 생성해주세요.');}}
   if(b.save_key){const stored=await db.rpc('journal_single_flow_3925',{p_key:b.save_key,p_member:b.member_id,p_slot:b.slot_id||null,p_date:b.date,p_time:b.time,p_style:b.style,p_source:b.memo,p_result:result});if(stored.error)return fail('AI_RESULT_SAVE','AI 생성은 완료됐지만 DB 저장 확인에 실패했습니다. 원문은 저장되어 있습니다. 저장된 원문 기록에서 다시 확인해주세요.',503);sourceSaved=stored.data;}
-  const chars=Array.from(result.parent_message).length,themes=messageThemeCount(result.parent_message);const warnings:string[]=[...result.expansion_warnings];return reply({...result,...(sourceSaved?{auto_saved:true,session_id:sourceSaved.session_id,review_required:true}:{}),session_components:structure.combined?[{kind:'oral_swallow',duration_minutes:structure.oral_minutes},{kind:'aqua',duration_minutes:structure.aquatic_minutes}]:[],provider,version:'3.92.5',quality:{characters:chars,themes,warnings}});
+  const chars=Array.from(result.parent_message).length,themes=messageThemeCount(result.parent_message);const warnings:string[]=[...result.expansion_warnings];return reply({...result,...(sourceSaved?{auto_saved:true,session_id:sourceSaved.session_id,review_required:true}:{}),session_components:structure.combined?[{kind:'oral_swallow',duration_minutes:structure.oral_minutes},{kind:'aqua',duration_minutes:structure.aquatic_minutes}]:[],provider,version:'3.93.1',quality:{characters:chars,themes,warnings,review_required:true}});
  }catch(e:any){
   if(e?.name==='AbortError')return fail('AI_TIMEOUT','AI 응답 대기시간이 초과되었습니다. 메모는 유지됩니다.',504);
   if(e instanceof JournalFormatError)return fail(e.code,e.message);
