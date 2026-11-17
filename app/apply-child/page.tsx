@@ -1,5 +1,6 @@
 "use client";
 import { useState, useRef } from "react";
+import ApplyAvailabilityNotice from "@/components/ApplyAvailabilityNotice";
 import Logo from "@/components/Logo";
 import { CheckCircle2, ChevronRight, ChevronLeft, Loader2, Phone, MapPin, Clock, AlertCircle } from "lucide-react";
 
@@ -18,6 +19,7 @@ const BRANCHES = ["위례본점"];
 
 export default function ApplyChildPage() {
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6 | 7 | 8>(1); const TOTAL = 8;
+  const [intakeReady,setIntakeReady]=useState(false);
   const [submitting, setSubmitting] = useState(false);
   const submissionRef=useRef({signature:"",id:""});
   const [done, setDone] = useState(false);
@@ -112,6 +114,7 @@ export default function ApplyChildPage() {
   async function submit() {
     const err = validateStep();
     if (err) { setError(err); return; }
+    if(!intakeReady){setError("접수 연결 확인 후 다시 시도해주세요.");return;}
     setSubmitting(true);
     try {
       const signature=JSON.stringify(form);if(submissionRef.current.signature!==signature)submissionRef.current={signature,id:crypto.randomUUID()};
@@ -121,7 +124,7 @@ export default function ApplyChildPage() {
         body: JSON.stringify({ ...form, submission_id:submissionRef.current.id, member_type: "child" }),
       });
       const j = await res.json();
-      if (j.success) setDone(true);
+      if (res.ok && j.success===true) setDone(true);
       else setError("접수 실패: " + (j.error || "알 수 없는 오류"));
     } catch (e: any) {
       setError("네트워크 오류: " + e.message);
@@ -146,6 +149,7 @@ export default function ApplyChildPage() {
         </div>
       </div>
 
+      <ApplyAvailabilityNotice onReady={setIntakeReady}/>
       {/* Progress */}
       <div className="max-w-2xl mx-auto px-4 -mt-4">
         <div className="bg-white rounded-2xl shadow-lg p-4 mb-4">
@@ -554,7 +558,7 @@ export default function ApplyChildPage() {
                 다음 <ChevronRight className="w-4 h-4" />
               </button>
             ) : (
-              <button onClick={submit} disabled={submitting}
+              <button onClick={submit} disabled={submitting || !intakeReady}
                 className="flex-1 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold rounded-xl hover:from-emerald-600 hover:to-teal-600 flex items-center justify-center gap-2 shadow-md disabled:opacity-50">
                 {submitting ? <><Loader2 className="w-4 h-4 animate-spin" /> 접수 중...</> : <>✅ 신청 접수하기</>}
               </button>

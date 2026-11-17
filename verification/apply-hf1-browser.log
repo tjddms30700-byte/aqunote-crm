@@ -1,0 +1,14 @@
+PASS /apply-child announces outage before the first form step is complete
+PASS /apply-child does not request medical details again in outage notice
+PASS /apply-child can recover without refreshing or clearing the current form
+PASS /apply-adult announces outage before the first form step is complete
+PASS /apply-adult does not request medical details again in outage notice
+PASS /apply-adult can recover without refreshing or clearing the current form
+PASS /app/apply-child announces outage before the first form step is complete
+PASS /app/apply-child does not request medical details again in outage notice
+PASS /app/apply-child can recover without refreshing or clearing the current form
+PASS /app/apply-adult announces outage before the first form step is complete
+PASS /app/apply-adult does not request medical details again in outage notice
+PASS /app/apply-adult can recover without refreshing or clearing the current form
+PASS No browser runtime error and no real application was submitted
+RESULT 13 mobile public form availability recovery checks passed; all network mocked

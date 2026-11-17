@@ -1,0 +1,40 @@
+{
+  "version": "3.93.3-hf1",
+  "base": "3.93.3",
+  "files": [
+    {
+      "path": "app/api/apply/route.ts",
+      "sha256": "6efadcae282a6c7ef4227baee28ed3a1433e2e1bb469d5d0b223368906b14453"
+    },
+    {
+      "path": "app/apply-child/page.tsx",
+      "sha256": "447711d2f9c899dc483381559b9a7a9a305526b14285b5d8dd6651c4151e4474"
+    },
+    {
+      "path": "app/apply-adult/page.tsx",
+      "sha256": "9a4dbbf0e81ecbfed1fd2b95ce66919a86fb77d57fea96ab5d63735d2f1227c0"
+    },
+    {
+      "path": "app/app/apply-child/page.tsx",
+      "sha256": "d1213eeb6bc555cc71a8a0455a26864f517205c928deb022d0cfff0100607c26"
+    },
+    {
+      "path": "app/app/apply-adult/page.tsx",
+      "sha256": "cb25fefca2dde1b258e5d52859f88d1e6e86df7e27b378f626812b940ada2a64"
+    },
+    {
+      "path": "components/ApplyAvailabilityNotice.tsx",
+      "sha256": "96c5bc658a79093dcbd3e6be0108af1a45ebbccbf435b0ac59b50b72f7912678"
+    }
+  ],
+  "checks": {
+    "mock_api": 25,
+    "mock_mobile_browser": 13,
+    "tsc": "passed",
+    "production_build": "passed"
+  },
+  "production_deployed": false,
+  "production_writes": false,
+  "sql_required": false,
+  "note": "Required production environment values must be supplied by account owner; package does not contain credentials."
+}

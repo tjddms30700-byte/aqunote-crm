@@ -1,0 +1,140 @@
+
+> aqunote@3.93.3 build
+> next build
+
+  ▲ Next.js 14.2.35
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+   Skipping validation of types
+   Skipping linting
+   Collecting page data ...
+   Generating static pages (0/93) ...
+[v3.36.2] todayMembers 결과: 0명 []
+   Generating static pages (23/93) 
+   Generating static pages (46/93) 
+[v3.36.2] todayMembers 결과: 0명 []
+   Generating static pages (69/93) 
+ ✓ Generating static pages (93/93)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                              Size     First Load JS
+┌ ○ /                                    5.74 kB         254 kB
+├ ○ /_not-found                          880 B            89 kB
+├ ƒ /api/ai                              0 B                0 B
+├ ƒ /api/apply                           0 B                0 B
+├ ƒ /api/backup/cron                     0 B                0 B
+├ ƒ /api/consultations/intake            0 B                0 B
+├ ƒ /api/kakao                           0 B                0 B
+├ ƒ /api/office/context                  0 B                0 B
+├ ƒ /api/office/cron                     0 B                0 B
+├ ƒ /api/office/link                     0 B                0 B
+├ ƒ /api/office/work                     0 B                0 B
+├ ƒ /api/sync-sheets                     0 B                0 B
+├ ○ /app                                 7.55 kB         174 kB
+├ ƒ /app/api/ai                          0 B                0 B
+├ ƒ /app/api/apply                       0 B                0 B
+├ ƒ /app/api/backup/cron                 0 B                0 B
+├ ƒ /app/api/kakao                       0 B                0 B
+├ ƒ /app/api/sync-sheets                 0 B                0 B
+├ ○ /app/apply-adult                     236 B           162 kB
+├ ○ /app/apply-child                     237 B           161 kB
+├ ○ /app/attendance                      18.9 kB         178 kB
+├ ○ /app/attendance-staff                15.9 kB         175 kB
+├ ○ /app/attendance-stats                4.33 kB         166 kB
+├ ○ /app/attendance/signatures           7.24 kB         169 kB
+├ ○ /app/backup                          6.62 kB         157 kB
+├ ○ /app/behavior                        6.32 kB         163 kB
+├ ○ /app/board                           4.53 kB         155 kB
+├ ○ /app/consultation/ground             6.11 kB         159 kB
+├ ○ /app/consultations                   23.3 kB         185 kB
+├ ○ /app/contracts                       43.3 kB         205 kB
+├ ƒ /app/dashboard                       155 B          88.3 kB
+├ ○ /app/dashboard/revenue               7.77 kB         167 kB
+├ ○ /app/documents                       5.23 kB         168 kB
+├ ○ /app/facility                        8.21 kB         167 kB
+├ ○ /app/finance                         10 kB           198 kB
+├ ○ /app/icon.png                        0 B                0 B
+├ ○ /app/iep                             12.8 kB         172 kB
+├ ○ /app/inbox                           763 B          88.9 kB
+├ ○ /app/incidents                       10.3 kB         169 kB
+├ ○ /app/leave                           7.35 kB         158 kB
+├ ○ /app/login                           4.21 kB         154 kB
+├ ○ /app/members                         13.1 kB         176 kB
+├ ƒ /app/members/[id]                    254 B           250 kB
+├ ƒ /app/members/[id]/chart-print        5.68 kB         168 kB
+├ ○ /app/payments                        18.2 kB         177 kB
+├ ○ /app/plans                           962 B          97.9 kB
+├ ○ /app/renewals                        5.96 kB         169 kB
+├ ○ /app/reports                         11.6 kB         178 kB
+├ ○ /app/sales                           9.32 kB         308 kB
+├ ○ /app/schedule                        215 B           288 kB
+├ ○ /app/schedule/matching               538 B          88.7 kB
+├ ○ /app/settings                        10.8 kB         170 kB
+├ ○ /app/settings/accounts               8.67 kB         168 kB
+├ ○ /app/settings/catalog                7.05 kB         166 kB
+├ ○ /app/settings/payroll-config         6.79 kB         166 kB
+├ ○ /app/settings/programs               969 B          97.9 kB
+├ ○ /app/settings/schedule-config        5.6 kB          165 kB
+├ ○ /app/staff                           13.4 kB         175 kB
+├ ○ /app/tasks                           6.29 kB         156 kB
+├ ○ /app/vehicles                        7.47 kB         166 kB
+├ ○ /apply-adult                         184 B           162 kB
+├ ○ /apply-child                         184 B           161 kB
+├ ○ /attendance                          19.1 kB         188 kB
+├ ○ /attendance-staff                    19.7 kB         328 kB
+├ ○ /attendance-stats                    4.36 kB         166 kB
+├ ○ /attendance/signatures               7.25 kB         169 kB
+├ ○ /backup                              6.62 kB         157 kB
+├ ○ /behavior                            6.33 kB         163 kB
+├ ○ /board                               4.53 kB         155 kB
+├ ○ /consultation/ground                 7.37 kB         161 kB
+├ ○ /consultations                       21 kB           188 kB
+├ ○ /contract-sign                       6.01 kB         172 kB
+├ ○ /contracts                           30 kB           208 kB
+├ ƒ /dashboard                           155 B          88.3 kB
+├ ○ /dashboard/revenue                   6.74 kB         269 kB
+├ ○ /documents                           5.23 kB         168 kB
+├ ○ /facility                            8.21 kB         167 kB
+├ ○ /finance                             24.5 kB         218 kB
+├ ○ /icon.png                            0 B                0 B
+├ ○ /iep                                 12.8 kB         172 kB
+├ ○ /inbox                               764 B          88.9 kB
+├ ○ /incidents                           10.3 kB         169 kB
+├ ○ /leave                               7.35 kB         158 kB
+├ ○ /login                               4.2 kB          154 kB
+├ ○ /members                             11.1 kB         256 kB
+├ ƒ /members/[id]                        206 B           250 kB
+├ ƒ /members/[id]/chart-print            5.68 kB         168 kB
+├ ƒ /members/[id]/edu-cert               32.7 kB         192 kB
+├ ○ /mobile-expense                      705 B           242 kB
+├ ○ /office                              155 B          88.3 kB
+├ ○ /office-confirm                      2.32 kB        90.5 kB
+├ ○ /payments                            1.72 kB         188 kB
+├ ○ /plans                               963 B          97.9 kB
+├ ○ /renewals                            3.79 kB         171 kB
+├ ○ /reports                             11.6 kB         182 kB
+├ ○ /reports/comprehensive               29.9 kB         287 kB
+├ ○ /sales                               9.31 kB         308 kB
+├ ○ /schedule                            215 B           288 kB
+├ ○ /schedule/ground                     290 B           289 kB
+├ ○ /schedule/matching                   540 B          88.7 kB
+├ ○ /settings                            11.1 kB         170 kB
+├ ○ /settings/accounts                   8.67 kB         168 kB
+├ ○ /settings/catalog                    7.05 kB         166 kB
+├ ○ /settings/payroll-config             6.82 kB         166 kB
+├ ○ /settings/programs                   968 B          97.9 kB
+├ ○ /settings/schedule-config            5.6 kB          165 kB
+├ ○ /staff                               13.5 kB         175 kB
+├ ○ /tasks                               6.89 kB         166 kB
+└ ○ /vehicles                            7.78 kB         167 kB
++ First Load JS shared by all            88.1 kB
+  ├ chunks/4006-da146b659be91879.js      31.9 kB
+  ├ chunks/cd3152d6-5571888a69cfd02f.js  53.6 kB
+  └ other shared chunks (total)          2.6 kB
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

@@ -1,0 +1,26 @@
+PASS Missing configuration has explicit 503 and never creates database client
+PASS Missing URL is rejected even with server key
+PASS Missing key is rejected even with correct URL
+PASS Public anon key is never used as a privileged fallback
+PASS Legacy service role and original public URL remain supported
+PASS Server URL and new secret key alias work without public URL
+PASS Health check is no-store and never reads or writes database
+PASS Unavailable health check has no sensitive configuration values
+PASS Invalid URL blocks sending secrets to an unintended URL path
+PASS Invalid or unconsented body is rejected before data access 9
+PASS Invalid or unconsented body is rejected before data access 10
+PASS Invalid or unconsented body is rejected before data access 11
+PASS Invalid or unconsented body is rejected before data access 12
+PASS Invalid or unconsented body is rejected before data access 13
+PASS Invalid or unconsented body is rejected before data access 14
+PASS Invalid or unconsented body is rejected before data access 15
+PASS Invalid JSON returns 400
+PASS Oversized body returns 413 before saving
+PASS Invalid UUID cannot reach a database write
+PASS Database error stays failure and has sanitized diagnostic PGRST202
+PASS Database error stays failure and has sanitized diagnostic 42501
+PASS Database error stays failure and has sanitized diagnostic 23505
+PASS Network exception never returns a success or leaks the exception
+PASS Saved response contains no child details or existing-record identity
+PASS A null database acknowledgement can never become a false successful application
+RESULT 25 mock API configuration consent privacy and save-error checks passed; no production requests
