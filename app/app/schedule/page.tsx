@@ -1,2 +1,2 @@
-import SchedulePage from '@/app/schedule/page';
-export default SchedulePage;
+"use client";
+export {default} from "../../schedule/page";

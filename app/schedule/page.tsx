@@ -17,6 +17,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 "use client";
+import ReservationLinkIntegrity from '@/components/ReservationLinkIntegrity';
 import {DateBusinessActions as DateActionSheet,NewTrialModal,CompactTrialSlot,HoldingSlotInfo} from '@/components/ScheduleBusinessActions';
 import {CalendarPaymentModal,StaffScheduleModal} from '@/components/CalendarOperationsModals';
 import {CompletedSlotBadge,isCompletedSlot,calendarSlotClass,CalendarStaffBand} from '@/components/CalendarSlotStatus';
@@ -143,7 +144,7 @@ function monthGrid(year: number, month0: number) {
 }
 
 /* ═════ 메인 컴포넌트 ═════ */
-export default function SchedulePage(){const forcedTrack=usePathname()==='/schedule/ground'?'ground':undefined;return <ResponsiveWork view="sessions" forcedTrack={forcedTrack}><DesktopSchedulePage key={forcedTrack||'all'} forcedTrack={forcedTrack}/></ResponsiveWork>;}
+export default function SchedulePage(){const forcedTrack=['/schedule/ground','/app/schedule/ground'].includes(usePathname())?'ground':undefined;return <ResponsiveWork view="sessions" forcedTrack={forcedTrack}><DesktopSchedulePage key={forcedTrack||'all'} forcedTrack={forcedTrack}/></ResponsiveWork>;}
 
 function DesktopSchedulePage({forcedTrack}:{forcedTrack?:'aqua'|'ground'}) {
   const [view, setView] = useState<"month" | "week" | "day" | "agenda">("month");
@@ -1003,25 +1004,7 @@ function DesktopSchedulePage({forcedTrack}:{forcedTrack?:'aqua'|'ground'}) {
     alert(`📅 이월 처리 완료 • ${rec.member_name} • ${rec.date}\n(회원권 만료일 +30일 연장)`);
   }
 
-  async function maintainReservationLinks() {
-    if (saving) return;
-    setSaving(true);
-    try {
-      const mr = await supabase.from("memberships").select("*");
-      const ar = await supabase.from("attendance").select("slot_id").is("deleted_at", null);
-      if (mr.error || ar.error) throw mr.error || ar.error;
-      const signedIds = new Set<string>((ar.data || []).map((a: any) => a.slot_id).filter(Boolean));
-      const plan = planReservationLinks(slots, mr.data || [], signedIds);
-      const text = `현재 시간표에 불러온 예약만 점검합니다.\n\n유일한 사용 가능 권으로 연결: ${plan.changes.length}건\n여러 권 중 직접 선택 필요: ${plan.needsChoice.length}건\n사용 가능한 권 없음: ${plan.unavailable.length}건\n\n완료·서명 기록과 회차·결제는 변경하지 않습니다. 연결을 적용할까요?`;
-      if (!confirm(text)) return;
-      const result = await applyReservationLinks(plan.changes);
-      await loadAll();
-      alert(`예약 연결 ${result.updated}건 완료 / 상태 변경 등으로 건너뜀 ${result.skipped}건\n직접 선택 필요 ${plan.needsChoice.length}건 / 사용 가능한 권 없음 ${plan.unavailable.length}건\n횟수를 차감하거나 소진된 회원권 기록을 삭제하는 작업은 하지 않았습니다.`);
-    } catch (error: any) {
-      alert("예약 연결 점검 중단: " + (error?.message || String(error)) + "\n일부 연결은 적용됐을 수 있습니다. 새로고침 후 다시 점검할 수 있습니다.");
-      await loadAll();
-    } finally { setSaving(false); }
-  }
+  function maintainReservationLinks(){window.dispatchEvent(new Event('aqu:reservation-links-open'));}
 
   async function saveSlot() {
     if(saving)return;
@@ -1723,7 +1706,7 @@ function DesktopSchedulePage({forcedTrack}:{forcedTrack?:'aqua'|'ground'}) {
         </div>
       </div>
 
-      {slots.some((s:any)=>s.membership_id&&memberships.some((m:any)=>m.id===s.membership_id&&['cancelled','refunded','deleted'].includes(String(m.status||'').toLowerCase())))&&<p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">취소·환불된 이용권과 연결된 예약이 있습니다. 예약을 숨기거나 삭제하지 않았습니다. 출석·차감 전에 유효 이용권 연결을 확인해주세요.</p>}
+      <ReservationLinkIntegrity track={trackTab} onChanged={loadAll}/>
       {calendarLoadError&&<div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{calendarLoadError}<button type="button" onClick={()=>void loadAll()} className="ml-2 underline">시간표 다시 조회</button></div>}
       {(teacherFilter||memberSearchQ)&&<p role="status" className="rounded-xl border border-sky-200 bg-white p-3 text-sm text-slate-700">현재 담당자·회원 검색 필터가 적용되어 일부 예약만 보입니다. <button type="button" className="underline" onClick={()=>{setTeacherFilter('');setMemberSearchQ('');}}>전체 예약 보기</button></p>}
       {trialSyncError&&<p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">체험 메모 조회 확인: {trialSyncError}</p>}
