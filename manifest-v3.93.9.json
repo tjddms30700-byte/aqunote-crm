@@ -1,0 +1,21 @@
+{
+  "version": "3.93.9",
+  "base_web": "3.93.6",
+  "includes_aqua40_hotfix": true,
+  "production_deployed": false,
+  "production_writes": false,
+  "sql_required": false,
+  "verified": {
+    "typecheck": true,
+    "browser_checks": 20,
+    "transport": "mocked_read_only"
+  },
+  "files": {
+    "components/ConsultationMemberLink.tsx": "3441c9a6da559c80b1a92452d0d2b41dcfe253883a389fc166949ccf719d6aae",
+    "components/ConsultationWorkspace.tsx": "32a907954c664819c09d9ca198f391f6282d193fbb3b0973699bc5aa2e2da164",
+    "lib/reservationDuration.ts": "b15862f0c04af7ce2cabb3d75c5734eaadc47ed1a27a568e5d1eecf33231bc71",
+    "components/ScheduleSlotModal.tsx": "13d7a80d2bc2d030331c08786086f2f1593a221168169d44f6f06382dea5b022",
+    "components/MobileBookingLauncher.tsx": "487fad6e615f6e75b4631ce103c2b18816b20451ebe66520ebdfc13466304698",
+    "app/schedule/page.tsx": "e233a2b82df08dcbec05036d24340dfa844fa9665c450a6b712228714cb291e0"
+  }
+}

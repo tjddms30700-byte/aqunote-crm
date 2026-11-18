@@ -1,0 +1,21 @@
+PASS 1 UUID-only member destination, no names or consultation ids
+PASS 2 card new name opens member DB
+PASS 3 card waiting name opens member DB
+PASS 4 card trial_scheduled name opens member DB
+PASS 5 card trial_done name opens member DB
+PASS 6 card regular name opens member DB
+PASS 7 card ended name opens member DB
+PASS 8 linked cards perform no search or write on mount
+PASS 9 guide and trial buttons remain separate
+PASS 10 keyboard can focus member anchor
+PASS 11 unlinked lead opens lookup, never guesses member id
+PASS 12 escape closes dialog and returns focus
+PASS 13 same-name candidates require explicit selection with phone
+PASS 14 dialog traps keyboard focus
+PASS 15 changed center invalidates candidate navigation
+PASS 16 ALL center blocks search
+PASS 17 permission failure stays visible and does not navigate
+PASS 18 closed dialog ignores late lookup response
+PASS 19 mobile linked name has direct profile target
+PASS 20 no write RPCs or runtime errors
+RESULT 20 actual consultation card and member-link checks passed; mocked read-only RPC
