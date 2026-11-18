@@ -1,0 +1,32 @@
+PASS 1 empty aqua
+PASS 2 aqua track
+PASS 3 aqua named
+PASS 4 free aqua
+PASS 5 ground
+PASS 6 device
+PASS 7 recovery
+PASS 8 Korean ground
+PASS 9 standard
+PASS 10 half
+PASS 11 saved explicit 70
+PASS 12 manual 50
+PASS 13 legacy duration
+PASS 14 end time
+PASS 15 explicit wins
+PASS 16 invalid duration
+PASS 17 null duration
+PASS 18 invalid long duration
+PASS 19 fallback track preserved
+PASS 20 70 minute start interval unchanged
+PASS 21 booking payload 40
+PASS 22 booking payload 30
+PASS 23 booking payload 20
+PASS 24 booking payload 55
+PASS 25 PC new defaults through common helper
+PASS 26 PC edit preserves explicit saved duration
+PASS 27 PC direct saves both fields
+PASS 28 mobile initial form through helper
+PASS 29 no forced 70 default in modal/mobile
+PASS 30 legacy PC route shares fixed component
+PASS 31 source original unchanged
+RESULT 31 duration and save-path checks passed

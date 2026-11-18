@@ -1,0 +1,14 @@
+PASS 1 PC actual modal opens at 40
+PASS 2 start-time selection keeps 40
+PASS 3 double-time no longer resets to 70
+PASS 4 manual duration survives double off/on
+PASS 5 track switch ground 30 then aqua 40
+PASS 6 half product uses 20
+PASS 7 manual 55 survives product change
+PASS 8 saved 70 is not rewritten
+PASS 9 saved 40 remains 40
+PASS 10 mobile actual launcher initializes 40
+PASS 11 mobile submit payload carries 40
+PASS 12 mobile ground remains 30
+PASS 13 no React runtime errors
+RESULT 13 actual component browser checks passed; mocked transport, no production writes

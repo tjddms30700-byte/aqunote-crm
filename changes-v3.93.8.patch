@@ -1,0 +1,78 @@
+--- a/lib/reservationDuration.ts
++++ b/lib/reservationDuration.ts
+@@ -1,10 +1,10 @@
+ import {lessonDurationMinutes} from './lessonProduct';
+ import {lessonTrack} from './lessonTrack';
+-/** Actual occupied minutes, not the calendar grid's display interval. Never mutates saved history. */
++/** Actual occupied minutes, not the calendar grid's display interval. Aqua defaults to 40, ground to 30; the 70-minute grid interval is NOT a duration. Explicit saved or manually entered minutes always win. Never mutates saved history. */
+ export function reservationMinutes(slot:any,track='aqua'):number{
+  for(const value of [slot?.duration_minutes,slot?.duration]){const n=Number(value);if(Number.isInteger(n)&&n>=10&&n<=180)return n;}
+  const start=String(slot?.time_slot||'').slice(0,5),end=String(slot?.end_time||'').slice(0,5),clock=/^([01][0-9]|2[0-3]):[0-5][0-9]$/;
+  if(clock.test(start)&&clock.test(end)){const minute=(t:string)=>Number(t.slice(0,2))*60+Number(t.slice(3));const n=minute(end)-minute(start);if(n>=10&&n<=180)return n;}
+  const product=lessonDurationMinutes(slot?.lesson_name);if(product)return product;
+- return lessonTrack(slot?.track||track)==='ground'?30:70;
++ return lessonTrack(slot?.track||track)==='ground'?30:40;
+ }
+--- a/components/ScheduleSlotModal.tsx
++++ b/components/ScheduleSlotModal.tsx
+@@ -124,7 +124,7 @@
+             <div className="text-xs font-bold text-aqu-800 mb-3 flex items-center gap-1.5">
+               <Clock className="w-3.5 h-3.5" /> 기본 정보
+             </div>
+-            <div className="mb-3"><label className="text-xs font-semibold">수업 트랙</label><select aria-label="수업 트랙" className="min-h-12 w-full rounded border p-2" disabled={!!f.id||!!f._lockedTrack} value={activeTrack} onChange={e=>{setF({...f,track:e.target.value,time_slot:'',membership_id:null,lesson_name:'',duration_minutes:e.target.value==='ground'?30:70,_durationEdited:false});setDirectTime(false);}}><option value="aqua">수중</option><option value="ground">지상</option></select></div>
++            <div className="mb-3"><label className="text-xs font-semibold">수업 트랙</label><select aria-label="수업 트랙" className="min-h-12 w-full rounded border p-2" disabled={!!f.id||!!f._lockedTrack} value={activeTrack} onChange={e=>{setF({...f,track:e.target.value,time_slot:'',membership_id:null,lesson_name:'',duration_minutes:reservationMinutes({track:e.target.value}),_durationEdited:false});setDirectTime(false);}}><option value="aqua">수중</option><option value="ground">지상</option></select></div>
+             {/* 날짜 */}
+             <Field label="날짜 *">
+               <input aria-label="등록 수업일" type="date" value={f.event_date}
+@@ -136,10 +136,10 @@
+               {directTime?<input aria-label="수업 시작 시간 직접 입력" type="text" inputMode="numeric" maxLength={5} placeholder="15:25 또는 1525" value={f.time_slot||''} onChange={e=>setF({...f,time_slot:e.target.value})} onBlur={e=>{const t=normalizeClockTime(e.target.value);if(t)setF((prev:any)=>({...prev,time_slot:t}));}} className="min-h-12 w-full rounded-lg border p-3 text-lg"/>:activeTrack==='ground'?<select aria-label="지상 수업 시간 선택" className="min-h-12 w-full rounded-lg border p-3" value={f.time_slot||''} onChange={e=>setF({...f,time_slot:e.target.value})}><option value="">시간 선택</option>{GROUND_PRESETS.map(t=><option key={t} value={t}>{t}</option>)}</select>:<div className="grid grid-cols-3 gap-2">{AQUA_PRESETS.map(t=><button type="button" key={t} aria-pressed={f.time_slot===t} onClick={()=>setF({...f,time_slot:t})} className={`min-h-12 rounded-lg border text-sm ${f.time_slot===t?'bg-teal-800 text-white':'bg-white'}`}>{t}</button>)}</div>}
+             </div>
+             {!isEditing&&!isFreeReservation(f)&&['lesson','makeup'].includes(f.event_type||'lesson')&&<div className="mt-3 rounded-2xl bg-sky-50 p-3 text-sm text-slate-700">
+-              <label className="flex min-h-11 items-center gap-2 font-semibold"><input type="checkbox" aria-label="2타임 연속(연타임) 진행" checked={!!f.double_time} onChange={e=>setF({...f,double_time:e.target.checked,recurring_enabled:e.target.checked?false:f.recurring_enabled,duration_minutes:e.target.checked?(activeTrack==='ground'?30:70):f.duration_minutes})}/>2타임 연속(연타임) 진행</label>
+-              {f.double_time&&<p className="mt-1 text-xs leading-relaxed">{(()=>{const t=normalizeClockTime(f.time_slot);if(!t)return '시작 시간을 선택해주세요.';const [h,m]=t.split(':').map(Number);const n=h*60+m+Number(f.duration_minutes||(activeTrack==='ground'?30:70));return n>=1440?'다음 타임이 다음 날로 넘어갑니다. 시작 시간을 바꿔주세요.':`${t} + ${String(Math.floor(n/60)).padStart(2,'0')}:${String(n%60).padStart(2,'0')} · 2개 일정을 함께 등록해요.`;})()}<br/>예약 시 차감하지 않으며 각 타임 출석·사인 완료 시 1회씩, 총 2회 차감해요. 한 타임 삭제 시 그 타임의 실제 차감만 1회 복원해요. 반복 예약·체험·결제예정은 연타임 옵션에 포함하지 않아요.</p>}
++              <label className="flex min-h-11 items-center gap-2 font-semibold"><input type="checkbox" aria-label="2타임 연속(연타임) 진행" checked={!!f.double_time} onChange={e=>setF({...f,double_time:e.target.checked,recurring_enabled:e.target.checked?false:f.recurring_enabled,duration_minutes:reservationMinutes(f,activeTrack)})}/>2타임 연속(연타임) 진행</label>
++              {f.double_time&&<p className="mt-1 text-xs leading-relaxed">{(()=>{const t=normalizeClockTime(f.time_slot);if(!t)return '시작 시간을 선택해주세요.';const [h,m]=t.split(':').map(Number);const n=h*60+m+reservationMinutes(f,activeTrack);return n>=1440?'다음 타임이 다음 날로 넘어갑니다. 시작 시간을 바꿔주세요.':`${t} + ${String(Math.floor(n/60)).padStart(2,'0')}:${String(n%60).padStart(2,'0')} · 2개 일정을 함께 등록해요.`;})()}<br/>예약 시 차감하지 않으며 각 타임 출석·사인 완료 시 1회씩, 총 2회 차감해요. 한 타임 삭제 시 그 타임의 실제 차감만 1회 복원해요. 반복 예약·체험·결제예정은 연타임 옵션에 포함하지 않아요.</p>}
+             </div>}
+-            <label className="mt-2 block text-xs">수업 시간(분)<input aria-label="수업 시간 분" type="number" min={10} max={180} step={5} className="min-h-12 w-full rounded border p-2" value={reservationMinutes(f,activeTrack)} onChange={e=>setF({...f,duration_minutes:e.target.value,_durationEdited:true})}/></label>
++            <label className="mt-2 block text-xs">수업 시간(분)<input aria-label="수업 시간 분" type="number" min={10} max={180} step={5} className="min-h-12 w-full rounded border p-2" value={reservationMinutes(f,activeTrack)} onChange={e=>setF({...f,duration_minutes:e.target.value,_durationEdited:true})}/></label><p className="mt-1 text-xs text-slate-500">실제 수업 시간입니다. 수중 기본 40분 · 지상 기본 30분이며, 시간표의 시작 간격과는 별개입니다.</p>
+             <div className="mt-2">
+               <Field label="유형">
+                 <select aria-label="예약 유형" value={f.event_type} onChange={e => setF({ ...f, event_type: e.target.value,lesson_name:e.target.value==='trial'?'체험 1회권':e.target.value==='lesson'?'':f.lesson_name,membership_id:null,deposit_confirmed:false })}
+--- a/components/MobileBookingLauncher.tsx
++++ b/components/MobileBookingLauncher.tsx
+@@ -6,12 +6,13 @@
+ import SlotModal from '@/components/ScheduleSlotModal';
+ import {bookingPayload,deskRpc} from '@/lib/deskBooking';
+ import {isFreeReservation} from '@/lib/reservationMembership';
++import {reservationMinutes} from '@/lib/reservationDuration';
+ import {normalizeClockTime} from '@/lib/calendarPayments';
+ export default function MobileBookingLauncher({date,onSaved,track='aqua'}:{date:string;track?:'aqua'|'ground';onSaved:(date:string)=>void|Promise<void>}){
+  const [actions,setActions]=useState(false),[operation,setOperation]=useState('');
+  const [open,setOpen]=useState(false),[resources,setResources]=useState<any>(null),[f,setF]=useState<any>({}),[busy,setBusy]=useState(false),[error,setError]=useState('');const key=useRef(''),lock=useRef(false);
+  useEffect(()=>{if(!open)return;const old=document.body.style.overflow;document.body.style.overflow='hidden';return()=>{document.body.style.overflow=old;};},[open]);
+- async function launch(){setOpen(true);setResources(null);setError('');key.current=crypto.randomUUID();try{const r=await deskRpc('desk_booking_resources',{p_member:null});setResources(r);setF({event_date:date,time_slot:'',event_type:'lesson',status:'scheduled',track,_lockedTrack:track,member_id:'',staff_id:r.me.manager?'':r.me.id,membership_id:null,lesson_name:'',note:'',duration_minutes:track==='ground'?30:70,recurring_enabled:false,_mobileMode:true,deposit_method:'transfer'});}catch(e:any){setError(e.message);}}
+- async function save(){if(lock.current)return;lock.current=true;setBusy(true);setError('');try{const time=normalizeClockTime(f.time_slot);if(!time)throw new Error('수업 시간을 선택하거나 15:25처럼 입력해주세요.');if(f.recurring_enabled)throw new Error('모바일 빠른 등록은 한 회씩 저장합니다. 반복 등록은 전체 시간표에서 처리해주세요.');if(f.status!=='scheduled')throw new Error('새 예약은 예정 상태로 등록한 뒤 실제 수업일에 출석 처리해주세요.');if(f.double_time&&!['lesson','makeup'].includes(f.event_type||'lesson'))throw new Error('연타임은 정규·보강 수업에서만 선택해주세요.');await deskRpc(isFreeReservation(f)?'desk_book_free_3932':f.double_time?'desk_book_double':'desk_book',{p_request:key.current,p_payload:bookingPayload({...f,time_slot:time,duration_minutes:f.double_time?Number(f.duration_minutes||(f.track==='ground'?30:70)):f.duration_minutes})});setOpen(false);await onSaved(f.event_date);window.dispatchEvent(new Event('aqunote-mobile-work-changed'));}catch(e:any){setError(e.message);}finally{lock.current=false;setBusy(false);}}
++ async function launch(){setOpen(true);setResources(null);setError('');key.current=crypto.randomUUID();try{const r=await deskRpc('desk_booking_resources',{p_member:null});setResources(r);setF({event_date:date,time_slot:'',event_type:'lesson',status:'scheduled',track,_lockedTrack:track,member_id:'',staff_id:r.me.manager?'':r.me.id,membership_id:null,lesson_name:'',note:'',duration_minutes:reservationMinutes({track}),recurring_enabled:false,_mobileMode:true,deposit_method:'transfer'});}catch(e:any){setError(e.message);}}
++ async function save(){if(lock.current)return;lock.current=true;setBusy(true);setError('');try{const time=normalizeClockTime(f.time_slot);if(!time)throw new Error('수업 시간을 선택하거나 15:25처럼 입력해주세요.');if(f.recurring_enabled)throw new Error('모바일 빠른 등록은 한 회씩 저장합니다. 반복 등록은 전체 시간표에서 처리해주세요.');if(f.status!=='scheduled')throw new Error('새 예약은 예정 상태로 등록한 뒤 실제 수업일에 출석 처리해주세요.');if(f.double_time&&!['lesson','makeup'].includes(f.event_type||'lesson'))throw new Error('연타임은 정규·보강 수업에서만 선택해주세요.');await deskRpc(isFreeReservation(f)?'desk_book_free_3932':f.double_time?'desk_book_double':'desk_book',{p_request:key.current,p_payload:bookingPayload({...f,time_slot:time,duration_minutes:reservationMinutes(f,track)})});setOpen(false);await onSaved(f.event_date);window.dispatchEvent(new Event('aqunote-mobile-work-changed'));}catch(e:any){setError(e.message);}finally{lock.current=false;setBusy(false);}}
+  return <><button type="button" className="aqu-booking-add min-h-11 rounded-xl bg-teal-800 px-3 py-2 text-sm font-semibold text-white" onClick={()=>setActions(true)}>＋ 일정 추가</button>{actions&&<DateBusinessActions date={date} onClose={()=>setActions(false)} onReservation={()=>{setActions(false);void launch();}} onTrial={()=>{setActions(false);setOperation('trial');}} onRevenue={()=>{setActions(false);setOperation('payment');}} onStaffSchedule={()=>{setActions(false);setOperation('staff');}}/>}{operation==='trial'&&<NewTrialModal track={track} date={date} onClose={()=>setOperation('')} onSaved={()=>onSaved(date)}/>} {operation==='payment'&&<CalendarPaymentModal date={date} track={track} onClose={()=>setOperation('')} onSaved={()=>onSaved(date)}/>} {operation==='staff'&&<StaffScheduleModal date={date} onClose={()=>setOperation('')} onSaved={()=>onSaved(date)}/>}{open&&createPortal(<>{resources?<SlotModal f={f} setF={setF} modal={{date}} members={resources.members||[]} staff={resources.staff||[]} plans={resources.plans||[]} onClose={()=>{if(!busy)setOpen(false);}} onSave={()=>void save()} onDelete={()=>{}} saving={busy} track={f.track} />:<div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 p-4"><section role="dialog" aria-modal="true" aria-label="일정 등록 준비" className="w-full rounded-2xl bg-white p-4"><p>{error||'일정 등록 정보를 불러오는 중…'}</p><button className="min-h-12 rounded border px-4" onClick={()=>setOpen(false)}>닫기</button></section></div>}{error&&resources&&<div role="alert" className="fixed bottom-24 left-3 right-3 z-[140] rounded-xl border border-rose-300 bg-rose-50 p-4 text-sm text-rose-900 shadow-lg"><button aria-label="등록 오류 닫기" className="float-right min-h-12 px-3" onClick={()=>setError('')}>닫기</button>{error}</div>}</>,document.body)}</>;
+ }
+--- a/app/schedule/page.tsx
++++ b/app/schedule/page.tsx
+@@ -851,7 +851,7 @@
+       note: "",
+       amount: 0,
+       // ✅ v3.57.1: 현재 탭의 트랙 자동 세팅
+-      track: trackTab,_lockedTrack:trackTab,duration_minutes:trackTab==='ground'?30:70,
++      track: trackTab,_lockedTrack:trackTab,duration_minutes:reservationMinutes({track:trackTab}),
+       // 반복예약 관련
+       recurring_enabled: false,
+       recurring_weeks: 4,
+@@ -1023,7 +1023,7 @@
+         if(!clock)throw new Error('시작 시간을 선택해주세요.');
+         if(f.recurring_enabled)throw new Error('연타임은 날짜별로 2개 일정을 함께 등록해주세요. 반복 예약을 해제해주세요.');
+         if(!f._double_request_id)f._double_request_id=crypto.randomUUID();
+-        await deskRpc('desk_book_double',{p_request:f._double_request_id,p_payload:{...bookingPayload({...f,time_slot:clock},trackTab),duration_minutes:Number(f.duration_minutes||((f.track||trackTab)==='ground'?30:70))}});
++        await deskRpc('desk_book_double',{p_request:f._double_request_id,p_payload:{...bookingPayload({...f,time_slot:clock},trackTab),duration_minutes:reservationMinutes(f,trackTab)}});
+         setModal(null);await loadAll();
+       }catch(e:any){alert('연타임 등록 실패: '+e.message+'\n두 일정은 함께 저장되며 실패하면 모두 취소됩니다.');}
+       finally{setSaving(false);}

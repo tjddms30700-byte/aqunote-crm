@@ -1,0 +1,20 @@
+{
+  "version": "3.93.8",
+  "base_web": "3.93.6",
+  "production_deployed": false,
+  "production_writes": false,
+  "sql_required": false,
+  "verified": {
+    "typecheck": true,
+    "logic_and_source_checks": 31,
+    "browser_component_checks": 13,
+    "database_transport": "mocked",
+    "production_build": false
+  },
+  "files": {
+    "lib/reservationDuration.ts": "b15862f0c04af7ce2cabb3d75c5734eaadc47ed1a27a568e5d1eecf33231bc71",
+    "components/ScheduleSlotModal.tsx": "13d7a80d2bc2d030331c08786086f2f1593a221168169d44f6f06382dea5b022",
+    "components/MobileBookingLauncher.tsx": "487fad6e615f6e75b4631ce103c2b18816b20451ebe66520ebdfc13466304698",
+    "app/schedule/page.tsx": "e233a2b82df08dcbec05036d24340dfa844fa9665c450a6b712228714cb291e0"
+  }
+}

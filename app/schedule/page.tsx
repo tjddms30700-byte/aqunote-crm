@@ -851,7 +851,7 @@ function DesktopSchedulePage({forcedTrack}:{forcedTrack?:'aqua'|'ground'}) {
       note: "",
       amount: 0,
       // ✅ v3.57.1: 현재 탭의 트랙 자동 세팅
-      track: trackTab,_lockedTrack:trackTab,duration_minutes:trackTab==='ground'?30:70,
+      track: trackTab,_lockedTrack:trackTab,duration_minutes:reservationMinutes({track:trackTab}),
       // 반복예약 관련
       recurring_enabled: false,
       recurring_weeks: 4,
@@ -1023,7 +1023,7 @@ function DesktopSchedulePage({forcedTrack}:{forcedTrack?:'aqua'|'ground'}) {
         if(!clock)throw new Error('시작 시간을 선택해주세요.');
         if(f.recurring_enabled)throw new Error('연타임은 날짜별로 2개 일정을 함께 등록해주세요. 반복 예약을 해제해주세요.');
         if(!f._double_request_id)f._double_request_id=crypto.randomUUID();
-        await deskRpc('desk_book_double',{p_request:f._double_request_id,p_payload:{...bookingPayload({...f,time_slot:clock},trackTab),duration_minutes:Number(f.duration_minutes||((f.track||trackTab)==='ground'?30:70))}});
+        await deskRpc('desk_book_double',{p_request:f._double_request_id,p_payload:{...bookingPayload({...f,time_slot:clock},trackTab),duration_minutes:reservationMinutes(f,trackTab)}});
         setModal(null);await loadAll();
       }catch(e:any){alert('연타임 등록 실패: '+e.message+'\n두 일정은 함께 저장되며 실패하면 모두 취소됩니다.');}
       finally{setSaving(false);}
