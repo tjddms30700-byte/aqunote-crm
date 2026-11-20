@@ -7,7 +7,7 @@ import {sessionStructure,combinedPrompt,finalizeCombined} from './journalSession
 import {lessonTrack} from './lessonTrack';
 import {clinicalMetrics,formatClinicalMetrics} from './journalClinical';
 import {createClient} from '@supabase/supabase-js';
-import {JOURNAL_GENERATION_SCHEMA,journalPrompt,parseGeneratedJournalResponse,JournalFormatError,finalizeParentMessage,messageThemeCount} from './aiJournal';
+import {JOURNAL_GENERATION_SCHEMA,journalPrompt,parseGeneratedJournalResponse,JournalFormatError,finalizeParentMessage,messageThemeCount,JOURNAL_MEMBER_TOKEN,maskJournalName,restoreJournalName} from './aiJournal';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const reply=(body:unknown,status=200)=>NextResponse.json(body,{status,headers:{'Cache-Control':'no-store, private'}});
 export async function handleAiJournal(req:NextRequest,diagnostic_id=randomUUID()){
@@ -37,8 +37,8 @@ export async function handleAiJournal(req:NextRequest,diagnostic_id=randomUUID()
   if(b.save_key&&!UUID.test(b.save_key))return reply({error:'저장 식별자를 확인해주세요.'},400);
   if(b.save_key){const checkpoint=await db.rpc('journal_single_flow_3925',{p_key:b.save_key,p_member:b.member_id,p_slot:b.slot_id||null,p_date:b.date,p_time:b.time,p_style:b.style,p_source:b.memo,p_result:null});if(checkpoint.error)return fail('AI_SOURCE_SAVE','원문을 세션 DB에 저장하지 못해 AI 호출을 중단했습니다. 입력 메모는 유지됩니다.',503);sourceSaved=checkpoint.data;}
   const {error:quotaError}=await db.rpc('ai_journal_claim',{p_member:b.member_id});if(quotaError)return fail('AI_LOCAL_QUOTA','센터 시스템의 생성 요청 제한을 확인해주세요. 외부 AI 결제 한도와는 별개입니다.',429);
-  const realName=String(ctx.member_name||''),redact=(s:string)=>{let text=realName?s.split(realName).join('회원이름'):s;return text.replace(/01[016789][-\s]?\d{3,4}[-\s]?\d{4}/g,'[연락처 제외]').replace(/\b\d{6}[-\s]?[1-8]\d{6}\b/g,'[주민번호 제외]');};
-  const input={member_name:'회원이름',memo:redact(b.memo.trim())+(Object.keys(metrics).length?'\n\n[치료사가 직접 입력한 측정값]\n'+formatClinicalMetrics(metrics):''),style:b.style,history:b.include_history===false?[]:compactJournalHistory(ctx?.history,redact)};
+  const realName=String(ctx.member_name||''),redact=(s:string)=>{const text=maskJournalName(s,realName,ctx.member_type==='child');return text.replace(/01[016789][-\s]?\d{3,4}[-\s]?\d{4}/g,'[연락처 제외]').replace(/\b\d{6}[-\s]?[1-8]\d{6}\b/g,'[주민번호 제외]');};
+  const input={member_name:JOURNAL_MEMBER_TOKEN,memo:redact(b.memo.trim())+(Object.keys(metrics).length?'\n\n[치료사가 직접 입력한 측정값]\n'+formatClinicalMetrics(metrics):''),style:b.style,history:b.include_history===false?[]:compactJournalHistory(ctx?.history,redact)};
   const units=memoUnits(redact(b.memo));Object.assign(input,{memo_units:units});
   const structure=sessionStructure('',false);
   const nowKst=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date());const preSession=b.date+' '+b.time>nowKst.slice(0,16);
@@ -60,7 +60,7 @@ export async function handleAiJournal(req:NextRequest,diagnostic_id=randomUUID()
    text=(Array.isArray(c?.content?.parts)?c.content.parts:[]).filter((p:any)=>p&&p.thought!==true&&typeof p.text==='string').map((p:any)=>p.text).join('');
   }
   phase='parse_validate';
-  let result=parseOrderedJournal(text,units);result.parent_message=finalizeParentMessage(result.parent_message,realName,b.style,ctx.member_type==='child');result.clinical_record=result.clinical_record.split('회원이름').join(realName);
+  let result=parseOrderedJournal(text,units);result.parent_message=finalizeParentMessage(result.parent_message,realName,b.style,ctx.member_type==='child');result.clinical_record=restoreJournalName(result.clinical_record,realName);
   if(structure.combined){try{result={...result,...finalizeCombined(result,structure)};}catch{return fail('AI_COMBINED_SECTIONS','구강·연하와 수중 활동 두 영역을 확인하지 못했어요. 메모는 유지됩니다. 다시 생성해주세요.');}}
   if(req.signal?.aborted)return fail('AI_CANCELLED','일지 생성을 취소했습니다.',499);
   if(b.save_key){const stored=await db.rpc('journal_single_flow_3925',{p_key:b.save_key,p_member:b.member_id,p_slot:b.slot_id||null,p_date:b.date,p_time:b.time,p_style:b.style,p_source:b.memo,p_result:result});if(stored.error)return fail('AI_RESULT_SAVE','AI 생성은 완료됐지만 DB 저장 확인에 실패했습니다. 원문은 저장되어 있습니다. 저장된 원문 기록에서 다시 확인해주세요.',503);sourceSaved=stored.data;}

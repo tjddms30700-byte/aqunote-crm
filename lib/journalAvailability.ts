@@ -1,6 +1,6 @@
 import {modelName,requestBody,providerProblem,repairRequest,type JournalProvider} from './journalProviderContract';
 import {JOURNAL_TRANSIENT_HTTP} from './aiProviderRetry';
-export const JOURNAL_RELEASE='3.94.2';
+export const JOURNAL_RELEASE='3.94.3';
 export const JOURNAL_TOTAL_MS=48000;
 const valid=(s:unknown)=>typeof s==='string'&&/^[A-Za-z0-9_.:-]{1,100}$/.test(s)?s:undefined;
 const safeCode=(s:unknown)=>typeof s==='string'&&/^(?:\d{3}|[a-z][a-z0-9_]{1,63})$/i.test(s)&&!/^AIza/i.test(s)?s:undefined;
