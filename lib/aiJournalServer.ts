@@ -1,18 +1,23 @@
 import {QUANTITY_REVIEW_RULES} from './journalOrderPrompt';
-import {modelName,requestBody,providerProblem,repairRequest,safeProviderLog} from './journalProviderContract';
+import {randomUUID} from 'node:crypto';
+import {JOURNAL_RELEASE,JOURNAL_TOTAL_MS,compactJournalHistory,generateJournalUpstream,JournalUpstreamError,journalLog} from './journalAvailability';
 import {memoUnits,ORDERED_JOURNAL_SCHEMA,parseOrderedJournal} from './journalSource';
 import {NextRequest,NextResponse} from 'next/server';
 import {sessionStructure,combinedPrompt,finalizeCombined} from './journalSession';
 import {lessonTrack} from './lessonTrack';
 import {clinicalMetrics,formatClinicalMetrics} from './journalClinical';
-import {fetchJournalProvider,JOURNAL_TRANSIENT_HTTP} from './aiProviderRetry';
 import {createClient} from '@supabase/supabase-js';
 import {JOURNAL_GENERATION_SCHEMA,journalPrompt,parseGeneratedJournalResponse,JournalFormatError,finalizeParentMessage,messageThemeCount} from './aiJournal';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const reply=(body:unknown,status=200)=>NextResponse.json(body,{status,headers:{'Cache-Control':'no-store, private'}});
 export async function handleAiJournal(req:NextRequest){
+ const diagnostic_id=randomUUID(),deadline=Date.now()+JOURNAL_TOTAL_MS;
  let phase='auth',providerName='unknown',sourceSaved:any=null;
- const fail=(code:string,message:string,status=502)=>{console.warn('[ai-journal]',JSON.stringify({code,phase,provider:providerName,version:'3.93.5'}));return reply({error:`${message} [${code}]`,code,version:'3.93.5',...(sourceSaved?{raw_saved:true,session_id:sourceSaved.session_id,review_required:true}:{})},status);};
+ const fail=(code:string,message:string,status=502,upstream?:JournalUpstreamError)=>{
+  const detail=upstream?.detail;const suffix=[detail?.http?`HTTP ${detail.http}`:'',detail?.upstream_code||''].filter(Boolean).join(' · ');
+  console.warn('[ai-journal]',JSON.stringify({diagnostic_id,code,phase,provider:detail?.provider||providerName,http:detail?.http,upstream_code:detail?.upstream_code,version:JOURNAL_RELEASE}));
+  return reply({error:`${message} [${code}${suffix?' · '+suffix:''}] 진단 ID: ${diagnostic_id}`,code,diagnostic_id,upstream_status:detail?.http,upstream_code:detail?.upstream_code,version:JOURNAL_RELEASE,...(sourceSaved?{raw_saved:true,session_id:sourceSaved.session_id,review_required:true}:{})},status);
+ };
  try{
   const token=req.headers.get('authorization')?.match(/^Bearer (.+)$/i)?.[1];
   if(!token)return reply({error:'로그인 후 다시 이용해주세요.'},401);
@@ -30,43 +35,16 @@ export async function handleAiJournal(req:NextRequest){
   if(lessonTrack(ctx.track)==='ground'&&b.style!=='C')return reply({error:'지상재활은 AI로 가공하지 않습니다. 원문 저장을 이용해주세요.',code:'GROUND_RAW_ONLY'},409);
   if(b.save_key&&!UUID.test(b.save_key))return reply({error:'저장 식별자를 확인해주세요.'},400);
   if(b.save_key){const checkpoint=await db.rpc('journal_single_flow_3925',{p_key:b.save_key,p_member:b.member_id,p_slot:b.slot_id||null,p_date:b.date,p_time:b.time,p_style:b.style,p_source:b.memo,p_result:null});if(checkpoint.error)return fail('AI_SOURCE_SAVE','원문을 세션 DB에 저장하지 못해 AI 호출을 중단했습니다. 입력 메모는 유지됩니다.',503);sourceSaved=checkpoint.data;}
-  const provider=(process.env.AI_JOURNAL_PROVIDER||'openai').trim().toLowerCase();providerName=provider;
-  if(!['openai','gemini'].includes(provider))return reply({error:'AI_JOURNAL_PROVIDER는 openai 또는 gemini로 설정해주세요.'},503);
-  const apiKey=(provider==='gemini'?process.env.GEMINI_API_KEY:process.env.OPENAI_API_KEY)?.trim();
-  if(!apiKey)return reply({error:`AI 연결 설정이 필요합니다. Vercel에 ${provider==='gemini'?'GEMINI_API_KEY':'OPENAI_API_KEY'}를 등록하고 다시 배포해주세요.`},503);
-  const {error:quotaError}=await db.rpc('ai_journal_claim',{p_member:b.member_id});if(quotaError)return reply({error:'생성 요청이 많습니다. 잠시 후 다시 시도해주세요.'},429);
+  const {error:quotaError}=await db.rpc('ai_journal_claim',{p_member:b.member_id});if(quotaError)return fail('AI_LOCAL_QUOTA','센터 시스템의 생성 요청 제한을 확인해주세요. 외부 AI 결제 한도와는 별개입니다.',429);
   const realName=String(ctx.member_name||''),redact=(s:string)=>{let text=realName?s.split(realName).join('회원이름'):s;return text.replace(/01[016789][-\s]?\d{3,4}[-\s]?\d{4}/g,'[연락처 제외]').replace(/\b\d{6}[-\s]?[1-8]\d{6}\b/g,'[주민번호 제외]');};
-  const input={member_name:'회원이름',memo:redact(b.memo.trim())+(Object.keys(metrics).length?'\n\n[치료사가 직접 입력한 측정값]\n'+formatClinicalMetrics(metrics):''),style:b.style,history:b.include_history===false?[]:(Array.isArray(ctx?.history)?ctx.history:[]).map((h:any)=>({date:h.date,memo:redact(String(h.memo||'')),activities:Array.isArray(h.activities)?h.activities.map((x:any)=>redact(String(x))):[],parent_message:redact(String(h.parent_message||''))}))};
+  const input={member_name:'회원이름',memo:redact(b.memo.trim())+(Object.keys(metrics).length?'\n\n[치료사가 직접 입력한 측정값]\n'+formatClinicalMetrics(metrics):''),style:b.style,history:b.include_history===false?[]:compactJournalHistory(ctx?.history,redact)};
   const units=memoUnits(redact(b.memo));Object.assign(input,{memo_units:units});
   const structure=sessionStructure('',false);
   const nowKst=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date());const preSession=b.date+' '+b.time>nowKst.slice(0,16);
   const system=journalPrompt(b.style,ctx.track,ctx.member_type==='child')+QUANTITY_REVIEW_RULES+(preSession?'\n[사전작성] 예약 시간이 아직 남아 있습니다. 메모의 계획은 계획/예정으로 표시하고 수행·호전·출석 완료를 만들어내지 마세요. 메모에 명시된 실제 관찰과 예정 활동을 구분하세요. SOAP O/A에 실제 관찰 근거가 없다면 관찰 전/평가 보류를 명시하세요.':'');
   Object.assign(input,{session_structure:{...structure,oral_evidence:structure.oral_evidence.map(redact),aquatic_evidence:structure.aquatic_evidence.map(redact)}});
-  const controller=new AbortController(),deadline=Date.now()+45000,timer=setTimeout(()=>controller.abort(),45000);phase='network';let response:Response;let data:any;
-  try{
-   let model:string;try{model=modelName(provider as 'openai'|'gemini');}catch(e:any){return fail('AI_PROVIDER_CONFIG',e.message,503);}
-   let body:any=requestBody(provider as 'openai'|'gemini',model,system,input);
-   const endpoint=provider==='openai'?'https://api.openai.com/v1/chat/completions':`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-   const send=()=>fetch(endpoint,{method:'POST',signal:controller.signal,headers:provider==='openai'?{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'}:{'x-goog-api-key':apiKey,'Content-Type':'application/json'},body:JSON.stringify(body)});
-   response=await fetchJournalProvider(send,{signal:controller.signal,deadline,maxAttempts:2});
-   if(response.status===400){const problem=await providerProblem(response);safeProviderLog(problem,provider,model,[apiKey,realName,b.memo,...units.map(u=>u.text)]);const fixed=repairRequest(body,provider as 'openai'|'gemini',problem);if(fixed){body=fixed;response=await fetchJournalProvider(send,{signal:controller.signal,deadline,maxAttempts:1});}else return fail('AI_PROVIDER_REQUEST',`AI 요청이 거절되었습니다(HTTP 400${problem.param?', 항목: '+problem.param:''}). 모델/요청 설정을 확인해주세요. 진단 ID: ${problem.requestId||'Vercel 로그 참조'}`);}
-  phase='response_body';
-  if(!response.ok){
-   // An upstream 503/5xx is not evidence of a bad API key. Non-JSON outage pages are classified too.
-   if(JOURNAL_TRANSIENT_HTTP.has(response.status)){
-    if(response.body)void response.body.cancel().catch(()=>{});
-    return fail('AI_PROVIDER_UNAVAILABLE','AI 서비스가 일시적으로 혼잡하거나 응답하지 않습니다. 제한된 자동 재시도 후에도 처리하지 못했습니다. 입력 메모는 유지됩니다. 잠시 후 같은 버튼으로 다시 시도해주세요.',503);
-   }
-   if(response.status===429)return fail('AI_PROVIDER_QUOTA','AI 제공업체 사용 한도 또는 요청 한도에 도달했습니다. 선택한 API 프로젝트의 할당량을 확인해주세요.',429);
-   if(response.status===401||response.status===403)return fail('AI_PROVIDER_AUTH','AI API 키의 권한 또는 사용 제한을 확인해주세요.',502);
-   if(response.status===404)return fail('AI_PROVIDER_MODEL','설정한 AI 모델을 찾지 못했습니다. 모델 환경변수를 확인해주세요.',502);
-   const problem=await providerProblem(response);safeProviderLog(problem,provider,model,[apiKey,realName,b.memo,...units.map(u=>u.text)]);data={error:{details:[],code:problem.code}};
-   const invalidKey=data?.error?.code==='API_KEY_INVALID';
-   if(invalidKey)return fail('AI_PROVIDER_AUTH','AI 제공업체가 API 키를 유효한 키로 확인하지 못했습니다. 등록한 키를 확인해주세요.',502);
-   return fail('AI_PROVIDER_REQUEST',`AI 제공업체가 요청을 처리하지 못했습니다(HTTP ${response.status}). API 키 제한·모델·요청 설정을 확인해주세요.`);
-  }
-  try{data=await response.json();}catch{return fail('AI_PROVIDER_BODY','AI 서버의 응답을 읽지 못했습니다. 잠시 후 다시 시도해주세요.');}
-  }finally{clearTimeout(timer);}
+  phase='network';
+  const {provider,data}=await generateJournalUpstream(system,input,req.signal||new AbortController().signal,deadline,d=>journalLog(diagnostic_id,d));providerName=provider;
   phase='extract';let text='';
   if(provider==='openai'){
    const c=data?.choices?.[0];if(c?.message?.refusal)return fail('AI_RESPONSE_BLOCKED','AI가 이 메모의 생성을 거절했습니다. 입력 내용을 확인해주세요.');
@@ -83,12 +61,32 @@ export async function handleAiJournal(req:NextRequest){
   phase='parse_validate';
   let result=parseOrderedJournal(text,units);result.parent_message=finalizeParentMessage(result.parent_message,realName,b.style,ctx.member_type==='child');result.clinical_record=result.clinical_record.split('회원이름').join(realName);
   if(structure.combined){try{result={...result,...finalizeCombined(result,structure)};}catch{return fail('AI_COMBINED_SECTIONS','구강·연하와 수중 활동 두 영역을 확인하지 못했어요. 메모는 유지됩니다. 다시 생성해주세요.');}}
+  if(req.signal?.aborted)return fail('AI_CANCELLED','일지 생성을 취소했습니다.',499);
   if(b.save_key){const stored=await db.rpc('journal_single_flow_3925',{p_key:b.save_key,p_member:b.member_id,p_slot:b.slot_id||null,p_date:b.date,p_time:b.time,p_style:b.style,p_source:b.memo,p_result:result});if(stored.error)return fail('AI_RESULT_SAVE','AI 생성은 완료됐지만 DB 저장 확인에 실패했습니다. 원문은 저장되어 있습니다. 저장된 원문 기록에서 다시 확인해주세요.',503);sourceSaved=stored.data;}
-  const chars=Array.from(result.parent_message).length,themes=messageThemeCount(result.parent_message);const warnings:string[]=[...result.expansion_warnings];return reply({...result,...(sourceSaved?{auto_saved:true,session_id:sourceSaved.session_id,review_required:true}:{}),session_components:structure.combined?[{kind:'oral_swallow',duration_minutes:structure.oral_minutes},{kind:'aqua',duration_minutes:structure.aquatic_minutes}]:[],provider,version:'3.93.5',quality:{characters:chars,themes,warnings,review_required:true}});
+  const chars=Array.from(result.parent_message).length,themes=messageThemeCount(result.parent_message);const warnings:string[]=[...result.expansion_warnings];return reply({...result,...(sourceSaved?{auto_saved:true,session_id:sourceSaved.session_id,review_required:true}:{}),session_components:structure.combined?[{kind:'oral_swallow',duration_minutes:structure.oral_minutes},{kind:'aqua',duration_minutes:structure.aquatic_minutes}]:[],provider,diagnostic_id,version:JOURNAL_RELEASE,quality:{characters:chars,themes,warnings,review_required:true}});
  }catch(e:any){
+  if(e instanceof JournalUpstreamError)return fail(e.code,e.message,e.status,e);
   if(e?.name==='AbortError')return fail('AI_TIMEOUT','AI 응답 대기시간이 초과되었습니다. 메모는 유지됩니다.',504);
   if(e instanceof JournalFormatError)return fail(e.code,e.message);
   if(phase==='network'||phase==='response_body')return fail('AI_NETWORK','AI 서버와 통신하지 못했습니다. 잠시 후 다시 시도해주세요.');
   return fail('AI_INTERNAL','AI 일지 요청 처리 중 오류가 발생했습니다. 메모는 유지됩니다. 오류 코드를 관리자에게 알려주세요.');
  }
+}
+
+/** Heartbeat only until the validated draft has been persisted; never stream unreviewed clinical text. */
+export function streamAiJournal(req:NextRequest){
+ const abort=new AbortController(),enc=new TextEncoder();let timer:ReturnType<typeof setInterval>|undefined,closed=false;
+ const cleanup=()=>{if(timer)clearInterval(timer);req.signal.removeEventListener('abort',stop);};
+ let streamController:ReadableStreamDefaultController<Uint8Array>|undefined;
+ const stop=()=>{if(closed)return;closed=true;cleanup();abort.abort();try{streamController?.close();}catch{}};
+ const forwarded=new NextRequest(req,{signal:abort.signal});
+ const stream=new ReadableStream<Uint8Array>({start(ctrl){
+  streamController=ctrl;
+  const write=(x:unknown)=>{if(!closed)ctrl.enqueue(enc.encode(JSON.stringify(x)+'\n'));};
+  const finish=(status:number,body:unknown)=>{if(closed)return;write({type:'result',status,body});closed=true;cleanup();ctrl.close();};
+  req.signal.addEventListener('abort',stop,{once:true});if(req.signal.aborted){stop();return;}
+  write({type:'progress',phase:'processing'});timer=setInterval(()=>write({type:'progress',phase:'processing'}),4000);
+  void handleAiJournal(forwarded).then(async r=>finish(r.status,await r.json())).catch(()=>finish(502,{error:'일지 응답을 전달하지 못했습니다. 원문 저장을 확인해주세요.',code:'AI_STREAM_ERROR'}));
+ },cancel:stop});
+ return new Response(stream,{headers:{'Content-Type':'application/x-ndjson; charset=utf-8','Cache-Control':'no-store, private, no-transform','X-Accel-Buffering':'no','X-Aqunote-Journal-Version':JOURNAL_RELEASE}});
 }
