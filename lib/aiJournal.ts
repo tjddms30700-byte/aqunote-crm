@@ -83,12 +83,12 @@ export function withJosa(name:string,pair:'이가'|'은는'|'을를'){const part
 export function friendlyName(name:string){let n=name.trim();const clean=n.replace(/[A-Z]$/,'');if(/^[가-힣]{3,5}$/.test(clean)){n=/^(남궁|황보|제갈|선우|독고|서문|사공)/.test(clean)?clean.slice(2):clean.slice(1);}return n+(hasBatchim(n)?'이':'');}
 export const JOURNAL_MEMBER_TOKEN='{{MEMBER_NAME}}';
 const journalNameMarker=/\{\{[ \t]*MEMBER_NAME[ \t]*\}\}|\{[ \t]*(?:회원[ \t]*(?:이름|명)|친근[ \t]*이름)[ \t]*\}|회원[ \t]*(?:이름|명(?![단령]))|친근[ \t]*이름/gi;
-const journalNameWithParticle=new RegExp('(?:'+journalNameMarker.source+')'+'(?:(이/가|은/는|을/를|이는|이가|이를|이|가|은|는|을|를|의|아|야)(?![가-힣]))?','gi');
-export function restoreJournalName(text:string,name:string,child=false){
- const full=name.trim(),nick=child?friendlyName(full):full;
+const journalNameWithParticle=new RegExp('(?:'+journalNameMarker.source+')'+'(?:(이/가|은/는|을/를|에게서|에게|한테|까지|부터|처럼|이는|이가|이를|이|가|은|는|을|를|의|도|만|아|야)(?![가-힣]))?','gi');
+export function restoreJournalName(text:string,name:string,child=false,adultHonorific=false){
+ const full=name.trim(),nick=child?friendlyName(full):full&&adultHonorific?full+'님':full;
  return text.replace(journalNameWithParticle,(_,particle:string|undefined)=>{
   if(!nick)return '회원';if(!particle)return nick;
-  if(particle==='의')return nick+'의';
+  if(/^(?:의|에게서|에게|한테|까지|부터|처럼|도|만)$/.test(particle))return nick+particle;
   if(particle==='아'||particle==='야'){const given=child&&nick.endsWith('이')&&hasBatchim(nick.slice(0,-1))?nick.slice(0,-1):nick;return given+(hasBatchim(given)?'아':'야');}
   return withJosa(nick,/^(?:은|는|은\/는|이는)$/.test(particle)?'은는':/^(?:을|를|을\/를|이를)$/.test(particle)?'을를':'이가');
  });
@@ -101,7 +101,7 @@ export function maskJournalName(text:string,name:string,child:boolean){
  if(given===full||Array.from(given).length<2)return t;
  for(const alias of [...new Set([nick,given])].sort((a,b)=>b.length-a.length)){
   const escaped=alias.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-  const re=new RegExp('(^|[^가-힣A-Za-z0-9])'+escaped+'(?=(?:이|가|은|는|을|를|의|에게|와|과|랑|아|야)?(?:$|[^가-힣A-Za-z0-9]))','g');
+  const re=new RegExp('(^|[^가-힣A-Za-z0-9])'+escaped+'(?=(?:[ \t]*(?:회원[ \t]*)?님)?(?:이|가|은|는|을|를|의|에게서|에게|한테|도|만|와|과|랑|아|야)?(?:$|[^가-힣A-Za-z0-9]))','g');
   t=t.replace(re,(_,prefix)=>prefix+JOURNAL_MEMBER_TOKEN);
  }
  return t;
@@ -110,9 +110,18 @@ export const CLINICAL_THEMES={sensory:['전정','고유수용','촉각','감각 
 export function messageThemeCount(text:string){return Object.values(CLINICAL_THEMES).filter(words=>words.some(w=>text.toLowerCase().includes(w.toLowerCase()))).length;}
 // Parent-message formatting only: never change clinical SOAP or stored source memo.
 export function narrativeParentMessage(text:string,name:string,child:boolean){
- let t=text.replace(/\r\n?/g,'\n');
- t=restoreJournalName(t,name,child);
+ let t=text.replace(/\r\n?/g,'\n').replace(/['‘’‚‛＇]/g,'');
  const full=name.trim(),nick=friendlyName(full);
+ const escapeName=(value:string)=>value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+ const given=nick.endsWith('이')&&hasBatchim(nick.slice(0,-1))?nick.slice(0,-1):nick;
+ const markerWithTitle=new RegExp('(?:'+journalNameMarker.source+')[ \t]*(?:회원[ \t]*)?님','gi');
+ t=t.replace(markerWithTitle,()=>JOURNAL_MEMBER_TOKEN);
+ const aliases=[...new Set(child?[full,nick,given]:[full])].filter(Boolean).sort((a,b)=>b.length-a.length);
+ if(aliases.length){
+  const namedTitle=new RegExp('(^|[^가-힣A-Za-z0-9])(?:'+aliases.map(escapeName).join('|')+')[ \t]*(?:회원[ \t]*)?님','g');
+  t=t.replace(namedTitle,(_,prefix)=>prefix+JOURNAL_MEMBER_TOKEN);
+ }
+ t=restoreJournalName(t,name,child,true);
  if(child&&full&&nick!==full){const escaped=full.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
   const pattern=new RegExp('(^|[^가-힣A-Za-z0-9])'+escaped+'(이/가|은/는|을/를|이는|이가|이를|은|는|이|가|을|를|의|아|야)?(?=$|[^가-힣A-Za-z0-9])','g');
   t=t.replace(pattern,(_,before,particle)=>{if(!particle)return before+nick;if(particle==='의')return before+nick+'의';if(particle==='아'||particle==='야'){const given=nick.endsWith('이')?nick.slice(0,-1):nick;return before+given+(hasBatchim(given)?'아':'야');}const pair=particle==='은/는'||particle==='은'||particle==='는'||particle==='이는'?'은는':particle==='을/를'||particle==='을'||particle==='를'||particle==='이를'?'을를':'이가';return before+withJosa(nick,pair);});
@@ -125,7 +134,9 @@ export function finalizeParentMessage(text:string,name:string,style:'A'|'B'|'C',
 export function journalPrompt(style:'A'|'B'|'C',track:string,child:boolean){return SOURCE_FIRST_RULES+`
 
 [대상과 말투]
-실제 담당자가 최종 검토할 알림장과 SOAP 초안이다. 이름이 필요하면 입력에 있는 ${JOURNAL_MEMBER_TOKEN} 표기만 그대로 사용한다. 회원 이름·회원이름·친근이름으로 풀어 쓰거나 실제 이름을 추정하지 않는다. ${child?"호칭은 따뜻하게 쓴다.":"이름 뒤에 필요하면 회원님을 붙여 정중하게 부른다."} 보호자 카톡에는 ‘~임을 시사합니다’ 대신 ‘~하는 모습이 보였어요’, ‘~가 필요해 보여요’를 써서 관찰과 해석을 구분한다. ${style==='A'?'다정한 감각통합 문체':style==='B'?'정중하고 이해하기 쉬운 수중재활 문체':'구강·연하 관찰을 신중히 설명하는 문체'}를 쓴다. 원문 문장 그대로 복사하는 데 그치지 않고 자연스러운 사실 서술과 전문적 설명 2~3문장으로 충분히 풀어 쓴다. 길어졌다는 이유로 활동을 생략하지 않는다.
+실제 담당자가 최종 검토할 알림장과 SOAP 초안이다. 이름이 필요하면 입력에 있는 ${JOURNAL_MEMBER_TOKEN} 표기만 그대로 사용한다. 회원 이름·회원이름·친근이름으로 풀어 쓰거나 실제 이름을 추정하지 않는다. ${child?"아동 이름 뒤에 님, 회원님을 절대 붙이지 않는다. 자리표시자 뒤에는 이/가, 은/는, 에게, 도 등 필요한 조사만 붙인다.":"성인은 이름 뒤에 님을 한 번만 붙여 정중하게 부른다."} 보호자 카톡에는 ‘~임을 시사합니다’ 대신 ‘~하는 모습이 보였어요’, ‘~가 필요해 보여요’를 써서 관찰과 해석을 구분한다. ${style==='A'?'다정한 감각통합 문체':style==='B'?'정중하고 이해하기 쉬운 수중재활 문체':'구강·연하 관찰을 신중히 설명하는 문체'}를 쓴다. 원문 문장 그대로 복사하는 데 그치지 않고 자연스러운 사실 서술과 전문적 설명 2~3문장으로 충분히 풀어 쓴다. 길어졌다는 이유로 활동을 생략하지 않는다.
+[문장 부호]
+생성 본문에 직선형·곡선형 작은따옴표를 사용하지 않는다. 실제 직접 인용 대사가 필요한 경우에만 큰따옴표를 사용하고, 일반 활동명이나 강조 문구는 따옴표 없이 적는다. JSON 키와 문자열을 감싸는 큰따옴표는 형식대로 유지한다.
 [추가 내용의 구분]
 오늘 실제 관찰은 paragraph, 근거 있는 기능 설명과 다음에 살펴볼 방향은 clinical_meaning, 앞으로 해볼 부모 반응 말과 낮은 부담의 가정 연계는 home_coaching에 둔다. 새로 제안한 다음 방향은 확정 치료 계획/이미 수행한 활동이 아니다. 부모에게 제안한 칭찬 멘트는 아이가 실제 말한 발화와 구분한다. 비교 호전은 의무가 아니며 미기록 성공·도구·수치를 생성하지 않는다.
 [내부 SOAP]
