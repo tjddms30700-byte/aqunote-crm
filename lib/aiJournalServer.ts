@@ -2,7 +2,7 @@ import {QUANTITY_REVIEW_RULES} from './journalOrderPrompt';
 import {randomUUID} from 'node:crypto';
 import {JOURNAL_RELEASE,JOURNAL_TOTAL_MS,compactJournalHistory,generateJournalUpstream,JournalUpstreamError,journalLog} from './journalAvailability';
 import {memoUnits,ORDERED_JOURNAL_SCHEMA,parseOrderedJournal} from './journalSource';
-import {NextRequest,NextResponse} from 'next/server';
+import {type NextRequest,NextResponse} from 'next/server';
 import {sessionStructure,combinedPrompt,finalizeCombined} from './journalSession';
 import {lessonTrack} from './lessonTrack';
 import {clinicalMetrics,formatClinicalMetrics} from './journalClinical';
@@ -10,8 +10,8 @@ import {createClient} from '@supabase/supabase-js';
 import {JOURNAL_GENERATION_SCHEMA,journalPrompt,parseGeneratedJournalResponse,JournalFormatError,finalizeParentMessage,messageThemeCount} from './aiJournal';
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const reply=(body:unknown,status=200)=>NextResponse.json(body,{status,headers:{'Cache-Control':'no-store, private'}});
-export async function handleAiJournal(req:NextRequest){
- const diagnostic_id=randomUUID(),deadline=Date.now()+JOURNAL_TOTAL_MS;
+export async function handleAiJournal(req:NextRequest,diagnostic_id=randomUUID()){
+ const deadline=Date.now()+JOURNAL_TOTAL_MS;
  let phase='auth',providerName='unknown',sourceSaved:any=null;
  const fail=(code:string,message:string,status=502,upstream?:JournalUpstreamError)=>{
   const detail=upstream?.detail;const suffix=[detail?.http?`HTTP ${detail.http}`:'',detail?.upstream_code||''].filter(Boolean).join(' · ');
@@ -28,6 +28,7 @@ export async function handleAiJournal(req:NextRequest){
   if(Number(req.headers.get('content-length')||0)>24000)return reply({error:'입력 크기를 줄여주세요.'},413);
   const raw=await req.text();if(raw.length>16000)return reply({error:'입력 크기를 줄여주세요.'},413);
   let b:any;try{b=JSON.parse(raw);}catch{return reply({error:'요청 형식을 확인해주세요.'},400);}
+  if(!b||typeof b!=='object'||Array.isArray(b))return reply({error:'요청 형식을 확인해주세요.'},400);
   if(!UUID.test(b.member_id||'')||(b.slot_id&&!UUID.test(b.slot_id))||!['A','B','C'].includes(b.style)||typeof b.memo!=='string'||!b.memo.trim()||b.memo.length>4000||b.consent!==true||!/^\d{4}-\d{2}-\d{2}$/.test(b.date||'')||!/^([01]\d|2[0-3]):[0-5]\d$/.test(b.time||''))return reply({error:'회원·수업일·시간·문체·메모와 외부 AI 처리 확인을 점검해주세요.'},400);
   let metrics:Record<string,number|null>={};try{if(b.metrics!=null){if(typeof b.metrics!=='object'||Array.isArray(b.metrics))throw new Error('정밀 수치 형식을 확인해주세요.');metrics=clinicalMetrics(b.metrics);}}catch(e:any){return reply({error:e.message},400);}
   phase='context';const {data:ctx,error:ctxError}=await db.rpc('ai_journal_context',{p_member:b.member_id,p_slot:b.slot_id||null,p_date:b.date,p_time:b.time});
@@ -69,24 +70,21 @@ export async function handleAiJournal(req:NextRequest){
   if(e?.name==='AbortError')return fail('AI_TIMEOUT','AI 응답 대기시간이 초과되었습니다. 메모는 유지됩니다.',504);
   if(e instanceof JournalFormatError)return fail(e.code,e.message);
   if(phase==='network'||phase==='response_body')return fail('AI_NETWORK','AI 서버와 통신하지 못했습니다. 잠시 후 다시 시도해주세요.');
-  return fail('AI_INTERNAL','AI 일지 요청 처리 중 오류가 발생했습니다. 메모는 유지됩니다. 오류 코드를 관리자에게 알려주세요.');
+  logJournalCrash(e,diagnostic_id,phase);
+  return fail('AI_INTERNAL','AI 일지 요청 처리 중 오류가 발생했습니다. 메모는 유지됩니다. 진단 ID를 관리자에게 알려주세요.',500);
  }
 }
 
-/** Heartbeat only until the validated draft has been persisted; never stream unreviewed clinical text. */
-export function streamAiJournal(req:NextRequest){
- const abort=new AbortController(),enc=new TextEncoder();let timer:ReturnType<typeof setInterval>|undefined,closed=false;
- const cleanup=()=>{if(timer)clearInterval(timer);req.signal.removeEventListener('abort',stop);};
- let streamController:ReadableStreamDefaultController<Uint8Array>|undefined;
- const stop=()=>{if(closed)return;closed=true;cleanup();abort.abort();try{streamController?.close();}catch{}};
- const forwarded=new NextRequest(req,{signal:abort.signal});
- const stream=new ReadableStream<Uint8Array>({start(ctrl){
-  streamController=ctrl;
-  const write=(x:unknown)=>{if(!closed)ctrl.enqueue(enc.encode(JSON.stringify(x)+'\n'));};
-  const finish=(status:number,body:unknown)=>{if(closed)return;write({type:'result',status,body});closed=true;cleanup();ctrl.close();};
-  req.signal.addEventListener('abort',stop,{once:true});if(req.signal.aborted){stop();return;}
-  write({type:'progress',phase:'processing'});timer=setInterval(()=>write({type:'progress',phase:'processing'}),4000);
-  void handleAiJournal(forwarded).then(async r=>finish(r.status,await r.json())).catch(()=>finish(502,{error:'일지 응답을 전달하지 못했습니다. 원문 저장을 확인해주세요.',code:'AI_STREAM_ERROR'}));
- },cancel:stop});
- return new Response(stream,{headers:{'Content-Type':'application/x-ndjson; charset=utf-8','Cache-Control':'no-store, private, no-transform','X-Accel-Buffering':'no','X-Aqunote-Journal-Version':JOURNAL_RELEASE}});
+// Safe stack locations only; the exception message can contain clinical data or credentials.
+function logJournalCrash(error:unknown,diagnostic_id:string,phase:string){
+ const stack=error instanceof Error&&typeof error.stack==='string'?error.stack.split('\n').slice(1,20):[];
+ const frames=stack.map(line=>line.match(/(?:^|[(/ ])([A-Za-z0-9_.-]+\.(?:[cm]?js|tsx?)):(\d+):(\d+)\)?\s*$/)?.slice(1).join(':')).filter(Boolean).slice(0,8);
+ console.error('[ai-journal-crash]',JSON.stringify({diagnostic_id,phase,frames,version:JOURNAL_RELEASE}));
+}
+export async function serveAiJournal(req:NextRequest,handler=handleAiJournal){
+ const diagnostic_id=randomUUID();
+ try{return await handler(req,diagnostic_id);}catch(error){
+  logJournalCrash(error,diagnostic_id,'route');
+  return reply({code:'AI_ROUTE_INTERNAL',diagnostic_id,version:JOURNAL_RELEASE,error:`일지 API 내부 오류가 발생했습니다. [AI_ROUTE_INTERNAL] 진단 ID: ${diagnostic_id}`},500);
+ }
 }
